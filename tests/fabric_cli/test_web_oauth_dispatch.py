@@ -2178,6 +2178,80 @@ def test_anthropic_status_ignores_oauth_shaped_api_key(tmp_path):
     assert status["logged_in"] is False
 
 
+def test_anthropic_status_recognizes_api_key_credential_pool(monkeypatch):
+    """The Accounts command writes auth.json, so status must read that pool."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    from fabric_cli.auth import get_anthropic_key, write_credential_pool
+
+    write_credential_pool(
+        "anthropic",
+        [
+            {
+                "id": "legacy-oauth",
+                "label": "old subscription",
+                "auth_type": "oauth",
+                "priority": 0,
+                "source": "manual:anthropic_pkce",
+                "access_token": "sk-ant-oat01-obsolete",
+            },
+            {
+                "id": "api-key",
+                "label": "work key",
+                "auth_type": "api_key",
+                "priority": 1,
+                "source": "manual",
+                "access_token": "sk-ant-api03-pool-secret",
+            },
+        ],
+    )
+
+    # The same resolver feeds setup/model/status paths and must skip the old
+    # OAuth row even when it has higher priority than the API key.
+    assert get_anthropic_key() == "sk-ant-api03-pool-secret"
+
+    resp = client.get("/api/providers/oauth", headers=HEADERS)
+    assert resp.status_code == 200, resp.text
+    provider = {p["id"]: p for p in resp.json()["providers"]}["anthropic"]
+
+    assert provider["status"] == {
+        "logged_in": True,
+        "source": "credential_pool",
+        "source_label": "fabric auth: work key",
+        "token_preview": "…secret",
+        "expires_at": None,
+        "has_refresh_token": False,
+    }
+    assert provider["disconnectable"] is False
+    assert "fabric auth remove anthropic" in provider["disconnect_hint"]
+
+
+def test_anthropic_status_rejects_legacy_oauth_pool_entry(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    from fabric_cli.auth import get_anthropic_key, write_credential_pool
+
+    write_credential_pool(
+        "anthropic",
+        [
+            {
+                "id": "legacy-oauth",
+                "label": "old subscription",
+                "auth_type": "oauth",
+                "priority": 0,
+                "source": "manual:anthropic_pkce",
+                "access_token": "sk-ant-oat01-obsolete",
+            }
+        ],
+    )
+
+    assert get_anthropic_key() == ""
+    resp = client.get("/api/providers/oauth", headers=HEADERS)
+    assert resp.status_code == 200, resp.text
+    status = {p["id"]: p for p in resp.json()["providers"]}["anthropic"]["status"]
+    assert status == {"logged_in": False, "source": None}
+
+
 def test_xai_oauth_device_code_start_returns_user_code(monkeypatch):
     """Start MUST hand back xAI's verification URL and user code."""
     from fabric_cli import auth as auth_mod

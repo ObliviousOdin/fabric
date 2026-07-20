@@ -387,6 +387,13 @@ class TestNousExtraBody:
 
 
 class TestNormalizeAuxProvider:
+    @pytest.mark.parametrize(
+        "provider_alias",
+        ["claude", "claude-oauth", "claude-code"],
+    )
+    def test_maps_anthropic_aliases(self, provider_alias):
+        assert _normalize_aux_provider(provider_alias) == "anthropic"
+
     def test_maps_github_copilot_aliases(self):
         assert _normalize_aux_provider("github") == "copilot"
         assert _normalize_aux_provider("github-copilot") == "copilot"
@@ -605,25 +612,30 @@ class TestResolveXaiOAuthForAux:
         )
 
 
-class TestAnthropicOAuthFlag:
-    """Test that OAuth tokens get is_oauth=True in auxiliary Anthropic client."""
+class TestAnthropicCredentialContract:
+    """Native Anthropic auxiliary clients accept API keys only."""
 
-    def test_oauth_token_sets_flag(self, monkeypatch):
-        """OAuth tokens (sk-ant-oat01-*) should create client with is_oauth=True."""
+    def test_legacy_anthropic_token_is_ignored(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_TOKEN", "sk-ant-oat01-test-token")
-        with patch("agent.anthropic_adapter.build_anthropic_client") as mock_build:
-            mock_build.return_value = MagicMock()
-            from agent.auxiliary_client import _try_anthropic, AnthropicAuxiliaryClient
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with patch("agent.anthropic_adapter.build_anthropic_client") as mock_build, \
+             patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)):
+            from agent.auxiliary_client import _try_anthropic
             client, model = _try_anthropic()
-            assert client is not None
-            assert isinstance(client, AnthropicAuxiliaryClient)
-            # The adapter inside should have is_oauth=True
-            adapter = client.chat.completions
-            assert adapter._is_oauth is True
+            assert client is None
+            assert model is None
+            mock_build.assert_not_called()
 
     def test_api_key_no_oauth_flag(self, monkeypatch):
         """Regular API keys (sk-ant-api-*) should create client with is_oauth=False."""
-        with patch("agent.anthropic_adapter.resolve_anthropic_token", return_value="sk-ant-api03-testkey1234"), \
+        with patch(
+             "fabric_cli.auth.resolve_api_key_provider_credentials",
+             return_value={
+                 "api_key": "sk-ant-api03-testkey1234",
+                 "base_url": "https://api.anthropic.com",
+                 "source": "env:ANTHROPIC_API_KEY",
+             },
+        ), \
              patch("agent.anthropic_adapter.build_anthropic_client") as mock_build, \
              patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)):
             mock_build.return_value = MagicMock()
@@ -634,9 +646,9 @@ class TestAnthropicOAuthFlag:
             adapter = client.chat.completions
             assert adapter._is_oauth is False
 
-    def test_pool_entry_takes_priority_over_legacy_resolution(self):
+    def test_api_key_pool_entry_takes_priority_over_env_resolution(self):
         class _Entry:
-            access_token = "sk-ant-oat01-pooled"
+            access_token = "sk-ant-api03-pooled"
             base_url = "https://api.anthropic.com"
 
         class _Pool:
@@ -657,7 +669,35 @@ class TestAnthropicOAuthFlag:
 
         assert client is not None
         assert model == "claude-haiku-4-5-20251001"
-        assert mock_build.call_args.args[0] == "sk-ant-oat01-pooled"
+        assert mock_build.call_args.args[:2] == (
+            "sk-ant-api03-pooled",
+            "https://api.anthropic.com",
+        )
+
+    def test_proxy_pool_key_keeps_its_endpoint(self):
+        entry = SimpleNamespace(
+            provider="anthropic",
+            access_token="eyJ.gateway-a.signature",
+            runtime_api_key="eyJ.gateway-a.signature",
+            base_url="https://gateway-a.example/anthropic",
+            runtime_base_url="https://gateway-a.example/anthropic",
+        )
+        with patch(
+            "agent.auxiliary_client._select_pool_entry",
+            return_value=(True, entry),
+        ), patch(
+            "agent.anthropic_adapter.build_anthropic_client",
+            return_value=MagicMock(),
+        ) as mock_build:
+            from agent.auxiliary_client import _try_anthropic
+
+            client, _ = _try_anthropic()
+
+        assert client is not None
+        assert mock_build.call_args.args[:2] == (
+            "eyJ.gateway-a.signature",
+            "https://gateway-a.example/anthropic",
+        )
 
 
 class TestBuildCodexClient:
@@ -837,8 +877,12 @@ class TestResolveProviderClientUniversalModelFallback:
                 return_value=MagicMock(),
             ),
             patch(
-                "agent.anthropic_adapter.resolve_anthropic_token",
-                return_value="sk-ant-***",
+                "fabric_cli.auth.resolve_api_key_provider_credentials",
+                return_value={
+                    "api_key": "sk-ant-***",
+                    "base_url": "https://api.anthropic.com",
+                    "source": "env:ANTHROPIC_API_KEY",
+                },
             ),
             patch(
                 "agent.auxiliary_client._read_nous_auth", return_value=None
@@ -991,18 +1035,16 @@ class TestExpiredCodexFallback:
                 assert client is not None
 
 
-    def test_fabric_oauth_file_sets_oauth_flag(self, monkeypatch):
-        """OAuth-style tokens should get is_oauth=*** (token is not sk-ant-api-*)."""
-        # Mock resolve_anthropic_token to return an OAuth-style token
+    def test_mocked_native_oauth_token_is_still_rejected(self, monkeypatch):
+        """The auxiliary boundary rejects OAuth even if a resolver regresses."""
         with patch("agent.anthropic_adapter.resolve_anthropic_token", return_value="sk-ant-oat-test-token"), \
              patch("agent.anthropic_adapter.build_anthropic_client") as mock_build, \
              patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)):
-            mock_build.return_value = MagicMock()
             from agent.auxiliary_client import _try_anthropic
             client, model = _try_anthropic()
-            assert client is not None, "Should resolve token"
-            adapter = client.chat.completions
-            assert adapter._is_oauth is True, "Non-sk-ant-api token should set is_oauth=True"
+            assert client is None
+            assert model is None
+            mock_build.assert_not_called()
 
     def test_jwt_missing_exp_passes_through(self, tmp_path, monkeypatch):
         """JWT with valid JSON but no exp claim should pass through."""
@@ -1047,17 +1089,17 @@ class TestExpiredCodexFallback:
         result = _read_codex_access_token()
         assert result == bad_jwt, "JWT with invalid JSON payload should pass through"
 
-    def test_claude_code_oauth_env_sets_flag(self, monkeypatch):
-        """CLAUDE_CODE_OAUTH_TOKEN env var should get is_oauth=True."""
+    def test_claude_code_oauth_env_is_reserved_for_claude_code(self, monkeypatch):
         monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-cc-test-token")
         monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
-        with patch("agent.anthropic_adapter.build_anthropic_client") as mock_build:
-            mock_build.return_value = MagicMock()
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with patch("agent.anthropic_adapter.build_anthropic_client") as mock_build, \
+             patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)):
             from agent.auxiliary_client import _try_anthropic
             client, model = _try_anthropic()
-            assert client is not None
-            adapter = client.chat.completions
-            assert adapter._is_oauth is True
+            assert client is None
+            assert model is None
+            mock_build.assert_not_called()
 
 
 class TestExplicitProviderRouting:
@@ -1065,7 +1107,14 @@ class TestExplicitProviderRouting:
 
     def test_explicit_anthropic_api_key(self, monkeypatch):
         """provider='anthropic' + regular API key should work with is_oauth=False."""
-        with patch("agent.anthropic_adapter.resolve_anthropic_token", return_value="sk-ant-api-regular-key"), \
+        with patch(
+             "fabric_cli.auth.resolve_api_key_provider_credentials",
+             return_value={
+                 "api_key": "sk-ant-api-regular-key",
+                 "base_url": "https://api.anthropic.com",
+                 "source": "env:ANTHROPIC_API_KEY",
+             },
+        ), \
              patch("agent.anthropic_adapter.build_anthropic_client") as mock_build, \
              patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)):
             mock_build.return_value = MagicMock()
@@ -2194,7 +2243,7 @@ class TestStaleFallbackCandidateSkip:
     """A fallback candidate with a stale credential must not abort the task.
 
     Live case (mattalachia debug dump, Jul 2026): Codex compression timed out,
-    the aux chain fell back to Anthropic using an expired ANTHROPIC_TOKEN, and
+    the aux chain fell back to Anthropic using a revoked API key, and
     the resulting 401 aborted compression with a 60s cooldown — five times in
     one session — even though refreshing or skipping the candidate would have
     let compression proceed.
@@ -2249,7 +2298,7 @@ class TestStaleFallbackCandidateSkip:
         assert fresh_fb.chat.completions.create.call_count == 1
 
     def test_unrefreshable_stale_candidate_is_skipped_to_next(self, monkeypatch):
-        """Refresh fails (expired setup token) → candidate quarantined, chain
+        """Refresh fails for a revoked key → candidate quarantined, chain
         walked again, next candidate serves the request."""
         primary_client = MagicMock()
         primary_client.base_url = "https://chatgpt.com/backend-api/codex"
@@ -3653,10 +3702,8 @@ class TestAuxiliaryAuthRefreshRetry:
         assert resp.choices[0].message.content == "fresh-async"
         mock_refresh.assert_called_once_with("openai-codex")
 
-    def test_refresh_provider_credentials_anthropic_evicts_cache_on_valid_api_key(self, monkeypatch):
-        """Anthropic has no OAuth refresh path — _refresh_provider_credentials
-        just re-resolves ANTHROPIC_API_KEY and evicts the stale cached client
-        so the next call rebuilds against the current key."""
+    def test_refresh_provider_credentials_anthropic_is_noop_for_static_api_key(self, monkeypatch):
+        """Static API keys do not preempt credential-pool recovery on 401."""
         stale_client = MagicMock()
         cache_key = ("anthropic", False, None, None, None)
 
@@ -3667,9 +3714,9 @@ class TestAuxiliaryAuthRefreshRetry:
         with patch("agent.auxiliary_client._client_cache", {cache_key: (stale_client, "claude-haiku-4-5-20251001", None)}):
             from agent.auxiliary_client import _refresh_provider_credentials
 
-            assert _refresh_provider_credentials("anthropic") is True
+            assert _refresh_provider_credentials("anthropic") is False
 
-        stale_client.close.assert_called_once()
+        stale_client.close.assert_not_called()
 
     def test_refresh_provider_credentials_anthropic_false_without_api_key(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_TOKEN", "")
@@ -3709,6 +3756,258 @@ class TestAuxiliaryAuthRefreshRetry:
 
 
 class TestAuxiliaryPoolRotationRetry:
+    @staticmethod
+    def _anthropic_entry(entry_id, key, base_url, priority):
+        from agent.credential_pool import PooledCredential
+
+        return PooledCredential.from_dict(
+            "anthropic",
+            {
+                "id": entry_id,
+                "label": entry_id,
+                "auth_type": "api_key",
+                "priority": priority,
+                "source": "manual",
+                "access_token": key,
+                "base_url": base_url,
+            },
+        )
+
+    def test_auto_anthropic_proxy_client_maps_to_anthropic_recovery_pool(self):
+        from agent.auxiliary_client import (
+            AnthropicAuxiliaryClient,
+            AsyncAnthropicAuxiliaryClient,
+            _recoverable_pool_provider,
+        )
+
+        azure = "https://resource.services.ai.azure.com/anthropic"
+        sync_client = AnthropicAuxiliaryClient(
+            MagicMock(),
+            "claude-haiku-4-5-20251001",
+            "azure-key",
+            azure,
+        )
+        async_client = AsyncAnthropicAuxiliaryClient(sync_client)
+
+        assert _recoverable_pool_provider("auto", sync_client) == "anthropic"
+        assert _recoverable_pool_provider("auto", async_client) == "anthropic"
+
+    def test_anthropic_recovery_rotates_only_within_failed_endpoint(self, monkeypatch):
+        from agent.auxiliary_client import _recover_provider_pool
+        from agent.credential_pool import CredentialPool
+
+        native = "https://api.anthropic.com"
+        azure = "https://resource.services.ai.azure.com/anthropic"
+        native_a = self._anthropic_entry("native-a", "sk-native-a", native, 0)
+        azure_b = self._anthropic_entry("azure-b", "azure-b", azure, 1)
+        native_c = self._anthropic_entry("native-c", "sk-native-c", native, 2)
+        full_pool = CredentialPool("anthropic", [native_a, azure_b, native_c])
+        persisted_views = []
+
+        monkeypatch.setattr(
+            "agent.auxiliary_client.load_pool",
+            lambda provider: full_pool,
+        )
+        monkeypatch.setattr(
+            CredentialPool,
+            "_persist",
+            lambda pool, **kwargs: persisted_views.append(pool.entries()),
+        )
+        monkeypatch.setattr(
+            "agent.auxiliary_client._evict_cached_clients",
+            lambda provider: None,
+        )
+
+        err = Exception("rate limited")
+        err.status_code = 429
+        recovered = _recover_provider_pool(
+            "anthropic",
+            err,
+            failed_api_key="sk-native-a",
+            failed_base_url=native,
+        )
+
+        assert recovered is not None
+        assert recovered.runtime_api_key == "sk-native-c"
+        assert recovered.runtime_base_url == native
+        assert persisted_views
+        assert all(
+            entry.runtime_base_url == native
+            for view in persisted_views
+            for entry in view
+        )
+        assert all(
+            entry.id != "azure-b"
+            for view in persisted_views
+            for entry in view
+        )
+
+    def test_anthropic_recovery_does_not_false_succeed_on_other_endpoint(self, monkeypatch):
+        from agent.auxiliary_client import _recover_provider_pool
+        from agent.credential_pool import CredentialPool
+
+        native = "https://api.anthropic.com"
+        azure = "https://resource.services.ai.azure.com/anthropic"
+        native_a = self._anthropic_entry("native-a", "sk-native-a", native, 0)
+        azure_b = self._anthropic_entry("azure-b", "azure-b", azure, 1)
+        full_pool = CredentialPool("anthropic", [native_a, azure_b])
+        persisted_views = []
+
+        monkeypatch.setattr(
+            "agent.auxiliary_client.load_pool",
+            lambda provider: full_pool,
+        )
+        monkeypatch.setattr(
+            CredentialPool,
+            "_persist",
+            lambda pool, **kwargs: persisted_views.append(pool.entries()),
+        )
+        monkeypatch.setattr(
+            "agent.auxiliary_client._evict_cached_clients",
+            lambda provider: None,
+        )
+
+        err = Exception("payment required")
+        err.status_code = 402
+        recovered = _recover_provider_pool(
+            "anthropic",
+            err,
+            failed_api_key="sk-native-a",
+            failed_base_url=native,
+        )
+
+        assert recovered is None
+        assert persisted_views
+        assert all(
+            entry.runtime_base_url == native
+            for view in persisted_views
+            for entry in view
+        )
+
+    def test_call_llm_preserves_anthropic_recovery_tuple_and_retry2_hint(self):
+        native = "https://api.anthropic.com"
+        native_c = self._anthropic_entry("native-c", "sk-native-c", native, 1)
+        first_err = Exception("payment required")
+        first_err.status_code = 402
+        retry_err = Exception("rotated key also exhausted")
+        retry_err.status_code = 402
+
+        stale_client = MagicMock()
+        stale_client.base_url = native
+        stale_client.api_key = "sk-native-a"
+        stale_client.chat.completions.create.side_effect = first_err
+
+        with (
+            patch(
+                "agent.auxiliary_client._resolve_task_provider_model",
+                return_value=(
+                    "anthropic",
+                    "claude-haiku-4-5-20251001",
+                    None,
+                    None,
+                    "anthropic_messages",
+                ),
+            ),
+            patch(
+                "agent.auxiliary_client._get_cached_client",
+                return_value=(stale_client, "claude-haiku-4-5-20251001"),
+            ),
+            patch(
+                "agent.auxiliary_client._recover_provider_pool",
+                side_effect=[native_c, None],
+            ) as recover,
+            patch(
+                "agent.auxiliary_client._retry_same_provider_sync",
+                side_effect=retry_err,
+            ) as retry,
+            patch(
+                "agent.auxiliary_client._runtime_task_fallback",
+                return_value=(None, None, ""),
+            ),
+            patch(
+                "agent.auxiliary_client._runtime_main_agent_fallback",
+                return_value=(None, None, ""),
+            ),
+            # call_llm preserves the first exception for its final bare
+            # ``raise``, while the recovery spy below verifies retry2 used
+            # the rotated tuple.
+            pytest.raises(Exception, match="payment required"),
+        ):
+            call_llm(
+                task="compression",
+                provider="anthropic",
+                model="claude-haiku-4-5-20251001",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+
+        assert recover.call_count == 2
+        assert recover.call_args_list[0].kwargs == {
+            "failed_api_key": "sk-native-a",
+            "failed_base_url": native,
+        }
+        assert recover.call_args_list[1].kwargs == {
+            "failed_api_key": "sk-native-c",
+            "failed_base_url": native,
+        }
+        retry_kwargs = retry.call_args.kwargs
+        assert retry_kwargs["resolved_provider"] == "anthropic"
+        assert retry_kwargs["resolved_base_url"] == native
+        assert retry_kwargs["resolved_api_key"] == "sk-native-c"
+
+    @pytest.mark.asyncio
+    async def test_async_call_llm_preserves_anthropic_recovery_tuple(self):
+        azure = "https://resource.services.ai.azure.com/anthropic"
+        azure_b = self._anthropic_entry("azure-b", "azure-b", azure, 1)
+        first_err = Exception("payment required")
+        first_err.status_code = 402
+
+        stale_client = MagicMock()
+        stale_client.base_url = azure
+        stale_client.api_key = "azure-a"
+        stale_client.chat.completions.create = AsyncMock(side_effect=first_err)
+        recovered_response = _DummyResponse("rotated-azure")
+
+        with (
+            patch(
+                "agent.auxiliary_client._resolve_task_provider_model",
+                return_value=(
+                    "anthropic",
+                    "claude-haiku-4-5-20251001",
+                    None,
+                    None,
+                    "anthropic_messages",
+                ),
+            ),
+            patch(
+                "agent.auxiliary_client._get_cached_client",
+                return_value=(stale_client, "claude-haiku-4-5-20251001"),
+            ),
+            patch(
+                "agent.auxiliary_client._recover_provider_pool",
+                return_value=azure_b,
+            ) as recover,
+            patch(
+                "agent.auxiliary_client._retry_same_provider_async",
+                new=AsyncMock(return_value=recovered_response),
+            ) as retry,
+        ):
+            response = await async_call_llm(
+                task="compression",
+                provider="anthropic",
+                model="claude-haiku-4-5-20251001",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+
+        assert response is recovered_response
+        assert recover.call_args.kwargs == {
+            "failed_api_key": "azure-a",
+            "failed_base_url": azure,
+        }
+        retry_kwargs = retry.call_args.kwargs
+        assert retry_kwargs["resolved_provider"] == "anthropic"
+        assert retry_kwargs["resolved_base_url"] == azure
+        assert retry_kwargs["resolved_api_key"] == "azure-b"
+
     def test_call_llm_rotates_explicit_codex_pool_on_429(self):
         rate_err = Exception("usage limit reached")
         rate_err.status_code = 429
@@ -4890,9 +5189,41 @@ class TestAnthropicExplicitApiKey:
         )
         assert mock_build.call_args.args[0] != "env-fallback-key"
 
-    def test_try_anthropic_without_explicit_key_falls_back_to_resolve(self):
-        """Without explicit_api_key, _try_anthropic falls back to resolve_anthropic_token."""
-        with patch("agent.anthropic_adapter.resolve_anthropic_token", return_value="env-fallback-key"), \
+    def test_try_anthropic_honors_suppressed_env_source(
+        self, monkeypatch, tmp_path
+    ):
+        fabric_home = tmp_path / ".fabric"
+        fabric_home.mkdir()
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-suppressed")
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+
+        from fabric_cli.auth import suppress_credential_source
+
+        suppress_credential_source("anthropic", "env:ANTHROPIC_API_KEY")
+        with patch(
+            "agent.auxiliary_client._select_pool_entry",
+            return_value=(False, None),
+        ), patch(
+            "agent.anthropic_adapter.build_anthropic_client",
+        ) as mock_build:
+            from agent.auxiliary_client import _try_anthropic
+
+            client, model = _try_anthropic()
+
+        assert (client, model) == (None, None)
+        mock_build.assert_not_called()
+
+    def test_try_anthropic_without_explicit_key_uses_paired_resolver(self):
+        """Without an explicit key, resolve the key and endpoint atomically."""
+        with patch(
+             "fabric_cli.auth.resolve_api_key_provider_credentials",
+             return_value={
+                 "api_key": "env-fallback-key",
+                 "base_url": "https://api.anthropic.com",
+                 "source": "env:ANTHROPIC_API_KEY",
+             },
+        ), \
              patch("agent.anthropic_adapter.build_anthropic_client") as mock_build, \
              patch("agent.auxiliary_client._select_pool_entry", return_value=(False, None)):
             mock_build.return_value = MagicMock()
@@ -4915,6 +5246,118 @@ class TestAnthropicExplicitApiKey:
         assert mock_build.call_args.args[0] == "explicit-fallback-key", (
             "resolve_provider_client must forward explicit_api_key to _try_anthropic()"
         )
+
+    def test_resolve_provider_client_keeps_explicit_key_and_url_paired(self):
+        with patch(
+            "agent.auxiliary_client._select_pool_entry",
+            side_effect=AssertionError("explicit credentials must not select a pool row"),
+        ), patch(
+            "agent.anthropic_adapter.build_anthropic_client",
+            return_value=MagicMock(),
+        ) as mock_build:
+            client, _ = resolve_provider_client(
+                provider="anthropic",
+                explicit_api_key="eyJ.gateway-b.signature",
+                explicit_base_url="https://gateway-b.example/anthropic",
+            )
+
+        assert client is not None
+        assert mock_build.call_args.args[:2] == (
+            "eyJ.gateway-b.signature",
+            "https://gateway-b.example/anthropic",
+        )
+
+    def test_cached_client_preserves_anthropic_pool_key_and_endpoint(
+        self, monkeypatch, tmp_path
+    ):
+        """Normal cached construction must not detach a pool key from its URL."""
+        from agent.auxiliary_client import (
+            _get_cached_client,
+            shutdown_cached_clients,
+        )
+        from agent.credential_pool import CredentialPool, PooledCredential
+
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+        azure_url = "https://resource-b.services.ai.azure.com/anthropic"
+        azure_entry = PooledCredential(
+            provider="anthropic",
+            id="azure",
+            label="azure",
+            auth_type="api_key",
+            priority=0,
+            source="manual:azure",
+            access_token="azure-resource-b-key",
+            base_url=azure_url,
+        )
+        pool = CredentialPool("anthropic", [azure_entry])
+
+        shutdown_cached_clients()
+        try:
+            with (
+                patch(
+                    "agent.auxiliary_client.load_pool",
+                    return_value=pool,
+                ),
+                patch(
+                    "fabric_cli.config._explicit_anthropic_api_key_base_url",
+                    return_value="",
+                ),
+                patch(
+                    "agent.anthropic_adapter.build_anthropic_client",
+                    return_value=MagicMock(),
+                ) as build_client,
+            ):
+                client, _ = _get_cached_client(
+                    "anthropic",
+                    "claude-haiku-4-5-20251001",
+                )
+
+            assert client is not None
+            assert build_client.call_args.args[:2] == (
+                azure_entry.access_token,
+                azure_url,
+            )
+            assert build_client.call_args.args[1] != "https://api.anthropic.com"
+        finally:
+            shutdown_cached_clients()
+
+    def test_explicit_key_alone_does_not_borrow_pool_endpoint(self):
+        with patch(
+            "agent.auxiliary_client._select_pool_entry",
+            side_effect=AssertionError("explicit key must not select a pool row"),
+        ), patch(
+            "agent.anthropic_adapter.build_anthropic_client",
+            return_value=MagicMock(),
+        ) as mock_build:
+            from agent.auxiliary_client import _try_anthropic
+
+            client, _ = _try_anthropic("sk-ant-api03-explicit")
+
+        assert client is not None
+        assert mock_build.call_args.args[:2] == (
+            "sk-ant-api03-explicit",
+            "https://api.anthropic.com",
+        )
+
+    def test_base_only_override_rejects_mismatched_configured_key(self):
+        with patch(
+            "fabric_cli.auth.resolve_api_key_provider_credentials",
+            return_value={
+                "api_key": "eyJ.gateway-a.signature",
+                "base_url": "https://gateway-a.example/anthropic",
+            },
+        ), patch(
+            "agent.anthropic_adapter.build_anthropic_client"
+        ) as mock_build:
+            from agent.auxiliary_client import _try_anthropic
+
+            client, model = _try_anthropic(
+                explicit_base_url="https://gateway-b.example/anthropic"
+            )
+
+        assert client is None
+        assert model is None
+        mock_build.assert_not_called()
 
 
 # ── Auxiliary unhealthy-provider TTL cache (issue #23570) ────────────────

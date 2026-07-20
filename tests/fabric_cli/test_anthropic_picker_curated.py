@@ -11,6 +11,7 @@ Bug — newly-routed curated aliases vanished on a native Anthropic setup
     OpenAI curated-merge philosophy.
 """
 
+import json
 from unittest.mock import patch
 
 from fabric_cli import models as M
@@ -56,3 +57,66 @@ def test_anthropic_falls_back_to_curated_when_live_unavailable():
 
     assert result == list(M._PROVIDER_MODELS["anthropic"])
     assert "claude-fable-5" in result
+
+
+def test_anthropic_live_fetch_resolves_key_for_target_endpoint():
+    base_url = "https://gateway.example/anthropic"
+    with (
+        patch(
+            "fabric_cli.auth.resolve_api_key_provider_credentials",
+            return_value={
+                "api_key": "eyJ.proxy.signature",
+                "base_url": base_url,
+            },
+        ) as resolve,
+        patch("urllib.request.urlopen", side_effect=OSError("offline")),
+    ):
+        assert M._fetch_anthropic_models(base_url=base_url) is None
+
+    resolve.assert_called_once_with("anthropic")
+
+
+def test_anthropic_live_fetch_keeps_env_proxy_key_and_endpoint_paired(
+    monkeypatch,
+):
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps({"data": [{"id": "proxy-model"}]}).encode()
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "eyJ.gateway-a.signature")
+    monkeypatch.setenv(
+        "ANTHROPIC_BASE_URL",
+        "https://gateway-a.example/anthropic",
+    )
+    with patch(
+        "fabric_cli.models.urllib.request.urlopen",
+        return_value=_Response(),
+    ) as urlopen:
+        assert M._fetch_anthropic_models() == ["proxy-model"]
+
+    request = urlopen.call_args.args[0]
+    assert request.full_url == (
+        "https://gateway-a.example/anthropic/v1/models"
+    )
+    assert request.get_header("X-api-key") == "eyJ.gateway-a.signature"
+
+
+def test_anthropic_live_fetch_rejects_key_endpoint_mismatch():
+    with patch(
+        "fabric_cli.auth.resolve_api_key_provider_credentials",
+        return_value={
+            "api_key": "eyJ.gateway-a.signature",
+            "base_url": "https://gateway-a.example/anthropic",
+        },
+    ), patch("fabric_cli.models.urllib.request.urlopen") as urlopen:
+        assert M._fetch_anthropic_models(
+            base_url="https://gateway-b.example/anthropic"
+        ) is None
+
+    urlopen.assert_not_called()

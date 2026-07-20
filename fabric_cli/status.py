@@ -405,7 +405,7 @@ def show_status(args):
     keys: list[tuple[str, str | tuple[str, ...], str | None]] = [
         ("OpenRouter", "OPENROUTER_API_KEY", "openrouter"),
         ("OpenAI", "OPENAI_API_KEY", "openai-api"),
-        ("Anthropic", ("ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN"), "anthropic"),
+        ("Anthropic", "ANTHROPIC_API_KEY", "anthropic"),
         ("Google / Gemini", ("GOOGLE_API_KEY", "GEMINI_API_KEY"), "gemini"),
         ("DeepSeek", "DEEPSEEK_API_KEY", "deepseek"),
         ("xAI / Grok", "XAI_API_KEY", "xai"),
@@ -438,7 +438,7 @@ def show_status(args):
         if provider_slug and not fabric_model_provider_visible(provider_slug):
             continue
         # Anthropic already has a dedicated lookup below; keep that as the
-        # single source of truth (it also resolves OAuth tokens), skip here
+        # single source of truth (it also resolves pooled API keys), skip here
         # so we don't print two "Anthropic" rows.
         if name == "Anthropic":
             continue

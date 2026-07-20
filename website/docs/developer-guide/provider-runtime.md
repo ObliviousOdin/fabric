@@ -123,7 +123,7 @@ When provider resolution selects `anthropic`, Fabric uses:
 - the native Anthropic Messages API
 - `agent/anthropic_adapter.py` for translation
 
-Credential resolution for native Anthropic is `ANTHROPIC_API_KEY` only. Fabric does not read, mint, or reuse Claude Code's (or any other first-party client's) OAuth credentials, and does not send any other client's identity headers — see [NOTICE](https://github.com/ObliviousOdin/fabric/blob/main/NOTICE). Fabric still retries once on a 401 after rebuilding the Anthropic client, as a fallback path.
+Credential resolution for native Anthropic is `ANTHROPIC_API_KEY` only. That variable belongs to the native endpoint by default; a third-party Anthropic Messages endpoint must pair it explicitly with `ANTHROPIC_BASE_URL` (or store a credential-pool entry with its endpoint). Fabric does not read, mint, or reuse Claude Code's (or any other first-party client's) OAuth credentials, and does not send any other client's identity headers — see [NOTICE](https://github.com/ObliviousOdin/fabric/blob/main/NOTICE). Fabric still retries once on a 401 after rebuilding the Anthropic client, as a fallback path.
 
 ## OpenAI Codex path
 

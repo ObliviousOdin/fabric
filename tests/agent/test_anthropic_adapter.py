@@ -10,6 +10,9 @@ import pytest
 
 from agent.prompt_caching import apply_anthropic_cache_control
 from agent.anthropic_adapter import (
+    _anthropic_api_key_shape_allowed,
+    _anthropic_endpoints_match,
+    _anthropic_static_auth_headers,
     _is_azure_anthropic_endpoint,
     _is_oauth_token,
     _to_plain_data,
@@ -20,6 +23,7 @@ from agent.anthropic_adapter import (
     convert_tools_to_anthropic,
     normalize_model_name,
     resolve_anthropic_token,
+    _with_anthropic_api_version,
 )
 from agent.transports import get_transport
 
@@ -59,27 +63,192 @@ class TestIsOAuthToken:
         assert _is_oauth_token("") is False
 
 
+class TestAnthropicApiKeyShapeAllowed:
+    THIRD_PARTY = "https://gateway.example/anthropic"
+
+    @pytest.mark.parametrize(
+        "first_party_endpoint",
+        [
+            "https://api.anthropic.com",
+            "https://platform.claude.com",
+        ],
+    )
+    def test_jwt_is_allowed_only_for_third_party_endpoint(
+        self, first_party_endpoint
+    ):
+        assert _anthropic_api_key_shape_allowed(
+            "eyJ.proxy.signature",
+            self.THIRD_PARTY,
+        )
+        assert not _anthropic_api_key_shape_allowed(
+            "eyJ.proxy.signature",
+            first_party_endpoint,
+        )
+
+    @pytest.mark.parametrize(
+        "credential",
+        ["sk-ant-oat01-retired", "cc-claude-code-token"],
+    )
+    def test_known_first_party_oauth_shapes_are_always_rejected(
+        self, credential
+    ):
+        assert not _anthropic_api_key_shape_allowed(
+            credential,
+            self.THIRD_PARTY,
+        )
+
+    def test_modern_azure_probe_uses_static_key_without_legacy_query(self):
+        base_url = "https://demo.services.ai.azure.com/anthropic"
+        assert _anthropic_static_auth_headers(
+            "azure-static-key",
+            base_url,
+        ) == {
+            "anthropic-version": "2023-06-01",
+            "x-api-key": "azure-static-key",
+        }
+        assert _with_anthropic_api_version(
+            f"{base_url}/v1/models",
+            base_url,
+        ) == f"{base_url}/v1/models"
+
+    def test_endpoint_identity_normalizes_sdk_equivalent_urls(self):
+        assert _anthropic_endpoints_match(
+            "https://api.anthropic.com",
+            "HTTPS://API.ANTHROPIC.COM:443/v1/",
+        )
+        assert _anthropic_endpoints_match(
+            "https://resource.openai.azure.com/anthropic?api-version=2025-04-15",
+            "https://resource.openai.azure.com/anthropic",
+        )
+        assert not _anthropic_endpoints_match(
+            "https://proxy.example/anthropic?api-version=tenant-a",
+            "https://proxy.example/anthropic?api-version=tenant-b",
+        )
+
+    def test_endpoint_identity_keeps_userinfo_in_credential_boundary(self):
+        assert _anthropic_endpoints_match(
+            "https://Alice:One@PROXY.example:443/anthropic",
+            "https://Alice:One@proxy.example/anthropic",
+        )
+        assert not _anthropic_endpoints_match(
+            "https://alice:one@proxy.example/anthropic",
+            "https://bob:two@proxy.example/anthropic",
+        )
+        assert not _anthropic_endpoints_match(
+            "https://Alice:one@proxy.example/anthropic",
+            "https://alice:one@proxy.example/anthropic",
+        )
+
+    def test_endpoint_identity_preserves_raw_signed_query(self):
+        assert not _anthropic_endpoints_match(
+            "https://proxy.example/anthropic?a=1&b=2",
+            "https://proxy.example/anthropic?b=2&a=1",
+        )
+        assert not _anthropic_endpoints_match(
+            "https://proxy.example/anthropic?signature=%2Fvalue",
+            "https://proxy.example/anthropic?signature=%2fvalue",
+        )
+        assert not _anthropic_endpoints_match(
+            "https://proxy.example/anthropic?",
+            "https://proxy.example/anthropic",
+        )
+        assert _anthropic_endpoints_match(
+            "https://resource.openai.azure.com/anthropic?"
+            "signature=%2Fvalue&api-version=2025-04-15&tenant=a+b",
+            "https://resource.openai.azure.com/anthropic?"
+            "signature=%2Fvalue&tenant=a+b",
+        )
+
+    def test_endpoint_identity_fails_closed_for_scoped_ipv6_zone_case(self):
+        assert not _anthropic_endpoints_match(
+            "https://[fe80::1%25En0]/anthropic",
+            "https://[fe80::1%25en0]/anthropic",
+        )
+
+
 class TestBuildAnthropicClient:
-    def test_setup_token_uses_auth_token_honestly(self):
-        """An OAuth/setup-token-shaped credential still gets Bearer auth (the
-        correct HTTP auth scheme for a bearer token), but Fabric does not
-        inject Claude Code's identity headers or OAuth-only beta flags — it
-        sends the same common betas as any other request."""
+    @pytest.mark.parametrize(
+        "credential,base_url",
+        [
+            ("sk-ant-oat01-retired", None),
+            ("cc-claude-code-token", None),
+            ("eyJ.native.oauth", "https://api.anthropic.com"),
+            ("sk-ant-oat01-retired", "https://gateway.example/anthropic"),
+            ("cc-claude-code-token", "https://gateway.example/anthropic"),
+        ],
+    )
+    def test_subscription_credentials_are_rejected_at_client_boundary(
+        self, credential, base_url
+    ):
         with patch("agent.anthropic_adapter._anthropic_sdk") as mock_sdk:
-            build_anthropic_client("sk-ant-oat01-" + "x" * 60)
-            kwargs = mock_sdk.Anthropic.call_args[1]
-            assert "auth_token" in kwargs
-            assert "api_key" not in kwargs
-            assert "user-agent" not in kwargs.get("default_headers", {})
-            assert "x-app" not in kwargs.get("default_headers", {})
-            betas = kwargs["default_headers"]["anthropic-beta"]
-            assert "oauth-2025-04-20" not in betas
-            assert "claude-code-20250219" not in betas
-            assert "interleaved-thinking-2025-05-14" in betas
-            assert "fine-grained-tool-streaming-2025-05-14" in betas
-            # Native Anthropic does not get context-1m by default; accounts
-            # without that beta reject even short auxiliary requests.
-            assert "context-1m-2025-08-07" not in betas
+            with pytest.raises(ValueError, match="OAuth/setup tokens"):
+                build_anthropic_client(credential, base_url=base_url)
+            mock_sdk.Anthropic.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "base_url",
+        [None, "https://api.anthropic.com", "https://gateway.example/anthropic"],
+    )
+    def test_callable_bearer_is_rejected_outside_trusted_families(
+        self, base_url
+    ):
+        with patch("agent.anthropic_adapter._anthropic_sdk") as mock_sdk:
+            with pytest.raises(ValueError, match="Callable Anthropic bearer"):
+                build_anthropic_client(
+                    lambda: "sk-ant-oat01-wrapped",
+                    base_url=base_url,
+                )
+            mock_sdk.Anthropic.assert_not_called()
+
+    def test_callable_bearer_rejects_wrapped_subscription_token_on_azure(self):
+        with patch(
+            "agent.anthropic_adapter._build_anthropic_client_with_bearer_hook",
+            return_value=MagicMock(),
+        ) as build_bearer:
+            build_anthropic_client(
+                lambda: "sk-ant-oat01-wrapped",
+                base_url="https://resource.services.ai.azure.com/anthropic",
+            )
+
+        validated_provider = build_bearer.call_args.args[0]
+        with pytest.raises(ValueError, match="OAuth/setup tokens"):
+            validated_provider()
+
+    def test_marked_entra_provider_accepts_explicit_private_azure_route(self):
+        from agent.azure_identity_adapter import AzureEntraTokenProvider
+
+        provider = AzureEntraTokenProvider(lambda: "private-cloud-jwt")
+        with patch(
+            "agent.anthropic_adapter._build_anthropic_client_with_bearer_hook",
+            return_value=MagicMock(),
+        ) as build_bearer:
+            build_anthropic_client(
+                provider,
+                base_url=(
+                    "https://resource.services.ai.azure.private/anthropic"
+                ),
+            )
+
+        validated_provider = build_bearer.call_args.args[0]
+        assert validated_provider() == "private-cloud-jwt"
+
+    @pytest.mark.parametrize(
+        "base_url",
+        [
+            "https://resource.services.ai.azure.private/anthropic",
+            "https://evil.services.ai.azure.attacker.example/anthropic",
+        ],
+    )
+    def test_unmarked_callable_cannot_claim_explicit_azure_intent(
+        self, base_url
+    ):
+        with patch("agent.anthropic_adapter._anthropic_sdk") as mock_sdk:
+            with pytest.raises(ValueError, match="Callable Anthropic bearer"):
+                build_anthropic_client(
+                    lambda: "wrapped-token",
+                    base_url=base_url,
+                )
+            mock_sdk.Anthropic.assert_not_called()
 
     def test_api_key_uses_api_key(self):
         with patch("agent.anthropic_adapter._anthropic_sdk") as mock_sdk:
@@ -121,6 +290,9 @@ class TestBuildAnthropicClient:
             kwargs = mock_sdk.Anthropic.call_args[1]
             betas = kwargs["default_headers"]["anthropic-beta"]
             assert "context-1m-2025-08-07" in betas
+            assert kwargs["api_key"] == "azure-key"
+            assert "auth_token" not in kwargs
+            assert "default_query" not in kwargs
 
     def test_azure_anthropic_endpoint_detection_is_host_and_path_scoped(self):
         assert _is_azure_anthropic_endpoint(
@@ -134,6 +306,9 @@ class TestBuildAnthropicClient:
         ) is False
         assert _is_azure_anthropic_endpoint(
             "https://management.azure.com/anthropic"
+        ) is False
+        assert _is_azure_anthropic_endpoint(
+            "https://evil.services.ai.azure.attacker.example/anthropic"
         ) is False
 
     def test_bedrock_client_keeps_context_1m_beta(self):
@@ -170,12 +345,12 @@ class TestBuildAnthropicClient:
                 "anthropic-beta": "interleaved-thinking-2025-05-14"
             }
 
-    def test_azure_foundry_anthropic_endpoint_uses_bearer_auth(self):
-        """Azure AI Foundry's /anthropic endpoint requires Authorization: Bearer.
+    def test_legacy_azure_openai_anthropic_route_uses_bearer_and_api_version(self):
+        """The legacy Azure OpenAI /anthropic route retains Bearer auth.
 
         Regression test for #26970: without this, builds set api_key (x-api-key)
         and the endpoint returns HTTP 401. Also verifies that Azure retains the
-        1M-context beta even though it now matches `_requires_bearer_auth`.
+        1M-context beta and legacy api-version compatibility.
         """
         with patch("agent.anthropic_adapter._anthropic_sdk") as mock_sdk:
             build_anthropic_client(
@@ -185,7 +360,7 @@ class TestBuildAnthropicClient:
             kwargs = mock_sdk.Anthropic.call_args[1]
             assert kwargs["auth_token"] == "azure-foundry-secret-123"
             assert "api_key" not in kwargs
-            # Azure endpoints still get the api-version query param plumbing.
+            # Only the legacy Azure OpenAI route gets api-version plumbing.
             assert kwargs.get("default_query") == {"api-version": "2025-04-15"}
             # Azure keeps the 1M-context beta (it's not MiniMax).
             betas = kwargs["default_headers"]["anthropic-beta"]
@@ -197,12 +372,6 @@ class TestBuildAnthropicClient:
         to the outer loop, so the client must be built with max_retries=0."""
         with patch("agent.anthropic_adapter._anthropic_sdk") as mock_sdk:
             build_anthropic_client("sk-ant-api03-something")
-            kwargs = mock_sdk.Anthropic.call_args[1]
-            assert kwargs["max_retries"] == 0
-
-    def test_disables_sdk_retries_for_oauth_token(self):
-        with patch("agent.anthropic_adapter._anthropic_sdk") as mock_sdk:
-            build_anthropic_client("sk-ant-oat01-" + "x" * 60)
             kwargs = mock_sdk.Anthropic.call_args[1]
             assert kwargs["max_retries"] == 0
 

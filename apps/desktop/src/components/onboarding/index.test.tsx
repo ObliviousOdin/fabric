@@ -88,7 +88,7 @@ afterEach(() => {
 
 describe('onboarding Picker', () => {
   it('shows every provider uniformly without a featured badge or disclosure', () => {
-    setProviders([provider('anthropic', 'Anthropic Claude'), provider('nous', 'Nous Portal')])
+    setProviders([provider('anthropic', 'Anthropic API Key'), provider('nous', 'Nous Portal')])
     render(<Picker ctx={ctx} />)
 
     expect(screen.getByText('Nous Portal')).toBeTruthy()
@@ -100,7 +100,7 @@ describe('onboarding Picker', () => {
 
   it('shows every provider directly when Nous Portal is absent', () => {
     setProviders([
-      provider('anthropic', 'Anthropic Claude'),
+      provider('anthropic', 'Anthropic API Key'),
       provider('openai-codex', 'OpenAI Codex / ChatGPT'),
       provider('xai-oauth', 'xAI Grok')
     ])

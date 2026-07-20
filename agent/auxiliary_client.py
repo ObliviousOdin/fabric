@@ -619,6 +619,7 @@ _PROVIDER_ALIASES = {
     "minimax-china": "minimax-cn",
     "minimax_cn": "minimax-cn",
     "claude": "anthropic",
+    "claude-oauth": "anthropic",
     "claude-code": "anthropic",
     "github": "copilot",
     "github-copilot": "copilot",
@@ -1052,6 +1053,43 @@ def _select_pool_entry(provider: str) -> Tuple[bool, Optional[Any]]:
         return True, None
 
 
+def _select_anthropic_pool_entry_for_endpoint(
+    endpoint: str,
+) -> Tuple[bool, Optional[Any]]:
+    """Select only an Anthropic pool tuple for the configured route."""
+    target = str(endpoint or "").strip().rstrip("/")
+    if not target:
+        return _select_pool_entry("anthropic")
+    try:
+        from agent.anthropic_adapter import _anthropic_endpoints_match
+        from agent.credential_pool import CredentialPool
+
+        pool = load_pool("anthropic")
+        if not pool or not pool.has_credentials():
+            return False, None
+        matching = [
+            entry
+            for entry in pool.entries()
+            if _anthropic_endpoints_match(
+                _pool_runtime_base_url(entry),
+                target,
+            )
+        ]
+        filtered = CredentialPool(
+            "anthropic",
+            matching,
+            read_only=bool(getattr(pool, "read_only", False)),
+        )
+        return True, filtered.select() if filtered.has_credentials() else None
+    except Exception as exc:
+        logger.debug(
+            "Auxiliary client: could not select Anthropic pool entry for %s: %s",
+            target,
+            exc,
+        )
+        return True, None
+
+
 def _peek_pool_entry(provider: str) -> Optional[Any]:
     """Best-effort current/next pool entry without mutating selection order."""
     try:
@@ -1073,6 +1111,40 @@ def _peek_pool_entry(provider: str) -> Optional[Any]:
     except Exception as exc:
         logger.debug("Auxiliary client: could not peek pool entry for %s: %s", provider, exc)
     return None
+
+
+def _peek_anthropic_pool_entry_for_endpoint(endpoint: str) -> Optional[Any]:
+    """Peek the available Anthropic tuple for *endpoint* without selecting."""
+    target = str(endpoint or "").strip().rstrip("/")
+    if not target:
+        return _peek_pool_entry("anthropic")
+    try:
+        from agent.anthropic_adapter import _anthropic_endpoints_match
+        from agent.credential_pool import CredentialPool
+
+        pool = load_pool("anthropic")
+        if not pool or not pool.has_credentials():
+            return None
+        filtered = CredentialPool(
+            "anthropic",
+            [
+                entry
+                for entry in pool.entries()
+                if _anthropic_endpoints_match(
+                    _pool_runtime_base_url(entry),
+                    target,
+                )
+            ],
+            read_only=bool(getattr(pool, "read_only", False)),
+        )
+        return filtered.peek() if filtered.has_credentials() else None
+    except Exception as exc:
+        logger.debug(
+            "Auxiliary client: could not peek Anthropic pool for %s: %s",
+            target,
+            exc,
+        )
+        return None
 
 
 def _pool_runtime_api_key(entry: Any) -> str:
@@ -1104,30 +1176,6 @@ def _pool_runtime_base_url(entry: Any, fallback: str = "") -> str:
         or fallback
     )
     return str(url or "").strip().rstrip("/")
-
-
-# Hostnames (lowercase, exact) that the auxiliary Anthropic path is allowed to
-# be pointed at via config.yaml model.base_url. Anything else falls back to the
-# Anthropic default — operators routing main-session traffic through a
-# non-Anthropic host (e.g. OpenRouter, OpenAI) with provider=anthropic in config
-# must NOT have that foreign host leak into the auxiliary client. See #52608.
-_ANTHROPIC_COMPATIBLE_HOSTS = frozenset({
-    "api.anthropic.com",
-})
-
-
-def _is_anthropic_compatible_host(url: str) -> bool:
-    """Return True if ``url``'s hostname is an Anthropic endpoint we trust for aux calls."""
-    if not url:
-        return False
-    try:
-        from urllib.parse import urlparse
-        host = (urlparse(url).hostname or "").strip().lower().rstrip(".")
-        return host in _ANTHROPIC_COMPATIBLE_HOSTS
-    except Exception:
-        return False
-
-
 
 
 # ── Codex Responses → chat.completions adapter ─────────────────────────────
@@ -1848,6 +1896,11 @@ def _maybe_wrap_anthropic(
             base_url,
             disable_environment_proxy=disable_environment_proxy,
         )
+    except ValueError:
+        # Credential validation is a hard boundary. Falling back to the
+        # already-created OpenAI client would send the same rejected secret as
+        # Bearer auth to a different path on the endpoint.
+        raise
     except Exception as exc:
         if disable_environment_proxy:
             raise RuntimeError(
@@ -2871,54 +2924,95 @@ def _try_azure_foundry(
     return client, final_model
 
 
-def _try_anthropic(explicit_api_key: str = None) -> Tuple[Optional[Any], Optional[str]]:
+def _try_anthropic(
+    explicit_api_key: str = None,
+    explicit_base_url: str = None,
+) -> Tuple[Optional[Any], Optional[str]]:
     try:
-        from agent.anthropic_adapter import build_anthropic_client, resolve_anthropic_token
+        from agent.anthropic_adapter import (
+            _anthropic_api_key_shape_allowed,
+            _anthropic_endpoints_match,
+            build_anthropic_client,
+        )
     except ImportError:
         return None, None
 
-    pool_present, entry = _select_pool_entry("anthropic")
-    if pool_present and entry is not None:
-        token = explicit_api_key or _pool_runtime_api_key(entry)
+    explicit_key = str(explicit_api_key or "").strip()
+    explicit_url = str(explicit_base_url or "").strip().rstrip("/")
+    entry = None
+
+    if explicit_key:
+        # Explicit fallback credentials are one atomic tuple. In particular,
+        # an explicit key must never borrow the endpoint from an unrelated
+        # selected pool entry.
+        base_url = explicit_url or _ANTHROPIC_DEFAULT_BASE_URL
+        token = explicit_key
+    elif explicit_url:
+        base_url = explicit_url
+        # A fallback URL is its own credential route, independent of the
+        # active primary model route. Prefer a pool tuple paired with this
+        # exact endpoint before consulting the profile-scoped standalone
+        # resolver (which is intentionally constrained by the primary route).
+        # Without this lookup, a native primary plus an Azure/proxy fallback
+        # could not use a stored fallback key unless the secret was duplicated
+        # inline in fallback_model.
+        _pool_present, entry = _select_anthropic_pool_entry_for_endpoint(
+            explicit_url
+        )
+        if entry is not None:
+            token = _pool_runtime_api_key(entry)
+            base_url = _pool_runtime_base_url(entry, explicit_url) or explicit_url
+        else:
+            try:
+                from fabric_cli.auth import resolve_api_key_provider_credentials
+
+                credentials = resolve_api_key_provider_credentials("anthropic")
+            except Exception:
+                credentials = {}
+            credential_base_url = str(
+                credentials.get("base_url") or ""
+            ).strip().rstrip("/")
+            token = (
+                str(credentials.get("api_key") or "").strip()
+                if _anthropic_endpoints_match(credential_base_url, explicit_url)
+                else ""
+            )
     else:
-        # Pool absent, OR pool present but no usable entry (expired token +
-        # stale refresh_token, all entries exhausted, etc). Fall through to the
-        # legacy resolver instead of hard-failing: a temporarily dead pool
-        # entry must not wedge auxiliary tasks when a valid standalone
-        # credential (ANTHROPIC_TOKEN, credentials file, API key) exists. This
-        # matches the openrouter and codex paths, which already fall back to
-        # their env/auth-store credential on (True, None). Without this, the
-        # goal judge and every other Anthropic-routed side channel died with
-        # "no auxiliary client configured" while the main session stayed
-        # healthy (it resolves the env token directly).
-        entry = None
-        token = explicit_api_key or resolve_anthropic_token()
+        try:
+            from fabric_cli.config import _explicit_anthropic_api_key_base_url
+
+            configured_route = _explicit_anthropic_api_key_base_url()
+        except Exception:
+            configured_route = ""
+        pool_present, entry = _select_anthropic_pool_entry_for_endpoint(
+            configured_route
+        )
+        if pool_present and entry is not None:
+            token = _pool_runtime_api_key(entry)
+            base_url = (
+                _pool_runtime_base_url(entry, "")
+                or _ANTHROPIC_DEFAULT_BASE_URL
+            )
+        else:
+            # Pool absent, OR pool present but no usable entry (expired token +
+            # stale refresh_token, all entries exhausted, etc). Resolve the
+            # standalone key and endpoint together so a proxy JWT cannot be
+            # validated against one URL and sent to native Anthropic.
+            try:
+                from fabric_cli.auth import resolve_api_key_provider_credentials
+
+                credentials = resolve_api_key_provider_credentials("anthropic")
+            except Exception:
+                credentials = {}
+            token = str(credentials.get("api_key") or "").strip()
+            base_url = str(
+                credentials.get("base_url") or _ANTHROPIC_DEFAULT_BASE_URL
+            ).strip().rstrip("/")
+
     if not token:
         return None, None
-
-    # Allow base URL override from config.yaml model.base_url, but only when:
-    #   1. the configured provider is anthropic (otherwise a non-Anthropic
-    #      base_url, e.g. Codex endpoint, would leak into Anthropic requests), AND
-    #   2. the override URL actually points at an Anthropic-compatible endpoint.
-    # Without gate (2), operators who route main-session traffic through a
-    # non-Anthropic provider that accepts Anthropic-format requests (e.g.
-    # OpenRouter at openrouter.ai/api/v1, with provider=anthropic in config.yaml)
-    # would have every auxiliary side-channel call (memory extractors,
-    # reflection, vision, title generation) 401 from the foreign host —
-    # see issue #52608.
-    base_url = _pool_runtime_base_url(entry, _ANTHROPIC_DEFAULT_BASE_URL) if pool_present else _ANTHROPIC_DEFAULT_BASE_URL
-    try:
-        from fabric_cli.config import load_config
-        cfg = load_config()
-        model_cfg = cfg.get("model")
-        if isinstance(model_cfg, dict):
-            cfg_provider = str(model_cfg.get("provider") or "").strip().lower()
-            if cfg_provider == "anthropic":
-                cfg_base_url = (model_cfg.get("base_url") or "").strip().rstrip("/")
-                if cfg_base_url and _is_anthropic_compatible_host(cfg_base_url):
-                    base_url = cfg_base_url
-    except Exception:
-        pass
+    if not _anthropic_api_key_shape_allowed(token, base_url):
+        return None, None
 
     from agent.anthropic_adapter import _is_oauth_token
     is_oauth = _is_oauth_token(token)
@@ -2931,7 +3025,15 @@ def _try_anthropic(explicit_api_key: str = None) -> Tuple[Optional[Any], Optiona
         # missing — build_anthropic_client raises ImportError at call time
         # when _anthropic_sdk is None.  Treat as unavailable.
         return None, None
-    return AnthropicAuxiliaryClient(real_client, model, token, base_url, is_oauth=is_oauth), model
+    client = AnthropicAuxiliaryClient(
+        real_client, model, token, base_url, is_oauth=is_oauth,
+    )
+    if entry is not None:
+        # Preserve which tuple produced the live client. Fallback activation
+        # reloads a fresh endpoint-filtered pool; random/round-robin selection
+        # must not choose a sibling and later mark the wrong key on 401/429.
+        client._fabric_credential_id = getattr(entry, "id", None)
+    return client, model
 
 
 _AUTO_PROVIDER_LABELS = {
@@ -3528,16 +3630,36 @@ def _evict_cached_client_instance(target: Any) -> bool:
 def _pool_cache_hint(
     provider: str,
     *,
+    base_url: Optional[str] = None,
     main_runtime: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Return a stable cache discriminator for pooled providers."""
     normalized = _normalize_aux_provider(provider)
+    runtime: Dict[str, Any] = {}
     if normalized == "auto":
         runtime = _normalize_main_runtime(main_runtime)
         normalized = _normalize_aux_provider(runtime.get("provider") or _read_main_provider())
     if normalized in {"", "auto", "custom"}:
         return ""
-    entry = _peek_pool_entry(normalized)
+    if normalized == "anthropic":
+        target = str(
+            base_url
+            or runtime.get("base_url")
+            or runtime.get("anthropic_base_url")
+            or ""
+        ).strip()
+        if not target:
+            try:
+                from fabric_cli.config import (
+                    _explicit_anthropic_api_key_base_url,
+                )
+
+                target = _explicit_anthropic_api_key_base_url()
+            except Exception:
+                target = ""
+        entry = _peek_anthropic_pool_entry_for_endpoint(target)
+    else:
+        entry = _peek_pool_entry(normalized)
     if entry is None:
         return ""
     entry_id = str(getattr(entry, "id", "") or "").strip()
@@ -3563,6 +3685,12 @@ def _recoverable_pool_provider(
     normalized = _normalize_aux_provider(resolved_provider)
     if normalized not in {"", "auto", "custom"}:
         return normalized
+    # Auto-inherited Anthropic routes may use Azure or another compatible
+    # host, so hostname matching against api.anthropic.com cannot identify the
+    # owning pool.  The wrapper type is transport-authoritative and keeps auto
+    # Azure/proxy calls eligible for endpoint-scoped Anthropic recovery.
+    if isinstance(client, (AnthropicAuxiliaryClient, AsyncAnthropicAuxiliaryClient)):
+        return "anthropic"
     base = str(getattr(client, "base_url", "") or "")
     if base_url_host_matches(base, "chatgpt.com"):
         return "openai-codex"
@@ -3597,22 +3725,80 @@ def _recoverable_pool_provider(
     return None
 
 
-def _recover_provider_pool(provider: str, exc: Exception, *, failed_api_key: str = "") -> bool:
+def _recover_provider_pool(
+    provider: str,
+    exc: Exception,
+    *,
+    failed_api_key: str = "",
+    failed_base_url: str = "",
+) -> Optional[Any]:
     """Try same-provider credential-pool recovery for auxiliary calls.
 
     ``failed_api_key`` is the API key that was actually used for the failing
     request.  Passing it lets mark_exhausted_and_rotate identify the correct
     pool entry even when another process has already rotated the pool (which
     would leave current() as None, causing the wrong entry to be marked).
+
+    Anthropic credentials are endpoint-scoped key/URL tuples.  Its recovery
+    view is therefore restricted to ``failed_base_url`` before marking or
+    rotating; a native request must never recover onto an Azure/proxy key (or
+    vice versa).  The returned entry is the exact tuple selected for retry so
+    callers can preserve that pairing and identify it if the retry also fails.
     """
     normalized = _normalize_aux_provider(provider)
     try:
         pool = load_pool(normalized)
     except Exception as load_exc:
         logger.debug("Auxiliary client: could not load pool for %s recovery: %s", normalized, load_exc)
-        return False
+        return None
     if not pool or not pool.has_credentials():
-        return False
+        return None
+
+    if normalized == "anthropic":
+        endpoint = str(failed_base_url or "").strip().rstrip("/")
+        entries = pool.entries()
+        if not endpoint and failed_api_key:
+            matching_keys = [
+                entry
+                for entry in entries
+                if _pool_runtime_api_key(entry) == failed_api_key
+            ]
+            if len(matching_keys) == 1:
+                endpoint = _pool_runtime_base_url(matching_keys[0])
+        if not endpoint:
+            logger.warning(
+                "Auxiliary client: refusing Anthropic pool recovery without "
+                "the failed endpoint"
+            )
+            return None
+
+        from agent.anthropic_adapter import _anthropic_endpoints_match
+        from agent.credential_pool import CredentialPool
+
+        pool = CredentialPool(
+            "anthropic",
+            [
+                entry
+                for entry in entries
+                if _anthropic_endpoints_match(
+                    _pool_runtime_base_url(entry),
+                    endpoint,
+                )
+            ],
+            read_only=bool(getattr(pool, "read_only", False)),
+        )
+        if not pool.has_credentials():
+            return None
+        if failed_api_key and not any(
+            _pool_runtime_api_key(entry) == failed_api_key
+            for entry in pool.entries()
+        ):
+            logger.warning(
+                "Auxiliary client: refusing Anthropic pool recovery because "
+                "the failed key is not paired with %s",
+                endpoint,
+            )
+            return None
 
     status_code = getattr(exc, "status_code", None)
     error_context = _pool_error_context(exc)
@@ -3622,7 +3808,7 @@ def _recover_provider_pool(provider: str, exc: Exception, *, failed_api_key: str
         refreshed = pool.try_refresh_current()
         if refreshed is not None:
             _evict_cached_clients(normalized)
-            return True
+            return refreshed
         next_entry = pool.mark_exhausted_and_rotate(
             status_code=status_code if status_code is not None else 401,
             error_context=error_context,
@@ -3630,8 +3816,8 @@ def _recover_provider_pool(provider: str, exc: Exception, *, failed_api_key: str
         )
         if next_entry is not None:
             _evict_cached_clients(normalized)
-            return True
-        return False
+            return next_entry
+        return None
 
     if _is_payment_error(exc) or _is_rate_limit_error(exc):
         fallback_status = 402 if _is_payment_error(exc) else 429
@@ -3642,8 +3828,8 @@ def _recover_provider_pool(provider: str, exc: Exception, *, failed_api_key: str
         )
         if next_entry is not None:
             _evict_cached_clients(normalized)
-            return True
-    return False
+            return next_entry
+    return None
 
 
 def _retry_same_provider_sync(
@@ -3800,13 +3986,10 @@ def _refresh_provider_credentials(provider: str) -> bool:
             _evict_cached_clients(normalized)
             return True
         if normalized == "anthropic":
-            from agent.anthropic_adapter import resolve_anthropic_token
-
-            token = resolve_anthropic_token()
-            if not str(token or "").strip():
-                return False
-            _evict_cached_clients(normalized)
-            return True
+            # Anthropic's supported native credential is a static API key;
+            # there is no refresh operation to perform. Returning success here
+            # would preempt same-provider credential-pool rotation after a 401.
+            return False
         if normalized == "xai-oauth":
             # Preference: pool-level refresh (uses refresh_token from pool entry),
             # then fall back to singleton auth-store resolver.
@@ -3872,8 +4055,8 @@ def _call_fallback_candidate_sync(
 ) -> Optional[Any]:
     """Call one fallback candidate with stale-credential recovery.
 
-    A fallback candidate can itself carry a stale credential (e.g. an expired
-    ``ANTHROPIC_TOKEN`` picked up by ``_try_anthropic``). Before this helper,
+    A fallback candidate can itself carry a stale credential (e.g. a revoked
+    ``ANTHROPIC_API_KEY`` picked up by ``_try_anthropic``). Before this helper,
     such a 401 propagated out of the fallback site and aborted the auxiliary
     task (for compression: a 60s cooldown + context marker) even though other
     healthy candidates remained. Live case: a Codex-timeout → Anthropic
@@ -5747,9 +5930,26 @@ def resolve_provider_client(
     if pconfig.auth_type in {"api_key", "local"}:
         if provider == "anthropic":
             if authorized_route is not None:
-                from agent.anthropic_adapter import build_anthropic_client, resolve_anthropic_token
+                from agent.anthropic_adapter import (
+                    _anthropic_endpoints_match,
+                    build_anthropic_client,
+                )
 
-                effective_key = explicit_api_key or resolve_anthropic_token()
+                effective_key = explicit_api_key
+                if not effective_key:
+                    credentials = resolve_api_key_provider_credentials(
+                        "anthropic"
+                    )
+                    paired_base_url = str(
+                        credentials.get("base_url") or ""
+                    ).strip().rstrip("/")
+                    if _anthropic_endpoints_match(
+                        paired_base_url,
+                        authorized_route.base_url,
+                    ):
+                        effective_key = str(
+                            credentials.get("api_key") or ""
+                        ).strip()
                 if not effective_key:
                     client, default_model = None, None
                 else:
@@ -5769,7 +5969,10 @@ def resolve_provider_client(
                         authorized_route.base_url,
                     )
             else:
-                client, default_model = _try_anthropic(explicit_api_key=explicit_api_key)
+                client, default_model = _try_anthropic(
+                    explicit_api_key=explicit_api_key,
+                    explicit_base_url=explicit_base_url,
+                )
             if client is None:
                 logger.warning("resolve_provider_client: anthropic requested but no Anthropic credentials found")
                 return None, None
@@ -6528,7 +6731,11 @@ def _client_cache_key(
     # so the task participates in the cache key. Non-auto providers keep the
     # old cache shape because the explicit provider/model tuple is sufficient.
     task_key = (task or "") if provider == "auto" else ""
-    pool_hint = _pool_cache_hint(provider, main_runtime=main_runtime)
+    pool_hint = _pool_cache_hint(
+        provider,
+        base_url=base_url,
+        main_runtime=main_runtime,
+    )
     # The model MUST participate in the key. Two concurrent auxiliary calls to
     # the SAME provider/base_url/key but DIFFERENT models (e.g. a MoA reference
     # fan-out running opus + gpt-5.5 in parallel threads) would otherwise share
@@ -6829,11 +7036,17 @@ def _get_cached_client(
     # the env var and fail again, causing the retry2_err handler to mark key #2.
     effective_api_key = api_key
     if not effective_api_key and provider != "auto":
-        _pe = _peek_pool_entry(_normalize_aux_provider(provider))
-        if _pe is not None:
-            _pk = _pool_runtime_api_key(_pe)
-            if _pk:
-                effective_api_key = _pk
+        normalized_pool_provider = _normalize_aux_provider(provider)
+        if normalized_pool_provider != "anthropic":
+            _pe = _peek_pool_entry(normalized_pool_provider)
+            if _pe is not None:
+                _pk = _pool_runtime_api_key(_pe)
+                if _pk:
+                    effective_api_key = _pk
+        # Anthropic pool rows are endpoint-scoped tuples. Do not extract a
+        # bare key here: _try_anthropic() selects the matching key+URL pair and
+        # preserves the configured route. Passing only the key would default
+        # proxy/Azure credentials to native api.anthropic.com.
     client, default_model = resolve_provider_client(
         provider,
         model,
@@ -7951,18 +8164,38 @@ def call_llm(
                     if not (_is_auth_error(retry_err) or _is_payment_error(retry_err) or _is_rate_limit_error(retry_err)):
                         raise
                     recovery_err = retry_err
-            if _recover_provider_pool(pool_provider, recovery_err, failed_api_key=_client_api_key):
+            recovered_entry = _recover_provider_pool(
+                pool_provider,
+                recovery_err,
+                failed_api_key=_client_api_key,
+                failed_base_url=_client_base or resolved_base_url or "",
+            )
+            if recovered_entry is not None:
                 logger.info(
                     "Auxiliary %s: recovered %s via credential-pool rotation after %s",
                     task or "call", pool_provider, type(recovery_err).__name__,
                 )
+                retry_provider = resolved_provider
+                retry_base_url = resolved_base_url
+                retry_api_key = resolved_api_key
+                if _normalize_aux_provider(pool_provider) == "anthropic":
+                    # Recovery selected an endpoint-scoped tuple.  Pass both
+                    # halves explicitly so cache rebuilding cannot re-resolve
+                    # the key against another Anthropic-compatible host.
+                    retry_provider = "anthropic"
+                    retry_base_url = (
+                        _pool_runtime_base_url(recovered_entry)
+                        or _client_base
+                        or resolved_base_url
+                    )
+                    retry_api_key = _pool_runtime_api_key(recovered_entry)
                 try:
                     return _retry_same_provider_sync(
                         task=task,
-                        resolved_provider=resolved_provider,
+                        resolved_provider=retry_provider,
                         resolved_model=resolved_model,
-                        resolved_base_url=resolved_base_url,
-                        resolved_api_key=resolved_api_key,
+                        resolved_base_url=retry_base_url,
+                        resolved_api_key=retry_api_key,
                         resolved_api_mode=resolved_api_mode,
                         main_runtime=main_runtime,
                         final_model=final_model,
@@ -7981,7 +8214,16 @@ def call_llm(
                     # alternative providers can still serve the request.
                     if (_is_payment_error(retry2_err) or _is_auth_error(retry2_err)
                             or _is_rate_limit_error(retry2_err)):
-                        _recover_provider_pool(pool_provider, retry2_err)
+                        _recover_provider_pool(
+                            pool_provider,
+                            retry2_err,
+                            failed_api_key=_pool_runtime_api_key(recovered_entry),
+                            failed_base_url=(
+                                _pool_runtime_base_url(recovered_entry)
+                                if _normalize_aux_provider(pool_provider) == "anthropic"
+                                else ""
+                            ),
+                        )
                         first_err = retry2_err
                     else:
                         raise
@@ -8564,18 +8806,35 @@ async def async_call_llm(
                     if not (_is_auth_error(retry_err) or _is_payment_error(retry_err) or _is_rate_limit_error(retry_err)):
                         raise
                     recovery_err = retry_err
-            if _recover_provider_pool(pool_provider, recovery_err, failed_api_key=_client_api_key):
+            recovered_entry = _recover_provider_pool(
+                pool_provider,
+                recovery_err,
+                failed_api_key=_client_api_key,
+                failed_base_url=_client_base or resolved_base_url or "",
+            )
+            if recovered_entry is not None:
                 logger.info(
                     "Auxiliary %s (async): recovered %s via credential-pool rotation after %s",
                     task or "call", pool_provider, type(recovery_err).__name__,
                 )
+                retry_provider = resolved_provider
+                retry_base_url = resolved_base_url
+                retry_api_key = resolved_api_key
+                if _normalize_aux_provider(pool_provider) == "anthropic":
+                    retry_provider = "anthropic"
+                    retry_base_url = (
+                        _pool_runtime_base_url(recovered_entry)
+                        or _client_base
+                        or resolved_base_url
+                    )
+                    retry_api_key = _pool_runtime_api_key(recovered_entry)
                 try:
                     return await _retry_same_provider_async(
                         task=task,
-                        resolved_provider=resolved_provider,
+                        resolved_provider=retry_provider,
                         resolved_model=resolved_model,
-                        resolved_base_url=resolved_base_url,
-                        resolved_api_key=resolved_api_key,
+                        resolved_base_url=retry_base_url,
+                        resolved_api_key=retry_api_key,
                         resolved_api_mode=resolved_api_mode,
                         final_model=final_model,
                         messages=messages,
@@ -8588,7 +8847,16 @@ async def async_call_llm(
                 except Exception as retry2_err:
                     if (_is_payment_error(retry2_err) or _is_auth_error(retry2_err)
                             or _is_rate_limit_error(retry2_err)):
-                        _recover_provider_pool(pool_provider, retry2_err)
+                        _recover_provider_pool(
+                            pool_provider,
+                            retry2_err,
+                            failed_api_key=_pool_runtime_api_key(recovered_entry),
+                            failed_base_url=(
+                                _pool_runtime_base_url(recovered_entry)
+                                if _normalize_aux_provider(pool_provider) == "anthropic"
+                                else ""
+                            ),
+                        )
                         first_err = retry2_err
                     else:
                         raise

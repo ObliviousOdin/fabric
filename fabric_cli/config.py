@@ -3295,7 +3295,7 @@ DEFAULT_CONFIG = {
     },
 
     # Config schema version - bump this when adding new required fields
-    "_config_version": 33,
+    "_config_version": 34,
 }
 
 # =============================================================================
@@ -5151,6 +5151,29 @@ def check_config_version() -> Tuple[int, int]:
     return current, latest
 
 
+def _is_anthropic_provider_name(value: Any) -> bool:
+    """Return whether *value* names Anthropic, including supported aliases.
+
+    Persisted configs may legitimately use aliases such as ``claude`` or
+    ``claude-code``.  Endpoint and migration decisions must use the same
+    canonical provider identity as runtime resolution or those configs lose
+    their model-scoped Anthropic route and select the wrong credential.
+    """
+    try:
+        from fabric_cli.providers import normalize_provider
+
+        return normalize_provider(str(value or "")) == "anthropic"
+    except Exception:
+        # Keep config loading resilient during partial installs while retaining
+        # compatibility with the two long-standing aliases.
+        return str(value or "").strip().lower() in {
+            "anthropic",
+            "claude",
+            "claude-oauth",
+            "claude-code",
+        }
+
+
 # =============================================================================
 # Config structure validation
 # =============================================================================
@@ -5572,6 +5595,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
 
     # Check config version
     current_ver, latest_ver = check_config_version()
+    v34_compatibility_complete = True
     
     # ── Version 4 → 5: add timezone field ──
     if current_ver < 5:
@@ -5588,7 +5612,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
     # The new Anthropic auth flow no longer uses this env var.
     if current_ver < 9:
         try:
-            old_token = get_env_value("ANTHROPIC_TOKEN")
+            old_token = load_env().get("ANTHROPIC_TOKEN", "").strip()
             if old_token:
                 save_env_value("ANTHROPIC_TOKEN", "")
                 if not quiet:
@@ -6097,6 +6121,237 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                     "delegations too."
                 )
 
+    # ── Version 33 → 34: retire Fabric-managed Anthropic OAuth tokens ──
+    # Native Anthropic requests now support API keys only.  Older Fabric
+    # versions could persist an OAuth/setup token in ANTHROPIC_TOKEN, and that
+    # stale value used to outrank a newly saved ANTHROPIC_API_KEY.  Inspect the
+    # active profile's .env directly so an ANTHROPIC_TOKEN inherited from the
+    # operator's shell is not copied into (or otherwise managed by) Fabric.
+    # CLAUDE_CODE_OAUTH_TOKEN deliberately remains untouched: it belongs to
+    # the standalone Claude Code CLI, even though Fabric no longer reuses it
+    # for native Anthropic requests.
+    if current_ver < 34:
+        from agent.anthropic_adapter import (
+            _anthropic_api_key_shape_allowed,
+            _anthropic_endpoints_match,
+            _is_anthropic_messages_endpoint,
+        )
+
+        raw_config = read_raw_config()
+        raw_model = raw_config.get("model")
+        candidate = ""
+        if (
+            isinstance(raw_model, dict)
+            and _is_anthropic_provider_name(raw_model.get("provider"))
+        ):
+            raw_candidate = str(
+                raw_model.get("base_url") or ""
+            ).strip().rstrip("/")
+            if (
+                raw_candidate
+                and _is_anthropic_messages_endpoint(raw_candidate)
+                and not _anthropic_endpoints_match(
+                    raw_candidate,
+                    "https://api.anthropic.com",
+                )
+            ):
+                candidate = raw_candidate
+
+        try:
+            profile_env = load_env()
+        except Exception as exc:
+            profile_env = {}
+            results["warnings"].append(
+                f"Could not inspect Anthropic profile credentials: {exc}"
+            )
+
+        managed_api_key = str(
+            profile_env.get("ANTHROPIC_API_KEY", "") or ""
+        ).strip()
+        managed_base_url = str(
+            profile_env.get("ANTHROPIC_BASE_URL", "") or ""
+        ).strip().rstrip("/")
+        shell_base_url = str(
+            os.environ.get("ANTHROPIC_BASE_URL") or ""
+        ).strip().rstrip("/")
+
+        # Before v34, provider=anthropic implicitly sent a non-native-shaped
+        # generic env key to a recognized model.base_url. Preserve that legacy
+        # behavior once by making its endpoint owner explicit. Native
+        # ``sk-ant-*`` values remain pinned to Anthropic because mutable model
+        # routing is not credential provenance. Restrict the migration to the
+        # active profile's own .env key: shell-only and global-profile fallback
+        # secrets must not be captured here.
+        if (
+            candidate
+            and managed_api_key
+            and not managed_api_key.startswith("sk-ant-")
+            and not managed_base_url
+            and not shell_base_url
+            and _anthropic_api_key_shape_allowed(managed_api_key, candidate)
+        ):
+            try:
+                save_env_value("ANTHROPIC_BASE_URL", candidate)
+                persisted_base_url = str(
+                    load_env().get("ANTHROPIC_BASE_URL", "") or ""
+                ).strip().rstrip("/")
+                if not _anthropic_endpoints_match(
+                    persisted_base_url,
+                    candidate,
+                ):
+                    raise RuntimeError(
+                        "the endpoint was not persisted to the active profile"
+                    )
+            except Exception as exc:
+                v34_compatibility_complete = False
+                warning = (
+                    "Could not preserve the legacy Anthropic API-key endpoint; "
+                    f"config migration will retry: {exc}"
+                )
+                results["warnings"].append(warning)
+                logger.warning(warning)
+            else:
+                results["env_added"].append("ANTHROPIC_BASE_URL")
+                managed_base_url = candidate
+                if not quiet:
+                    print(
+                        "  ✓ Preserved the existing Anthropic API "
+                        f"key endpoint: {candidate}"
+                    )
+
+        # Some early manual rows omitted endpoint ownership entirely. Infer a
+        # proxy/Azure owner only for locally-owned, non-native-shaped keys.
+        # ``model.base_url`` is mutable routing state, not provenance: a
+        # native-shaped key or a row explicitly tagged native must never be
+        # rebound to a third party. Inherited global credentials and rows
+        # explicitly owned by any endpoint remain untouched too.
+        explicit_env_route = managed_base_url or shell_base_url
+        pool_route_matches = (
+            not explicit_env_route
+            or bool(
+                candidate
+                and _anthropic_endpoints_match(explicit_env_route, candidate)
+            )
+        )
+        if candidate and pool_route_matches:
+            try:
+                from fabric_cli.auth import (
+                    _load_auth_store,
+                    write_credential_pool,
+                )
+
+                local_store = _load_auth_store()
+                local_pool = local_store.get("credential_pool")
+                local_entries = (
+                    local_pool.get("anthropic")
+                    if isinstance(local_pool, dict)
+                    else None
+                )
+                migrated_entries = (
+                    [dict(row) if isinstance(row, dict) else row
+                     for row in local_entries]
+                    if isinstance(local_entries, list)
+                    else []
+                )
+                rebound_rows: List[Tuple[str, str, str]] = []
+                for row in migrated_entries:
+                    if not isinstance(row, dict):
+                        continue
+                    source = str(row.get("source") or "").strip().lower()
+                    auth_type = str(
+                        row.get("auth_type") or "api_key"
+                    ).strip().lower().replace("-", "_")
+                    key = str(row.get("access_token") or "").strip()
+                    stored_base_url = str(
+                        row.get("base_url") or ""
+                    ).strip().rstrip("/")
+                    is_manual = source == "manual" or source.startswith(
+                        "manual:"
+                    )
+                    if not (
+                        is_manual
+                        and auth_type == "api_key"
+                        and key
+                        and not key.startswith("sk-ant-")
+                        and not stored_base_url
+                        and _anthropic_api_key_shape_allowed(key, candidate)
+                    ):
+                        continue
+                    row["base_url"] = candidate
+                    rebound_rows.append((
+                        str(row.get("id") or ""),
+                        key,
+                        source,
+                    ))
+
+                if rebound_rows:
+                    write_credential_pool("anthropic", migrated_entries)
+                    persisted_store = _load_auth_store()
+                    persisted_pool = persisted_store.get("credential_pool")
+                    persisted_entries = (
+                        persisted_pool.get("anthropic")
+                        if isinstance(persisted_pool, dict)
+                        else None
+                    )
+                    persisted_entries = (
+                        persisted_entries
+                        if isinstance(persisted_entries, list)
+                        else []
+                    )
+                    for row_id, key, source in rebound_rows:
+                        found = any(
+                            isinstance(row, dict)
+                            and (
+                                not row_id
+                                or str(row.get("id") or "") == row_id
+                            )
+                            and str(row.get("access_token") or "").strip()
+                            == key
+                            and str(row.get("source") or "").strip().lower()
+                            == source
+                            and _anthropic_endpoints_match(
+                                str(row.get("base_url") or ""),
+                                candidate,
+                            )
+                            for row in persisted_entries
+                        )
+                        if not found:
+                            raise RuntimeError(
+                                "a rebound credential endpoint was not persisted"
+                            )
+                    if not quiet:
+                        print(
+                            "  ✓ Preserved the endpoint for "
+                            f"{len(rebound_rows)} Anthropic credential(s)"
+                        )
+            except Exception as exc:
+                v34_compatibility_complete = False
+                warning = (
+                    "Could not preserve legacy Anthropic credential-pool "
+                    f"endpoints; config migration will retry: {exc}"
+                )
+                results["warnings"].append(warning)
+                logger.warning(warning)
+
+        # Token retirement is independent of compatibility pairing. A failure
+        # here must not prevent a successful endpoint migration from being
+        # recorded, and vice versa.
+        try:
+            managed_anthropic_token = str(
+                profile_env.get("ANTHROPIC_TOKEN", "") or ""
+            ).strip()
+            if managed_anthropic_token:
+                save_env_value("ANTHROPIC_TOKEN", "")
+                if not quiet:
+                    print(
+                        "  ✓ Cleared ANTHROPIC_TOKEN from .env "
+                        "(native Anthropic now uses ANTHROPIC_API_KEY)"
+                    )
+        except Exception as exc:
+            results["warnings"].append(
+                f"Could not clear retired ANTHROPIC_TOKEN: {exc}"
+            )
+
     # ── Post-migration: disable exfiltration-shaped MCP stdio entries ──
     # Users can hand-edit mcp_servers, and older installs may already contain a
     # malicious entry. Preserve the stanza for auditability but mark it
@@ -6242,9 +6497,15 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
     if missing_config:
         results["config_added"].extend(field["key"] for field in missing_config)
 
-    if current_ver < latest_ver:
+    migration_target_version = latest_ver
+    if (
+        current_ver < 34 <= latest_ver
+        and not v34_compatibility_complete
+    ):
+        migration_target_version = 33
+    if current_ver < migration_target_version:
         config = read_raw_config()
-        config["_config_version"] = latest_ver
+        config["_config_version"] = migration_target_version
         _persist_migration(config)
 
     # ── Skill-declared config vars ──────────────────────────────────────
@@ -7850,10 +8111,115 @@ def remove_env_value(key: str, *, mutate_process_env: bool = True) -> bool:
     return found
 
 
+def _validate_anthropic_api_key(
+    value: str,
+    *,
+    base_url: Optional[str] = None,
+) -> str:
+    """Return a normalized native Anthropic API key or raise ``ValueError``."""
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError("No Anthropic API key provided.")
+
+    from agent.anthropic_adapter import _anthropic_api_key_shape_allowed
+
+    if not _anthropic_api_key_shape_allowed(normalized, base_url):
+        raise ValueError(
+            "Anthropic OAuth/setup tokens cannot be used as API keys in Fabric. "
+            "Use an ANTHROPIC_API_KEY from the Anthropic Console."
+        )
+    return normalized
+
+
+def _explicit_anthropic_api_key_base_url(
+    model_cfg: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Return the profile's explicit Anthropic Messages endpoint, if any.
+
+    ``ANTHROPIC_BASE_URL`` is an explicit endpoint choice.  Otherwise an
+    Anthropic ``model.base_url`` is accepted only when it is actually an
+    Anthropic Messages route; stale URLs left by another provider are ignored.
+    Callers that already loaded the model section may pass it to keep routing
+    and credential selection on the same configuration snapshot.
+    """
+    base_url = (
+        get_env_value_prefer_dotenv("ANTHROPIC_BASE_URL") or ""
+    ).strip().rstrip("/")
+    from agent.anthropic_adapter import _is_anthropic_messages_endpoint
+
+    # ANTHROPIC_BASE_URL is an explicit endpoint choice and remains
+    # authoritative. The config fallback below is filtered because
+    # model.base_url commonly contains a stale URL from a prior provider.
+    if base_url:
+        return base_url
+
+    try:
+        if model_cfg is None:
+            loaded_model_cfg = (load_config() or {}).get("model")
+        else:
+            loaded_model_cfg = model_cfg
+        if (
+            isinstance(loaded_model_cfg, dict)
+            and _is_anthropic_provider_name(
+                loaded_model_cfg.get("provider")
+            )
+        ):
+            candidate = str(
+                loaded_model_cfg.get("base_url") or ""
+            ).strip().rstrip("/")
+            base_url = (
+                candidate
+                if _is_anthropic_messages_endpoint(candidate)
+                else ""
+            )
+    except Exception:
+        base_url = ""
+
+    return base_url
+
+
+def _configured_anthropic_api_key_base_url() -> str:
+    """Return the active Anthropic route, defaulting to the native API.
+
+    This may follow ``model.base_url`` for routing.  It must not be used to
+    infer ownership of the generic ``ANTHROPIC_API_KEY``; use
+    :func:`_anthropic_env_api_key_base_url` for that durable pairing.
+    """
+    return (
+        _explicit_anthropic_api_key_base_url()
+        or "https://api.anthropic.com"
+    )
+
+
+def _anthropic_env_api_key_base_url() -> str:
+    """Return the durable endpoint owner for ``ANTHROPIC_API_KEY``.
+
+    The generic env key is native by default.  Only the equally explicit
+    ``ANTHROPIC_BASE_URL`` may bind it to a proxy.  A mutable
+    ``model.base_url`` selects the active route but must never reinterpret an
+    already-stored native key when the user later switches to Azure/proxy.
+    """
+    return (
+        str(
+            get_env_value_prefer_dotenv("ANTHROPIC_BASE_URL") or ""
+        ).strip().rstrip("/")
+        or "https://api.anthropic.com"
+    )
+
+
 def save_anthropic_api_key(value: str, save_fn=None):
-    """Persist an Anthropic API key."""
+    """Persist an Anthropic API key and retire Fabric's old OAuth slot.
+
+    ``CLAUDE_CODE_OAUTH_TOKEN`` is intentionally preserved because it belongs
+    to the standalone Claude Code CLI, not Fabric's native Anthropic provider.
+    """
+    normalized = _validate_anthropic_api_key(
+        value,
+        base_url=_anthropic_env_api_key_base_url(),
+    )
     writer = save_fn or save_env_value
-    writer("ANTHROPIC_API_KEY", value)
+    writer("ANTHROPIC_API_KEY", normalized)
+    writer("ANTHROPIC_TOKEN", "")
 
 
 def save_env_value_secure(key: str, value: str) -> Dict[str, Any]:
@@ -8294,8 +8660,17 @@ def set_config_value(key: str, value: str):
         'GITHUB_TOKEN', 'HONCHO_API_KEY',
     ]
     
-    if key.upper() in api_keys or key.upper().endswith(('_API_KEY', '_TOKEN')) or key.upper().startswith('TERMINAL_SSH'):
-        save_env_value(key.upper(), value)
+    normalized_env_key = key.upper()
+    if normalized_env_key in api_keys or normalized_env_key.endswith(('_API_KEY', '_TOKEN')) or normalized_env_key.startswith('TERMINAL_SSH'):
+        if normalized_env_key == "ANTHROPIC_API_KEY":
+            if str(value or "").strip():
+                save_anthropic_api_key(value)
+            else:
+                # Preserve `fabric config set KEY ""` as an explicit clear.
+                save_env_value("ANTHROPIC_API_KEY", "")
+                save_env_value("ANTHROPIC_TOKEN", "")
+        else:
+            save_env_value(normalized_env_key, value)
         print(f"✓ Set {key} in {get_env_path()}")
         return
     

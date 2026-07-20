@@ -513,23 +513,359 @@ except Exception:
 # Anthropic Key Helper
 # =============================================================================
 
-def get_anthropic_key() -> str:
-    """Return the Anthropic API key, or ``""``.
+def _configured_anthropic_base_url() -> str:
+    """Return the endpoint paired with ``ANTHROPIC_API_KEY``.
 
-    Checks both the ``.env`` file and the process environment, preferring
-    ``~/.fabric/.env`` so a deliberate key rotation isn't shadowed by a stale
-    shell export (matches the api-key resolution path — see #20591).
-
-    Fabric does not accept OAuth/setup-token-shaped values here — those are
-    scoped to Anthropic's own first-party clients.
+    A third-party Anthropic-compatible gateway may legitimately issue an
+    opaque/JWT-shaped API key.  Credential-shape checks therefore have to use
+    the endpoint from the same profile instead of assuming every value targets
+    Anthropic's native API.
     """
-    from agent.anthropic_adapter import _is_oauth_token
-    from fabric_cli.config import get_env_value_prefer_dotenv
+    from fabric_cli.config import _configured_anthropic_api_key_base_url
 
-    value = get_env_value_prefer_dotenv("ANTHROPIC_API_KEY") or ""
-    if value and not _is_oauth_token(value):
-        return value
-    return ""
+    return _configured_anthropic_api_key_base_url()
+
+
+def _resolve_anthropic_api_key_details() -> tuple[str, str, str]:
+    """Return a usable Anthropic API key, source, and paired endpoint.
+
+    ``fabric auth add anthropic --type api-key`` stores credentials in the
+    credential pool rather than ``.env``. Read that persisted pool directly
+    so status/setup probes can report any usable manually-added key without
+    selecting, refreshing, rotating, or otherwise mutating the live pool. A
+    rotating pool's next runtime selection is intentionally left to
+    ``CredentialPool.select()``.
+
+    OAuth/setup-token-shaped values are never accepted for Anthropic's native
+    endpoint, even if a legacy row was incorrectly tagged as an API key.
+    Opaque values remain valid for explicitly configured third-party
+    Anthropic-compatible endpoints.
+    """
+    from agent.anthropic_adapter import (
+        _anthropic_api_key_shape_allowed,
+        _anthropic_endpoints_match,
+    )
+    from agent.credential_pool import (
+        PooledCredential,
+        STATUS_DEAD,
+        STATUS_EXHAUSTED,
+        _exhausted_until,
+        _is_legacy_anthropic_oauth_entry,
+    )
+    from fabric_cli.config import (
+        _anthropic_env_api_key_base_url,
+        _explicit_anthropic_api_key_base_url,
+        _is_anthropic_provider_name,
+        get_env_value_prefer_dotenv,
+    )
+
+    configured_base_url = _configured_anthropic_base_url()
+    explicit_base_url = _explicit_anthropic_api_key_base_url()
+    anthropic_env_base_url = _anthropic_env_api_key_base_url()
+
+    pool_source = "credential_pool"
+    local_entries: list = []
+    try:
+        local_store = _load_auth_store()
+        local_pool = local_store.get("credential_pool")
+        local_entries = (
+            local_pool.get("anthropic")
+            if isinstance(local_pool, dict)
+            else None
+        )
+        entries = read_credential_pool("anthropic")
+        if (
+            entries
+            and not (isinstance(local_entries, list) and local_entries)
+            and _global_auth_file_path() is not None
+        ):
+            pool_source = "credential_pool_global"
+    except Exception:
+        entries = []
+
+    def _all_rows_are_legacy(rows: list) -> bool:
+        if not rows:
+            return False
+        for payload in rows:
+            if not isinstance(payload, dict):
+                return False
+            try:
+                candidate = PooledCredential.from_dict("anthropic", payload)
+            except Exception:
+                return False
+            if not _is_legacy_anthropic_oauth_entry(
+                candidate,
+                configured_base_url,
+            ):
+                return False
+        return True
+
+    # A non-empty local profile normally shadows the default profile. Legacy
+    # OAuth-only rows are the exception: load_pool() prunes them, after which
+    # the global API-key fallback becomes visible. Mirror that effective state
+    # here without requiring a mutating runtime load first.
+    if _all_rows_are_legacy(local_entries):
+        try:
+            global_store = _load_global_auth_store()
+            global_pool = global_store.get("credential_pool")
+            global_entries = (
+                global_pool.get("anthropic")
+                if isinstance(global_pool, dict)
+                else None
+            )
+            entries = list(global_entries) if isinstance(global_entries, list) else []
+            pool_source = "credential_pool_global"
+        except Exception:
+            entries = []
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        entry_source = str(entry.get("source") or "").strip()
+        if entry_source and is_source_suppressed("anthropic", entry_source):
+            continue
+        auth_type = str(entry.get("auth_type") or "api_key").strip().lower()
+        if auth_type.replace("-", "_") != "api_key":
+            continue
+        key = entry.get("access_token")
+        if not isinstance(key, str):
+            continue
+        stored_entry_base_url = str(
+            entry.get("base_url") or ""
+        ).strip().rstrip("/")
+        if not stored_entry_base_url:
+            # Legacy endpoint-less Console keys have an unambiguous native
+            # owner. Never reinterpret one through a model route that the user
+            # changed later: doing so could disclose it to a proxy during
+            # status/model discovery before the credential pool is loaded.
+            if str(key or "").strip().startswith("sk-ant-"):
+                entry_base_url = "https://api.anthropic.com"
+            elif (
+                pool_source != "credential_pool_global"
+                and explicit_base_url
+            ):
+                # Locally-owned opaque proxy keys predate endpoint metadata.
+                # They are usable only when this profile has an explicit,
+                # validated Anthropic Messages route to bind them to. Global
+                # rows cannot inherit ownership from another profile.
+                entry_base_url = explicit_base_url
+            else:
+                continue
+        else:
+            entry_base_url = stored_entry_base_url
+        if entry_source == "env:ANTHROPIC_API_KEY":
+            # Persisted env rows are a cache of the env source, not an
+            # independent credential. Re-derive their owner so a stale row
+            # written under an older model route cannot leak the native key
+            # after model.base_url changes.
+            entry_base_url = anthropic_env_base_url
+        if explicit_base_url and not _anthropic_endpoints_match(
+            entry_base_url,
+            explicit_base_url,
+        ):
+            # A configured route constrains credential selection. Pool keys
+            # remain usable for their own stored endpoints, but an unrelated
+            # row must not silently reroute this profile (or leak its secret).
+            continue
+        if not has_usable_secret(key) or not _anthropic_api_key_shape_allowed(
+            key, entry_base_url
+        ):
+            continue
+        try:
+            candidate = PooledCredential.from_dict("anthropic", entry)
+            if candidate.last_status == STATUS_DEAD:
+                continue
+            if candidate.last_status == STATUS_EXHAUSTED:
+                exhausted_until = _exhausted_until(candidate)
+                if exhausted_until is not None and time.time() < exhausted_until:
+                    continue
+        except Exception:
+            # Status/setup is best-effort; malformed optional cooldown metadata
+            # must not hide an otherwise valid API key.
+            pass
+        label = str(
+            entry.get("label") or entry.get("source") or "Anthropic API key"
+        ).strip()
+        return key.strip(), f"{pool_source}:{label}", entry_base_url
+
+    # Azure's Anthropic Messages endpoint supports provider-specific key
+    # hints in model config. Keep status/setup aligned with runtime so a valid
+    # Azure-only setup is not hidden or repeatedly re-prompted.
+    try:
+        from agent.anthropic_adapter import (
+            _is_anthropic_messages_endpoint,
+            _is_azure_anthropic_endpoint,
+        )
+        from fabric_cli.config import load_config
+
+        config = load_config() or {}
+        model_cfg = config.get("model")
+    except Exception:
+        model_cfg = None
+    model_base_url = ""
+    if (
+        isinstance(model_cfg, dict)
+        and _is_anthropic_provider_name(model_cfg.get("provider"))
+    ):
+        candidate_model_base_url = str(
+            model_cfg.get("base_url") or ""
+        ).strip().rstrip("/")
+        if _is_anthropic_messages_endpoint(candidate_model_base_url):
+            model_base_url = candidate_model_base_url
+    if (
+        isinstance(model_cfg, dict)
+        and _is_anthropic_provider_name(model_cfg.get("provider"))
+        and _is_azure_anthropic_endpoint(configured_base_url)
+        # Model-scoped key hints belong to model.base_url. If an explicit
+        # ANTHROPIC_BASE_URL selects another resource, do not transplant those
+        # credentials onto it; only the generic paired source below may match.
+        and (
+            not model_base_url
+            or _anthropic_endpoints_match(
+                model_base_url,
+                configured_base_url,
+            )
+        )
+    ):
+        azure_value = ""
+        azure_source = ""
+        for hint_key in ("key_env", "api_key_env"):
+            env_var = str(model_cfg.get(hint_key) or "").strip()
+            if env_var:
+                azure_value = (
+                    get_env_value_prefer_dotenv(env_var) or ""
+                ).strip()
+                if azure_value:
+                    azure_source = f"env:{env_var}"
+                    break
+        if not azure_value:
+            azure_value = str(model_cfg.get("api_key") or "").strip()
+            if azure_value:
+                azure_source = "config:model.api_key"
+        if not azure_value:
+            azure_value = (
+                get_env_value_prefer_dotenv("AZURE_ANTHROPIC_KEY") or ""
+            ).strip()
+            if azure_value:
+                azure_source = "env:AZURE_ANTHROPIC_KEY"
+        if azure_value:
+            if _anthropic_api_key_shape_allowed(
+                azure_value,
+                configured_base_url,
+            ):
+                return azure_value, azure_source, configured_base_url
+            # The first configured source is authoritative. Do not silently
+            # fall through to a lower-priority key after rejecting it.
+            return "", "", configured_base_url
+
+    env_source = "env:ANTHROPIC_API_KEY"
+    value = ""
+    if not is_source_suppressed("anthropic", env_source):
+        value = (
+            get_env_value_prefer_dotenv("ANTHROPIC_API_KEY") or ""
+        ).strip()
+    if has_usable_secret(value) and _anthropic_api_key_shape_allowed(
+        value, anthropic_env_base_url
+    ):
+        if explicit_base_url and not _anthropic_endpoints_match(
+            anthropic_env_base_url,
+            explicit_base_url,
+        ):
+            return "", "", configured_base_url
+        return value, env_source, anthropic_env_base_url
+
+    return "", "", configured_base_url
+
+
+def _resolve_anthropic_api_key() -> tuple[str, str]:
+    """Return a usable Anthropic API key and its source."""
+    value, source, _base_url = _resolve_anthropic_api_key_details()
+    return value, source
+
+
+def get_anthropic_key() -> str:
+    """Return the configured Anthropic API key, or ``""``.
+
+    Reports a usable manual pool entry first, then ``ANTHROPIC_API_KEY`` (with
+    ``~/.fabric/.env`` preferred over a stale shell export; see #20591). For a
+    rotating multi-key pool, runtime chooses the exact request key separately.
+    """
+    value, _source = _resolve_anthropic_api_key()
+    return value
+
+
+def _replace_anthropic_pooled_api_key(
+    current_key: str,
+    new_key: str,
+    *,
+    current_base_url: str = "",
+) -> bool:
+    """Replace the pooled Anthropic key currently shown by setup.
+
+    Re-authentication must update the source runtime will actually select.
+    Merely writing ``ANTHROPIC_API_KEY`` leaves a higher-priority manual pool
+    row active, making setup claim success while continuing to use the old key.
+    In profile mode a global fallback row is copied into the active profile,
+    preserving the global/default profile while making the new key effective
+    for the profile where re-authentication was requested.
+    """
+    from agent.anthropic_adapter import _anthropic_endpoints_match
+    from fabric_cli.config import _validate_anthropic_api_key
+
+    current = str(current_key or "").strip()
+    if not current:
+        return False
+
+    try:
+        entries = read_credential_pool("anthropic")
+    except Exception:
+        return False
+
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        auth_type = str(entry.get("auth_type") or "api_key").strip().lower()
+        if auth_type.replace("-", "_") != "api_key":
+            continue
+        if str(entry.get("access_token") or "").strip() != current:
+            continue
+
+        entry_base_url = (
+            str(entry.get("base_url") or "").strip().rstrip("/")
+            or _configured_anthropic_base_url()
+        )
+        if current_base_url and not _anthropic_endpoints_match(
+            entry_base_url,
+            current_base_url,
+        ):
+            continue
+        replacement = _validate_anthropic_api_key(
+            new_key,
+            base_url=entry_base_url,
+        )
+        updated = dict(entry)
+        updated["access_token"] = replacement
+        updated["auth_type"] = "api_key"
+        updated["base_url"] = entry_base_url
+        updated["request_count"] = 0
+        for field in (
+            "refresh_token",
+            "expires_at",
+            "expires_at_ms",
+            "last_refresh",
+            "last_status",
+            "last_status_at",
+            "last_error_code",
+            "last_error_reason",
+            "last_error_message",
+            "last_error_reset_at",
+        ):
+            updated.pop(field, None)
+        entries[index] = updated
+        write_credential_pool("anthropic", entries)
+        return True
+
+    return False
 
 
 # =============================================================================
@@ -594,10 +930,37 @@ def has_usable_secret(value: Any, *, min_length: int = 4) -> bool:
     return True
 
 
+def _has_usable_provider_secret(
+    provider_id: str,
+    value: Any,
+    *,
+    base_url: Optional[str] = None,
+) -> bool:
+    """Return whether *value* is valid for an API-key provider slot.
+
+    Anthropic OAuth/setup tokens are deliberately not interchangeable with
+    native API keys.  Keeping that shape guard here makes setup detection,
+    auto-provider selection, generic status, and runtime resolution agree when
+    a retired token is accidentally left in ``ANTHROPIC_API_KEY``.
+    """
+    if not has_usable_secret(value):
+        return False
+    if (provider_id or "").strip().lower() != "anthropic":
+        return True
+
+    from agent.anthropic_adapter import _anthropic_api_key_shape_allowed
+
+    effective_base_url = base_url or _configured_anthropic_base_url()
+    return _anthropic_api_key_shape_allowed(str(value).strip(), effective_base_url)
+
+
 def _resolve_api_key_provider_secret(
     provider_id: str, pconfig: ProviderConfig
 ) -> tuple[str, str]:
     """Resolve an API-key provider's token and indicate where it came from."""
+    if provider_id == "anthropic":
+        return _resolve_anthropic_api_key()
+
     if provider_id == "copilot":
         # Use the dedicated copilot auth module for proper token validation
         try:
@@ -618,7 +981,7 @@ def _resolve_api_key_provider_secret(
         # in the user's .env file isn't shadowed by a stale shell export
         # inherited from a parent process (Codex CLI, test runners, etc.).
         val = (get_env_value_prefer_dotenv(env_var) or "").strip()
-        if has_usable_secret(val):
+        if _has_usable_provider_secret(provider_id, val):
             return val, env_var
 
     # Fallback: try credential pool (e.g. zai key stored via auth.json)
@@ -630,7 +993,7 @@ def _resolve_api_key_provider_secret(
             if entry:
                 key = getattr(entry, "access_token", "") or getattr(entry, "runtime_api_key", "")
                 key = str(key).strip()
-                if has_usable_secret(key):
+                if _has_usable_provider_secret(provider_id, key):
                     return key, f"credential_pool:{provider_id}"
     except Exception:
         pass
@@ -1744,7 +2107,7 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
         for env_var in pconfig.api_key_env_vars:
             if env_var in _IMPLICIT_ENV_VARS:
                 continue
-            if has_usable_secret(os.getenv(env_var, "")):
+            if _has_usable_provider_secret(normalized, os.getenv(env_var, "")):
                 return True
 
     # 4. Check persisted credential-pool entries that came from EXPLICIT flows
@@ -1763,13 +2126,25 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
                 # the user deletes the env var (#55790) — only count it when
                 # the referenced var still resolves to a usable secret NOW.
                 env_var = entry.get("source", "").split(":", 1)[1].strip()
-                if env_var and has_usable_secret(os.getenv(env_var, "")):
+                if env_var and _has_usable_provider_secret(
+                    normalized, os.getenv(env_var, "")
+                ):
                     return True
                 continue
             if (
                 source in {"device_code", "loopback_pkce", "anthropic_pkce", "manual"}
                 or source.startswith("manual:")
             ):
+                if normalized == "anthropic":
+                    auth_type = str(entry.get("auth_type") or "api_key").lower()
+                    if auth_type.replace("-", "_") != "api_key":
+                        continue
+                    if not _has_usable_provider_secret(
+                        normalized,
+                        entry.get("access_token"),
+                        base_url=str(entry.get("base_url") or "").strip() or None,
+                    ):
+                        continue
                 return True
     except Exception:
         pass
@@ -1897,7 +2272,7 @@ def resolve_provider(
         "minimax-portal": "minimax-oauth", "minimax-global": "minimax-oauth", "minimax_oauth": "minimax-oauth",
         "alibaba_coding": "alibaba-coding-plan", "alibaba-coding": "alibaba-coding-plan",
         "alibaba_coding_plan": "alibaba-coding-plan",
-        "claude": "anthropic", "claude-code": "anthropic",
+        "claude": "anthropic", "claude-oauth": "anthropic", "claude-code": "anthropic",
         "github": "copilot", "github-copilot": "copilot",
         "github-models": "copilot", "github-model": "copilot",
         "github-copilot-acp": "copilot-acp", "copilot-acp-agent": "copilot-acp",
@@ -2014,7 +2389,7 @@ def resolve_provider(
         if pid in {"copilot", "lmstudio"}:
             continue
         for env_var in pconfig.api_key_env_vars:
-            if has_usable_secret(os.getenv(env_var, "")):
+            if _has_usable_provider_secret(pid, os.getenv(env_var, "")):
                 # An exported API key now wins over a logged-in OAuth provider
                 # (the #29285 fix). Surface that so a user who deliberately uses
                 # OAuth but has a stale key in ~/.fabric/.env isn't silently
@@ -6337,9 +6712,13 @@ def get_api_key_provider_status(provider_id: str) -> Dict[str, Any]:
     if not pconfig or pconfig.auth_type not in {"api_key", "local"}:
         return {"configured": False}
 
-    api_key = ""
-    key_source = ""
-    api_key, key_source = _resolve_api_key_provider_secret(provider_id, pconfig)
+    resolved_base_url = ""
+    if provider_id == "anthropic":
+        api_key, key_source, resolved_base_url = (
+            _resolve_anthropic_api_key_details()
+        )
+    else:
+        api_key, key_source = _resolve_api_key_provider_secret(provider_id, pconfig)
 
     env_url = ""
     if pconfig.base_url_env_var:
@@ -6347,6 +6726,8 @@ def get_api_key_provider_status(provider_id: str) -> Dict[str, Any]:
 
     if provider_id in {"kimi-coding", "kimi-coding-cn"}:
         base_url = _resolve_kimi_base_url(api_key, pconfig.inference_base_url, env_url)
+    elif resolved_base_url:
+        base_url = resolved_base_url
     elif env_url:
         base_url = env_url
     else:
@@ -6517,9 +6898,13 @@ def resolve_api_key_provider_credentials(provider_id: str) -> Dict[str, Any]:
             code="invalid_provider",
         )
 
-    api_key = ""
-    key_source = ""
-    api_key, key_source = _resolve_api_key_provider_secret(provider_id, pconfig)
+    resolved_base_url = ""
+    if provider_id == "anthropic":
+        api_key, key_source, resolved_base_url = (
+            _resolve_anthropic_api_key_details()
+        )
+    else:
+        api_key, key_source = _resolve_api_key_provider_secret(provider_id, pconfig)
 
     # No-auth local providers: substitute provider-scoped markers so runtime /
     # auxiliary_client see the route as configured without borrowing a cloud
@@ -6559,6 +6944,8 @@ def resolve_api_key_provider_credentials(provider_id: str) -> Dict[str, Any]:
                     base_url = resolved
         except Exception as exc:
             logger.debug("Copilot base URL resolution fell back to default: %s", exc)
+    elif resolved_base_url:
+        base_url = resolved_base_url.rstrip("/")
     elif env_url:
         base_url = env_url.rstrip("/")
     else:

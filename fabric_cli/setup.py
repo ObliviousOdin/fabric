@@ -2485,9 +2485,15 @@ def _model_section_has_credentials(config: dict) -> bool:
         ``OPENAI_API_KEY`` / ``OPENROUTER_API_KEY`` values through OpenRouter.
     """
     try:
-        from fabric_cli.auth import get_active_provider
-        if get_active_provider():
-            return True
+        from fabric_cli.auth import get_active_provider, get_auth_status
+
+        active_provider = get_active_provider()
+        if active_provider:
+            if active_provider != "anthropic":
+                return True
+            active_status = get_auth_status("anthropic") or {}
+            if active_status.get("configured") or active_status.get("logged_in"):
+                return True
     except Exception:
         pass
 
@@ -2496,7 +2502,15 @@ def _model_section_has_credentials(config: dict) -> bool:
     except Exception:
         PROVIDER_REGISTRY = {}  # type: ignore[assignment]
 
-    def _has_key(pconfig) -> bool:
+    def _has_key(provider_id: str, pconfig) -> bool:
+        if provider_id == "anthropic":
+            try:
+                from fabric_cli.auth import get_auth_status
+
+                status = get_auth_status("anthropic") or {}
+                return bool(status.get("configured") or status.get("logged_in"))
+            except Exception:
+                return False
         for env_var in pconfig.api_key_env_vars:
             # CLAUDE_CODE_OAUTH_TOKEN is set by Claude Code itself, not by
             # the user — mirrors is_provider_explicitly_configured in auth.py.
@@ -2513,7 +2527,7 @@ def _model_section_has_credentials(config: dict) -> bool:
     if isinstance(model_cfg, dict):
         provider_id = (model_cfg.get("provider") or "").strip().lower()
         if provider_id in PROVIDER_REGISTRY:
-            if _has_key(PROVIDER_REGISTRY[provider_id]):
+            if _has_key(provider_id, PROVIDER_REGISTRY[provider_id]):
                 return True
         if provider_id == "openrouter":
             for env_var in ("OPENROUTER_API_KEY", "OPENAI_API_KEY"):
@@ -2530,7 +2544,7 @@ def _model_section_has_credentials(config: dict) -> bool:
         # commonly set for git tooling.  Mirrors resolve_provider in auth.py.
         if pid == "copilot":
             continue
-        if _has_key(pconfig):
+        if _has_key(pid, pconfig):
             return True
     return False
 

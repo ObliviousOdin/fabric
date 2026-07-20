@@ -1647,12 +1647,10 @@ def test_load_pool_migrates_nous_provider_state_preserves_tls(tmp_path, monkeypa
     }
 
 
-def test_singleton_seed_does_not_clobber_manual_oauth_entry(tmp_path, monkeypatch):
-    """Fabric never auto-seeds Anthropic OAuth credentials (see NOTICE) — a
-    manually-added pool entry survives untouched, and no second entry
-    appears alongside it."""
+def test_load_pool_prunes_all_legacy_anthropic_oauth_entries(tmp_path, monkeypatch):
+    """Every old native-Anthropic OAuth source is removed on pool load."""
     monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-explicit-user-key")
     _write_auth_store(
         tmp_path,
         {
@@ -1660,7 +1658,7 @@ def test_singleton_seed_does_not_clobber_manual_oauth_entry(tmp_path, monkeypatc
             "credential_pool": {
                 "anthropic": [
                     {
-                        "id": "manual-1",
+                        "id": "manual-pkce",
                         "label": "manual-pkce",
                         "auth_type": "oauth",
                         "priority": 0,
@@ -1668,7 +1666,71 @@ def test_singleton_seed_does_not_clobber_manual_oauth_entry(tmp_path, monkeypatc
                         "access_token": "manual-token",
                         "refresh_token": "manual-refresh",
                         "expires_at_ms": 1711234567000,
-                    }
+                    },
+                    {
+                        "id": "manual-claude-code",
+                        "label": "manual-claude-code",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "manual:claude_code",
+                        "access_token": "manual-claude-code-token",
+                    },
+                    {
+                        "id": "pkce",
+                        "label": "pkce",
+                        "auth_type": "oauth",
+                        "priority": 2,
+                        "source": "anthropic_pkce",
+                        "access_token": "pkce-token",
+                    },
+                    {
+                        "id": "claude-code",
+                        "label": "claude-code",
+                        "auth_type": "oauth",
+                        "priority": 3,
+                        "source": "claude_code",
+                        "access_token": "claude-code-token",
+                    },
+                    {
+                        "id": "anthropic-token-env",
+                        "label": "ANTHROPIC_TOKEN",
+                        "auth_type": "oauth",
+                        "priority": 4,
+                        "source": "env:ANTHROPIC_TOKEN",
+                        "access_token": "old-anthropic-token",
+                    },
+                    {
+                        "id": "claude-code-env",
+                        "label": "CLAUDE_CODE_OAUTH_TOKEN",
+                        "auth_type": "oauth",
+                        "priority": 5,
+                        "source": "env:CLAUDE_CODE_OAUTH_TOKEN",
+                        "access_token": "old-claude-code-env-token",
+                    },
+                    {
+                        "id": "generic-manual-oauth",
+                        "label": "generic-manual-oauth",
+                        "auth_type": "oauth",
+                        "priority": 6,
+                        "source": "manual",
+                        "access_token": "old-generic-oauth-token",
+                    },
+                    {
+                        "id": "oauth-shaped-api-key",
+                        "label": "oauth-shaped-api-key",
+                        "auth_type": "api_key",
+                        "priority": 7,
+                        "source": "manual",
+                        "access_token": "sk-ant-oat01-mislabeled-oauth-token",
+                    },
+                    {
+                        "id": "manual-api-key",
+                        "label": "team key",
+                        "auth_type": "api_key",
+                        "priority": 8,
+                        "source": "manual",
+                        "access_token": "sk-ant-api03-team-key",
+                    },
                 ]
             },
         },
@@ -1679,8 +1741,200 @@ def test_singleton_seed_does_not_clobber_manual_oauth_entry(tmp_path, monkeypatc
     pool = load_pool("anthropic")
     entries = pool.entries()
 
-    assert len(entries) == 1
-    assert entries[0].source == "manual:anthropic_pkce"
+    assert [(entry.source, entry.access_token) for entry in entries] == [
+        ("manual", "sk-ant-api03-team-key"),
+        ("env:ANTHROPIC_API_KEY", "sk-ant-api03-explicit-user-key"),
+    ]
+
+    auth_payload = json.loads((tmp_path / "fabric" / "auth.json").read_text())
+    assert [entry["source"] for entry in auth_payload["credential_pool"]["anthropic"]] == [
+        "manual",
+        "env:ANTHROPIC_API_KEY",
+    ]
+
+
+def test_load_pool_preserves_third_party_anthropic_jwt_api_key(
+    tmp_path, monkeypatch
+):
+    """Opaque/JWT keys are valid on explicit Anthropic-compatible gateways."""
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "anthropic": [
+                    {
+                        "id": "proxy-key",
+                        "label": "proxy",
+                        "auth_type": "api_key",
+                        "priority": 0,
+                        "source": "manual",
+                        "access_token": "eyJ.proxy.signature",
+                        "base_url": "https://gateway.example/anthropic",
+                    }
+                ]
+            },
+        },
+    )
+
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("anthropic")
+
+    assert [(entry.id, entry.access_token) for entry in pool.entries()] == [
+        ("proxy-key", "eyJ.proxy.signature")
+    ]
+
+
+def test_load_pool_backfills_configured_endpoint_for_legacy_proxy_key(
+    tmp_path, monkeypatch
+):
+    """A pre-endpoint pool row keeps its JWT when config supplies the pair."""
+    fabric_home = tmp_path / "fabric"
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "anthropic": [
+                    {
+                        "id": "legacy-proxy-key",
+                        "label": "proxy",
+                        "auth_type": "api_key",
+                        "priority": 0,
+                        "source": "manual",
+                        "access_token": "eyJ.proxy.signature",
+                    }
+                ]
+            },
+        },
+    )
+    (fabric_home / "config.yaml").write_text(
+        "model:\n"
+        "  provider: anthropic\n"
+        "  base_url: https://gateway.example/anthropic\n"
+    )
+
+    from agent.credential_pool import load_pool
+
+    first = load_pool("anthropic").entries()
+    second = load_pool("anthropic").entries()
+
+    assert [(entry.id, entry.access_token, entry.base_url) for entry in first] == [
+        (
+            "legacy-proxy-key",
+            "eyJ.proxy.signature",
+            "https://gateway.example/anthropic",
+        )
+    ]
+    assert [(entry.id, entry.base_url) for entry in second] == [
+        ("legacy-proxy-key", "https://gateway.example/anthropic")
+    ]
+    auth_payload = json.loads((fabric_home / "auth.json").read_text())
+    assert auth_payload["credential_pool"]["anthropic"][0]["base_url"] == (
+        "https://gateway.example/anthropic"
+    )
+
+
+def test_load_pool_keeps_legacy_native_key_on_native_endpoint(
+    tmp_path, monkeypatch
+):
+    """A route change must not transplant an old native key to a proxy."""
+    fabric_home = tmp_path / "fabric"
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "anthropic": [{
+                    "id": "legacy-native",
+                    "label": "native",
+                    "auth_type": "api_key",
+                    "priority": 0,
+                    "source": "manual",
+                    "access_token": "sk-ant-api03-native-old",
+                }],
+            },
+        },
+    )
+    (fabric_home / "config.yaml").write_text(
+        "model:\n"
+        "  provider: anthropic\n"
+        "  base_url: https://gateway.example/anthropic\n"
+    )
+
+    from agent.credential_pool import load_pool
+
+    entries = load_pool("anthropic").entries()
+
+    assert [(entry.id, entry.base_url) for entry in entries] == [
+        ("legacy-native", "https://api.anthropic.com")
+    ]
+
+
+def test_load_pool_trusts_explicit_arbitrary_proxy_base_for_legacy_jwt(
+    tmp_path, monkeypatch
+):
+    fabric_home = tmp_path / "fabric"
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://proxy.example/v1")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "anthropic": [{
+                    "id": "legacy-arbitrary-proxy",
+                    "label": "proxy",
+                    "auth_type": "api_key",
+                    "priority": 0,
+                    "source": "manual",
+                    "access_token": "eyJ.proxy.signature",
+                }],
+            },
+        },
+    )
+
+    from agent.credential_pool import load_pool
+
+    entries = load_pool("anthropic").entries()
+
+    assert [(entry.id, entry.base_url) for entry in entries] == [
+        ("legacy-arbitrary-proxy", "https://proxy.example/v1")
+    ]
+
+
+def test_load_pool_keeps_env_anthropic_entry_id_stable_across_loads(
+    tmp_path, monkeypatch
+):
+    """Sanitized env rows rehydrate without losing identity/cooldown state."""
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-env-key")
+    _write_auth_store(tmp_path, {"version": 1, "credential_pool": {}})
+
+    from agent.credential_pool import load_pool
+
+    first = load_pool("anthropic").entries()
+    second = load_pool("anthropic").entries()
+
+    first_env = next(e for e in first if e.source == "env:ANTHROPIC_API_KEY")
+    second_env = next(e for e in second if e.source == "env:ANTHROPIC_API_KEY")
+    assert second_env.id == first_env.id
+
+    auth_payload = json.loads((tmp_path / "fabric" / "auth.json").read_text())
+    persisted = next(
+        entry
+        for entry in auth_payload["credential_pool"]["anthropic"]
+        if entry["source"] == "env:ANTHROPIC_API_KEY"
+    )
+    assert persisted["id"] == first_env.id
 
 
 def test_load_pool_api_key_path_skips_oauth_autodiscovery(tmp_path, monkeypatch):
@@ -3070,5 +3324,3 @@ def test_remove_index_does_not_resurrect_via_disk_merge(tmp_path, monkeypatch):
     final = json.loads((tmp_path / "fabric" / "auth.json").read_text())
     final_ids = [entry["id"] for entry in final["credential_pool"]["anthropic"]]
     assert final_ids == ["cred-A"]
-
-

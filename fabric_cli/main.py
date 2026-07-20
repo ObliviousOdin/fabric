@@ -858,12 +858,14 @@ def _has_any_provider_configured() -> bool:
     provider_env_vars = {
         "OPENROUTER_API_KEY",
         "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_TOKEN",
         "OPENAI_BASE_URL",
     }
-    for pconfig in PROVIDER_REGISTRY.values():
+    for provider_id, pconfig in PROVIDER_REGISTRY.items():
         if pconfig.auth_type == "api_key":
+            # Anthropic has an API-key shape guard and pool-aware resolver.
+            # Its generic status check below is the single source of truth.
+            if provider_id == "anthropic":
+                continue
             provider_env_vars.update(pconfig.api_key_env_vars)
     if any(get_secret(v) for v in provider_env_vars):
         return True

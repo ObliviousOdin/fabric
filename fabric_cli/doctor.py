@@ -33,7 +33,6 @@ _PROVIDER_ENV_HINTS = (
     "OPENROUTER_API_KEY",
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
-    "ANTHROPIC_TOKEN",
     "OPENAI_BASE_URL",
     "NOUS_API_KEY",
     "GLM_API_KEY",
@@ -2034,18 +2033,31 @@ def run_doctor(args):
             )
 
     def _probe_anthropic() -> _ConnectivityResult:
-        from fabric_cli.auth import get_anthropic_key
-        key = get_anthropic_key()
+        from fabric_cli.auth import resolve_api_key_provider_credentials
+
+        credentials = resolve_api_key_provider_credentials("anthropic")
+        key = str(credentials.get("api_key") or "").strip()
         if not key:
             return _ConnectivityResult("Anthropic API", [], [])
+        base_url = str(
+            credentials.get("base_url") or "https://api.anthropic.com"
+        ).strip().rstrip("/")
+        models_url = (
+            f"{base_url}/models"
+            if base_url.endswith("/v1")
+            else f"{base_url}/v1/models"
+        )
         try:
             import httpx
-            headers = {
-                "anthropic-version": "2023-06-01",
-                "x-api-key": key,
-            }
+            from agent.anthropic_adapter import (
+                _anthropic_static_auth_headers,
+                _with_anthropic_api_version,
+            )
+
+            headers = _anthropic_static_auth_headers(key, base_url)
+            models_url = _with_anthropic_api_version(models_url, base_url)
             r = httpx.get(
-                "https://api.anthropic.com/v1/models",
+                models_url,
                 headers=headers, timeout=10,
             )
             if r.status_code == 200:

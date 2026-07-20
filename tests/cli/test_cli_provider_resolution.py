@@ -475,10 +475,17 @@ def test_model_flow_anthropic_clears_stale_custom_key_and_mode(tmp_path, monkeyp
 
     config_path = _seed_stale_custom_model(tmp_path, monkeypatch)
 
-    monkeypatch.setattr("fabric_cli.auth.get_anthropic_key", lambda: "sk-ant-api03-test")
+    monkeypatch.setattr(
+        "fabric_cli.auth._resolve_anthropic_api_key_details",
+        lambda: (
+            "sk-ant-api03-test",
+            "env:ANTHROPIC_API_KEY",
+            "https://api.anthropic.com",
+        ),
+    )
     monkeypatch.setattr(
         "fabric_cli.model_setup_flows._prompt_auth_credentials_choice",
-        lambda title: "use",
+        lambda title, **_kwargs: "use",
     )
     monkeypatch.setattr(
         "fabric_cli.auth._prompt_model_selection",

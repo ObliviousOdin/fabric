@@ -662,8 +662,19 @@ def _restricted_validation(
     }
     if api_key:
         if api_mode == "anthropic_messages":
-            headers["x-api-key"] = api_key
-            headers["anthropic-version"] = "2023-06-01"
+            from agent.anthropic_adapter import _anthropic_static_auth_headers
+
+            try:
+                headers.update(
+                    _anthropic_static_auth_headers(api_key, normalized)
+                )
+            except ValueError as exc:
+                return {
+                    "accepted": False,
+                    "persist": False,
+                    "recognized": False,
+                    "message": str(exc),
+                }
         else:
             headers["Authorization"] = f"Bearer {api_key}"
 
@@ -673,7 +684,12 @@ def _restricted_validation(
     )
     model_ids: Optional[list[str]] = None
     for candidate in candidates:
-        request = urllib.request.Request(candidate + "/models", headers=headers)
+        models_url = candidate + "/models"
+        if api_mode == "anthropic_messages":
+            from agent.anthropic_adapter import _with_anthropic_api_version
+
+            models_url = _with_anthropic_api_version(models_url, normalized)
+        request = urllib.request.Request(models_url, headers=headers)
         try:
             with opener.open(request, timeout=5.0) as response:
                 if str(response.headers.get("Content-Encoding") or "identity").lower() not in {
@@ -2751,16 +2767,37 @@ def list_authenticated_providers(
             if not isinstance(env_vars, list):
                 continue
 
-        # Check if any env var is set
-        has_creds = any(os.environ.get(ev) for ev in env_vars)
-        if not has_creds:
+        # Anthropic needs its API-key shape guard and filtered pool view; a raw
+        # non-empty env/pool value may be a retired OAuth credential.
+        if fabric_id == "anthropic":
             try:
-                from fabric_cli.auth import _load_auth_store
-                store = _load_auth_store()
-                if store and store.get("credential_pool", {}).get(fabric_id):
-                    has_creds = True
-            except Exception:
-                pass
+                from fabric_cli.auth import get_auth_status
+
+                status = get_auth_status("anthropic") or {}
+                has_creds = bool(
+                    status.get("configured") or status.get("logged_in")
+                )
+            except Exception as exc:
+                logger.debug("Anthropic credential status failed: %s", exc)
+                has_creds = False
+        else:
+            # Check if any env var is set.
+            has_creds = any(os.environ.get(ev) for ev in env_vars)
+        if not has_creds and fabric_id != "anthropic":
+            try:
+                from agent.credential_pool import load_pool
+
+                # Run provider-specific pool normalization before advertising
+                # the row. A raw non-empty list is not enough: Anthropic pools
+                # from older releases may contain only retired OAuth entries,
+                # which load_pool() prunes and runtime cannot use.
+                has_creds = load_pool(fabric_id).has_credentials()
+            except Exception as exc:
+                logger.debug(
+                    "Credential pool check failed for mapped provider %s: %s",
+                    fabric_id,
+                    exc,
+                )
         if not has_creds:
             continue
 
@@ -2816,7 +2853,22 @@ def list_authenticated_providers(
 
         # Check if credentials exist
         has_creds = False
-        if fabric_slug == "ollama":
+        anthropic_status_authoritative = fabric_slug == "anthropic"
+        if anthropic_status_authoritative:
+            # Anthropic can reach this overlay-only path when models.dev is
+            # offline or uncached. Keep the same filtered API-key view used in
+            # section 1; generic raw env/auth-store checks would resurrect
+            # retired OAuth rows and wrong-slot OAuth-shaped values.
+            try:
+                from fabric_cli.auth import get_auth_status
+
+                status = get_auth_status("anthropic") or {}
+                has_creds = bool(
+                    status.get("configured") or status.get("logged_in")
+                )
+            except Exception as exc:
+                logger.debug("Anthropic credential status failed: %s", exc)
+        elif fabric_slug == "ollama":
             # Local Ollama is no-auth. Treat it as configured only after the
             # profile selected it; the provider setup menu remains the entry
             # point for a first connection.
@@ -2826,7 +2878,11 @@ def list_authenticated_providers(
         elif overlay.extra_env_vars:
             has_creds = any(os.environ.get(ev) for ev in overlay.extra_env_vars)
         # Also check api_key_env_vars from PROVIDER_REGISTRY for api_key auth_type
-        if not has_creds and overlay.auth_type == "api_key":
+        if (
+            not has_creds
+            and not anthropic_status_authoritative
+            and overlay.auth_type == "api_key"
+        ):
             for _key in (pid, fabric_slug):
                 pcfg = _auth_registry.get(_key)
                 if pcfg and pcfg.api_key_env_vars:
@@ -2835,7 +2891,7 @@ def list_authenticated_providers(
                         break
         # Check auth store and credential pool for non-env-var credentials.
         # This applies to OAuth providers.
-        if not has_creds:
+        if not has_creds and not anthropic_status_authoritative:
             try:
                 from fabric_cli.auth import _load_auth_store
                 store = _load_auth_store()
@@ -2850,7 +2906,7 @@ def list_authenticated_providers(
         # Codex CLI refresh credentials are not silently imported: users must
         # explicitly import them or authenticate through Fabric to avoid two
         # processes racing a single-use refresh token.
-        if not has_creds:
+        if not has_creds and not anthropic_status_authoritative:
             try:
                 from agent.credential_pool import load_pool
                 pool = load_pool(fabric_slug)
@@ -2978,10 +3034,22 @@ def list_authenticated_providers(
         # Check credentials via PROVIDER_REGISTRY (auth.py)
         _cp_config = _auth_registry.get(_cp.slug)
         _cp_has_creds = False
-        if _cp_config and _cp_config.api_key_env_vars:
+        _cp_anthropic_status_authoritative = _cp.slug == "anthropic"
+        if _cp_anthropic_status_authoritative:
+            try:
+                from fabric_cli.auth import get_auth_status
+
+                _cp_status = get_auth_status("anthropic") or {}
+                _cp_has_creds = bool(
+                    _cp_status.get("configured")
+                    or _cp_status.get("logged_in")
+                )
+            except Exception as exc:
+                logger.debug("Anthropic credential status failed: %s", exc)
+        elif _cp_config and _cp_config.api_key_env_vars:
             _cp_has_creds = any(os.environ.get(ev) for ev in _cp_config.api_key_env_vars)
         # Also check auth store and credential pool
-        if not _cp_has_creds:
+        if not _cp_has_creds and not _cp_anthropic_status_authoritative:
             try:
                 from fabric_cli.auth import _load_auth_store
                 _cp_store = _load_auth_store()
@@ -2990,7 +3058,7 @@ def list_authenticated_providers(
                     _cp_has_creds = True
             except Exception:
                 pass
-        if not _cp_has_creds:
+        if not _cp_has_creds and not _cp_anthropic_status_authoritative:
             try:
                 from agent.credential_pool import load_pool
                 _cp_pool = load_pool(_cp.slug)

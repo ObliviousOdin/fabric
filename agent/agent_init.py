@@ -820,7 +820,10 @@ def init_agent(
     _provider_timeout = get_provider_request_timeout(agent.provider, agent.model)
 
     if agent.api_mode == "anthropic_messages":
-        from agent.anthropic_adapter import build_anthropic_client, resolve_anthropic_token
+        from agent.anthropic_adapter import (
+            _anthropic_endpoints_match,
+            build_anthropic_client,
+        )
         # Bedrock + Claude → use AnthropicBedrock SDK for full feature parity
         # (prompt caching, thinking budgets, adaptive thinking).
         _is_bedrock_anthropic = agent.provider == "bedrock"
@@ -839,11 +842,37 @@ def init_agent(
             if not agent.quiet_mode:
                 print(f"🤖 AI Agent initialized with model: {agent.model} (AWS Bedrock + AnthropicBedrock SDK, {_br_region})")
         else:
-            # Only fall back to ANTHROPIC_TOKEN when the provider is actually Anthropic.
+            # Only resolve the native Anthropic API key for Anthropic itself.
             # Other anthropic_messages providers (MiniMax, Alibaba, etc.) must use their own API key.
             # Falling back would send Anthropic credentials to third-party endpoints (Fixes #1739, #minimax-401).
             _is_native_anthropic = agent.provider == "anthropic"
-            effective_key = (api_key or resolve_anthropic_token() or "") if _is_native_anthropic else (api_key or "")
+            effective_key = api_key or ""
+            if _is_native_anthropic and not effective_key:
+                try:
+                    from fabric_cli.auth import (
+                        resolve_api_key_provider_credentials,
+                    )
+
+                    _paired = resolve_api_key_provider_credentials("anthropic")
+                except Exception:
+                    _paired = {}
+                _requested_base = str(base_url or "").strip().rstrip("/")
+                _paired_base = str(
+                    _paired.get("base_url") or ""
+                ).strip().rstrip("/")
+                if not _requested_base or _anthropic_endpoints_match(
+                    _requested_base,
+                    _paired_base,
+                ):
+                    effective_key = str(
+                        _paired.get("api_key") or ""
+                    ).strip()
+                    if not _requested_base and _paired_base:
+                        base_url = _paired_base
+
+            # Keep the public/runtime route aligned with the client route when
+            # direct construction adopted a canonical paired endpoint.
+            agent.base_url = base_url
 
             # MiniMax OAuth issues short-lived (~15-min) access tokens. The
             # Anthropic SDK caches ``api_key`` as a static string at client
@@ -872,15 +901,10 @@ def init_agent(
             agent.api_key = effective_key
             agent._anthropic_api_key = effective_key
             agent._anthropic_base_url = base_url
-            # Only mark the session as OAuth-authenticated when the token
-            # genuinely belongs to native Anthropic.  Third-party providers
-            # (MiniMax, Kimi, GLM, LiteLLM proxies) that accept the
-            # Anthropic protocol must never trip OAuth code paths — doing
-            # so injects Claude-Code identity headers and system prompts
-            # that cause 401/403 on their endpoints.  Guards #1739 and
-            # the third-party identity-injection bug.
-            from agent.anthropic_adapter import _is_oauth_token as _is_oat
-            agent._is_anthropic_oauth = _is_oat(effective_key) if (_is_native_anthropic and isinstance(effective_key, str)) else False
+            # Native Anthropic OAuth is unsupported. Third-party gateways may
+            # legitimately issue JWT-shaped API keys, so token shape must not
+            # reactivate subscription-only recovery for those credentials.
+            agent._is_anthropic_oauth = False
             agent._anthropic_client = build_anthropic_client(
                 effective_key,
                 base_url,
@@ -2261,7 +2285,9 @@ def init_agent(
         agent._primary_runtime.update({
             "anthropic_api_key": agent._anthropic_api_key,
             "anthropic_base_url": agent._anthropic_base_url,
-            "is_anthropic_oauth": agent._is_anthropic_oauth,
+            # Retained in the snapshot schema for compatibility with older
+            # in-process state, but native Anthropic OAuth is unsupported.
+            "is_anthropic_oauth": False,
         })
 
 

@@ -23,10 +23,28 @@ class AnthropicProfile(ProviderProfile):
         """Anthropic uses x-api-key header and anthropic-version."""
         if not api_key:
             return None
+        endpoint = str(base_url or self.base_url or "").strip().rstrip("/")
+        if not endpoint:
+            return None
         try:
-            req = urllib.request.Request("https://api.anthropic.com/v1/models")
-            req.add_header("x-api-key", api_key)
-            req.add_header("anthropic-version", "2023-06-01")
+            from agent.anthropic_adapter import (
+                _anthropic_static_auth_headers,
+                _with_anthropic_api_version,
+            )
+
+            headers = _anthropic_static_auth_headers(api_key, endpoint)
+        except ImportError:
+            return None
+        except ValueError:
+            return None
+        models_url = (
+            f"{endpoint}/models"
+            if endpoint.endswith("/v1")
+            else f"{endpoint}/v1/models"
+        )
+        models_url = _with_anthropic_api_version(models_url, endpoint)
+        try:
+            req = urllib.request.Request(models_url, headers=headers)
             req.add_header("Accept", "application/json")
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode())
@@ -44,7 +62,7 @@ anthropic = AnthropicProfile(
     name="anthropic",
     aliases=("claude", "claude-oauth", "claude-code"),
     api_mode="anthropic_messages",
-    env_vars=("ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"),
+    env_vars=("ANTHROPIC_API_KEY",),
     base_url="https://api.anthropic.com",
     auth_type="api_key",
     default_aux_model="claude-haiku-4-5-20251001",

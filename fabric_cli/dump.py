@@ -402,7 +402,6 @@ def run_dump(args):
         ("OPENAI_API_KEY", "openai", "openai-api"),
         ("XAI_API_KEY", "xai", "xai"),
         ("ANTHROPIC_API_KEY", "anthropic", "anthropic"),
-        ("ANTHROPIC_TOKEN", "anthropic_token", "anthropic"),
         ("NOUS_API_KEY", "nous", "nous"),
         ("GOOGLE_API_KEY", "google/gemini", "gemini"),
         ("GEMINI_API_KEY", "gemini", "gemini"),
@@ -430,7 +429,13 @@ def run_dump(args):
     for env_var, label, provider_ids in api_keys:
         if not _credential_row_visible(provider_ids):
             continue
-        val = os.getenv(env_var, "")
+        credential_source = ""
+        if label == "anthropic":
+            from fabric_cli.auth import _resolve_anthropic_api_key
+
+            val, credential_source = _resolve_anthropic_api_key()
+        else:
+            val = os.getenv(env_var, "")
         if show_keys and val:
             display = _redact(val)
         else:
@@ -440,12 +445,18 @@ def run_dump(args):
         # shell, so it likely can't see this key — even though the dump reads
         # "set". Flag it so support doesn't chase a phantom "key is configured"
         # (the actual cause of gated tools like web_search going missing).
-        if val and env_var not in dotenv_keys:
+        if (
+            val
+            and env_var not in dotenv_keys
+            and not credential_source.startswith("credential_pool")
+        ):
             display += " (shell only — not in .env; managed/desktop backend may not see it)"
         # A credential added via `fabric auth add openrouter` lives in the
         # credential pool, not as an env var — surface it so the dump doesn't
         # misleadingly read "not set" while `fabric auth list` shows it (#42130).
-        if not val and label == "openrouter":
+        if credential_source.startswith("credential_pool"):
+            display += " (auth pool)"
+        elif not val and label == "openrouter":
             try:
                 from agent.credential_pool import load_pool as _load_pool
 

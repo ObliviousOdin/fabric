@@ -128,6 +128,18 @@ SUPPORTED_POOL_STRATEGIES = {
     STRATEGY_LEAST_USED,
 }
 
+# Native Anthropic authentication is API-key-only.  These sources were
+# written by older Fabric releases when Anthropic subscription OAuth and
+# Claude Code credential reuse were supported.  Keep the list centralized so
+# every legacy spelling (including manually-added variants) is removed during
+# the normal pool-load migration.
+_LEGACY_ANTHROPIC_OAUTH_SOURCE_NAMES = frozenset({
+    "anthropic_pkce",
+    "claude_code",
+    "anthropic_token",
+    "claude_code_oauth_token",
+})
+
 # Cooldown before retrying an exhausted credential.
 # Transient 401 auth failures cool down briefly so single-key setups can recover.
 # 429 (rate-limited), 402 (billing/quota), and other failures cool down after 1 hour.
@@ -268,6 +280,56 @@ def _next_priority(entries: List[PooledCredential]) -> int:
 def _is_manual_source(source: str) -> bool:
     normalized = (source or "").strip().lower()
     return normalized == SOURCE_MANUAL or normalized.startswith(f"{SOURCE_MANUAL}:")
+
+
+def _is_legacy_anthropic_oauth_entry(
+    entry: PooledCredential,
+    fallback_base_url: Optional[str] = None,
+) -> bool:
+    """Return whether an Anthropic pool row belongs to the removed OAuth path."""
+    source = (entry.source or "").strip().lower()
+    if source.startswith(f"{SOURCE_MANUAL}:"):
+        source = source.split(":", 1)[1]
+    if source.startswith("env:"):
+        source = source.split(":", 1)[1]
+    from agent.anthropic_adapter import _anthropic_api_key_shape_allowed
+
+    token = str(entry.access_token or "").strip()
+    return (
+        entry.auth_type == AUTH_TYPE_OAUTH
+        or source in _LEGACY_ANTHROPIC_OAUTH_SOURCE_NAMES
+        # Env-backed rows are persisted without their borrowed raw secret and
+        # rehydrated on load. An empty persisted access_token is therefore not
+        # evidence of a legacy OAuth credential and must keep its stable ID and
+        # cooldown/request metadata across loads.
+        or (
+            bool(token)
+            and not _anthropic_api_key_shape_allowed(
+                token,
+                entry.base_url or fallback_base_url,
+            )
+        )
+    )
+
+
+def _configured_anthropic_pool_base_url() -> str:
+    """Return the active Anthropic Messages endpoint for legacy pool rows.
+
+    Older manual API-key rows predate per-entry ``base_url`` persistence. A
+    JWT-shaped key is ambiguous without its endpoint: it is invalid for native
+    Anthropic, but can be a legitimate key for an explicitly configured proxy.
+    Use the same profile-aware endpoint resolver as the auth layer so migration
+    can preserve and backfill that key/endpoint pair instead of deleting it.
+    """
+    try:
+        from fabric_cli.config import _explicit_anthropic_api_key_base_url
+
+        base_url = _explicit_anthropic_api_key_base_url().strip().rstrip("/")
+        if base_url:
+            return base_url
+    except Exception:
+        pass
+    return "https://api.anthropic.com"
 
 
 def _exhausted_ttl(error_code: Optional[int]) -> int:
@@ -528,9 +590,16 @@ def _write_through_provider_state_to_global_root(
 
 
 class CredentialPool:
-    def __init__(self, provider: str, entries: List[PooledCredential]):
+    def __init__(
+        self,
+        provider: str,
+        entries: List[PooledCredential],
+        *,
+        read_only: bool = False,
+    ):
         self.provider = provider
         self._entries = sorted(entries, key=lambda entry: entry.priority)
+        self._read_only = bool(read_only)
         self._current_id: Optional[str] = None
         self._strategy = get_pool_strategy(provider)
         self._lock = threading.Lock()
@@ -547,6 +616,11 @@ class CredentialPool:
     def entries(self) -> List[PooledCredential]:
         return list(self._entries)
 
+    @property
+    def read_only(self) -> bool:
+        """Whether entries are inherited from another credential scope."""
+        return self._read_only
+
     def current(self) -> Optional[PooledCredential]:
         if not self._current_id:
             return None
@@ -560,6 +634,12 @@ class CredentialPool:
                 return
 
     def _persist(self, *, removed_ids: Optional[List[str]] = None) -> None:
+        if self._read_only:
+            # Named profiles inherit the default profile's pool as a runtime
+            # fallback. Status/rotation changes stay in memory; writing them
+            # through the active-profile writer would clone raw global secrets
+            # and make the fallback unexpectedly shadow its owner.
+            return
         write_credential_pool(
             self.provider,
             [entry.to_dict() for entry in self._entries],
@@ -1514,6 +1594,8 @@ class CredentialPool:
         return refreshed
 
     def reset_statuses(self) -> int:
+        if self._read_only:
+            return 0
         count = 0
         new_entries = []
         for entry in self._entries:
@@ -1538,6 +1620,8 @@ class CredentialPool:
         return count
 
     def remove_index(self, index: int) -> Optional[PooledCredential]:
+        if self._read_only:
+            return None
         if index < 1 or index > len(self._entries):
             return None
         removed = self._entries.pop(index - 1)
@@ -1580,6 +1664,16 @@ class CredentialPool:
         return None, None, f'No credential matching "{raw}".'
 
     def add_entry(self, entry: PooledCredential) -> PooledCredential:
+        inherited_entries = list(self._entries)
+        inherited_current_id = self._current_id
+        was_read_only = self._read_only
+        if self._read_only:
+            # Adding inside a named profile creates its first local provider
+            # slice and intentionally shadows the inherited global fallback.
+            # Never include inherited siblings in that write.
+            self._entries = []
+            self._current_id = None
+            self._read_only = False
         entry = replace(entry, priority=_next_priority(self._entries))
         before = list(self._entries)
         self._entries.append(entry)
@@ -1600,9 +1694,25 @@ class CredentialPool:
                     PooledCredential.from_dict(self.provider, payload)
                     for payload in persisted
                 ]
-                self._entries = sorted(restored, key=lambda candidate: candidate.priority)
+                if was_read_only and not restored:
+                    # No local slice was published. Restore the inherited
+                    # read-only view exactly; otherwise a transient disk error
+                    # would hide working global credentials for this process.
+                    self._entries = inherited_entries
+                    self._current_id = inherited_current_id
+                    self._read_only = True
+                else:
+                    self._entries = sorted(
+                        restored,
+                        key=lambda candidate: candidate.priority,
+                    )
             except BaseException:
-                self._entries = before
+                if was_read_only:
+                    self._entries = inherited_entries
+                    self._current_id = inherited_current_id
+                    self._read_only = True
+                else:
+                    self._entries = before
             if self._current_id is not None and not any(
                 candidate.id == self._current_id for candidate in self._entries
             ):
@@ -1656,13 +1766,7 @@ def _normalize_pool_priorities(provider: str, entries: List[PooledCredential]) -
     if provider != "anthropic":
         return False
 
-    source_rank = {
-        "env:ANTHROPIC_TOKEN": 0,
-        "env:CLAUDE_CODE_OAUTH_TOKEN": 1,
-        "anthropic_pkce": 2,
-        "claude_code": 3,
-        "env:ANTHROPIC_API_KEY": 4,
-    }
+    source_rank = {"env:ANTHROPIC_API_KEY": 0}
     manual_entries = sorted(
         (entry for entry in entries if _is_manual_source(entry.source)),
         key=lambda entry: entry.priority,
@@ -1702,15 +1806,37 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
     if provider == "anthropic":
         # Fabric authenticates to native Anthropic with a plain API key only —
         # it does not auto-discover or seed Claude Code's (or any other
-        # first-party client's) OAuth credentials into the pool. Prune any
-        # such entries left over from before this behavior changed.
-        retained = [
-            entry for entry in entries
-            if entry.source not in {"anthropic_pkce", "claude_code"}
-        ]
+        # first-party client's) OAuth credentials into the pool. Prune every
+        # legacy OAuth row left over from before this behavior changed,
+        # including manual and env-backed variants.
+        configured_base_url = _configured_anthropic_pool_base_url()
+        retained: List[PooledCredential] = []
+        from agent.anthropic_adapter import _anthropic_api_key_shape_allowed
+
+        for entry in entries:
+            if _is_legacy_anthropic_oauth_entry(entry, configured_base_url):
+                changed = True
+                continue
+            token = str(entry.access_token or "").strip()
+            if (
+                not entry.base_url
+                and token
+                and _anthropic_api_key_shape_allowed(token, configured_base_url)
+            ):
+                # Persist the inferred endpoint once. Keeping the association
+                # only in memory would let a later config switch reinterpret
+                # and destructively prune a legitimate proxy credential.
+                inferred_base_url = (
+                    "https://api.anthropic.com"
+                    if token.startswith("sk-ant-")
+                    else configured_base_url
+                )
+                entry = replace(entry, base_url=inferred_base_url)
+                changed = True
+            retained.append(entry)
         if len(retained) != len(entries):
-            entries[:] = retained
             changed = True
+        entries[:] = retained
         return changed, active_sources
 
     elif provider == "nous":
@@ -2044,11 +2170,7 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
 
     env_vars = list(pconfig.api_key_env_vars)
     if provider == "anthropic":
-        env_vars = [
-            "ANTHROPIC_TOKEN",
-            "CLAUDE_CODE_OAUTH_TOKEN",
-            "ANTHROPIC_API_KEY",
-        ]
+        env_vars = ["ANTHROPIC_API_KEY"]
 
     for env_var in env_vars:
         # Prefer ~/.fabric/.env over os.environ
@@ -2056,9 +2178,11 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
         if not token:
             continue
         if provider == "anthropic" and env_var == "ANTHROPIC_API_KEY":
-            from agent.anthropic_adapter import _is_oauth_token
+            from agent.anthropic_adapter import _anthropic_api_key_shape_allowed
+            from fabric_cli.config import _anthropic_env_api_key_base_url
 
-            if _is_oauth_token(token):
+            configured_base_url = _anthropic_env_api_key_base_url()
+            if not _anthropic_api_key_shape_allowed(token, configured_base_url):
                 # OAuth credentials have dedicated canonical sources. Do not
                 # seed an API-key entry that the client would reinterpret by
                 # token shape.
@@ -2067,14 +2191,11 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
         if _is_source_suppressed(provider, source):
             continue
         active_sources.add(source)
-        # Anthropic's canonical token variables flow into the OAuth refresh
-        # path; ANTHROPIC_API_KEY remains an API-key-only contract.
-        auth_type = (
-            AUTH_TYPE_OAUTH
-            if provider == "anthropic" and env_var != "ANTHROPIC_API_KEY"
-            else AUTH_TYPE_API_KEY
+        base_url = (
+            configured_base_url
+            if provider == "anthropic" and configured_base_url
+            else env_url or pconfig.inference_base_url
         )
-        base_url = env_url or pconfig.inference_base_url
         if provider == "kimi-coding":
             base_url = _resolve_kimi_base_url(token, pconfig.inference_base_url, env_url)
         elif provider == "zai":
@@ -2088,7 +2209,7 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
                 env_var=env_var,
                 token=token,
                 base_url=base_url,
-                auth_type=auth_type,
+                auth_type=AUTH_TYPE_API_KEY,
             ),
         )
     return changed, active_sources
@@ -2202,9 +2323,71 @@ def _seed_custom_pool(pool_key: str, entries: List[PooledCredential]) -> Tuple[b
     return changed, active_sources
 
 
+def _read_global_anthropic_pool_fallback() -> List[PooledCredential]:
+    """Return inherited Anthropic rows as a read-only runtime view.
+
+    Named profiles may use the default profile's pool when their local slice is
+    empty. Those inherited rows must never flow through the profile-targeted
+    writer. Missing endpoint metadata is also interpreted conservatively:
+    only an unmistakable native Console key can safely default to native;
+    opaque/JWT values require their owning endpoint to be stored at the scope
+    where the credential lives.
+    """
+    try:
+        global_store = auth_mod._load_global_auth_store()
+    except Exception:
+        return []
+    global_pool = (
+        global_store.get("credential_pool")
+        if isinstance(global_store, dict)
+        else None
+    )
+    payloads = (
+        global_pool.get("anthropic")
+        if isinstance(global_pool, dict)
+        else None
+    )
+    if not isinstance(payloads, list):
+        return []
+
+    native_base_url = "https://api.anthropic.com"
+    retained: List[PooledCredential] = []
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        try:
+            entry = PooledCredential.from_dict("anthropic", payload)
+        except Exception:
+            continue
+        token = str(entry.access_token or "").strip()
+        if not token:
+            # Borrowed env rows are sanitized on disk and cannot be rehydrated
+            # from another profile's environment.
+            continue
+        if not entry.base_url:
+            if not token.startswith("sk-ant-api"):
+                continue
+            entry = replace(entry, base_url=native_base_url)
+        if _is_legacy_anthropic_oauth_entry(entry, native_base_url):
+            continue
+        retained.append(entry)
+
+    _normalize_pool_priorities("anthropic", retained)
+    return retained
+
+
 def load_pool(provider: str) -> CredentialPool:
     provider = (provider or "").strip().lower()
-    raw_entries = read_credential_pool(provider)
+    # Anthropic normalization can prune legacy OAuth rows and backfill endpoint
+    # metadata. In a named profile, normalize only the active store's writable
+    # slice; ``read_credential_pool`` is fallback-aware and would otherwise
+    # copy inherited global secrets into the profile when those changes are
+    # persisted. Other providers retain their existing fallback behavior.
+    raw_entries = (
+        _read_local_pool_for_recovery(provider)
+        if provider == "anthropic"
+        else read_credential_pool(provider)
+    )
     disk_ids = {
         entry.get("id")
         for entry in raw_entries
@@ -2244,4 +2427,17 @@ def load_pool(provider: str) -> CredentialPool:
             [entry.to_dict() for entry in sorted(entries, key=lambda item: item.priority)],
             removed_ids=disk_ids - new_ids,
         )
-    return CredentialPool(provider, entries)
+    # A profile may contain only a legacy Anthropic OAuth row while the
+    # default profile contains a valid API key. After local normalization and
+    # persistence, expose the global slice in memory on this same load. This is
+    # deliberately outside ``if changed`` so a pristine empty profile gets the
+    # same fallback without ever materializing inherited secrets locally.
+    inherited_global = False
+    if provider == "anthropic" and not entries:
+        entries = _read_global_anthropic_pool_fallback()
+        inherited_global = bool(entries)
+    return CredentialPool(
+        provider,
+        entries,
+        read_only=inherited_global,
+    )

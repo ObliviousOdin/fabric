@@ -161,6 +161,44 @@ class TestCredentialPoolEndpoints:
         )
         assert r.status_code == 400
 
+    def test_anthropic_oauth_shape_is_rejected_without_persisting(self):
+        r = self.client.post(
+            "/api/credentials/pool",
+            json={
+                "provider": "anthropic",
+                "api_key": "sk-ant-oat01-retired",
+                "label": "old subscription",
+            },
+        )
+
+        assert r.status_code == 400
+        assert "cannot be used as API keys" in r.json()["detail"]
+        assert self.client.get("/api/credentials/pool").json()["providers"] == []
+
+    def test_anthropic_third_party_jwt_persists_with_paired_base_url(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv(
+            "ANTHROPIC_BASE_URL",
+            "https://gateway.example/anthropic",
+        )
+
+        r = self.client.post(
+            "/api/credentials/pool",
+            json={
+                "provider": "anthropic",
+                "api_key": "eyJ.proxy.signature",
+                "label": "proxy",
+            },
+        )
+
+        assert r.status_code == 200
+        from agent.credential_pool import load_pool
+
+        entry = load_pool("anthropic").entries()[0]
+        assert entry.access_token == "eyJ.proxy.signature"
+        assert entry.base_url == "https://gateway.example/anthropic"
+
 
 class TestMemoryEndpoints:
     @pytest.fixture(autouse=True)

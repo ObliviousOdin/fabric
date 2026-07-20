@@ -63,6 +63,7 @@ def _clear_provider_env(monkeypatch):
         "OPENROUTER_API_KEY",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
+        "ANTHROPIC_BASE_URL",
         "ANTHROPIC_TOKEN",
         "CLAUDE_CODE_OAUTH_TOKEN",
     ):
@@ -114,6 +115,52 @@ def test_auth_add_anthropic_oauth_is_rejected(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit, match="does not support OAuth"):
         auth_add_command(_Args())
+
+
+def test_auth_add_anthropic_rejects_oauth_shaped_api_key(tmp_path, monkeypatch):
+    """Relabeling a retired OAuth token as an API key must not persist it."""
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
+    _write_auth_store(tmp_path, {"version": 1, "providers": {}})
+
+    from fabric_cli.auth_commands import auth_add_command
+
+    class _Args:
+        provider = "anthropic"
+        auth_type = "api-key"
+        api_key = "sk-ant-oat01-retired-token"
+        label = "not-an-api-key"
+
+    with pytest.raises(SystemExit, match="cannot be used as API keys"):
+        auth_add_command(_Args())
+
+    payload = json.loads((tmp_path / "fabric" / "auth.json").read_text())
+    assert payload.get("credential_pool", {}).get("anthropic") in (None, [])
+
+
+def test_auth_add_anthropic_accepts_jwt_for_configured_third_party(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
+    monkeypatch.setenv(
+        "ANTHROPIC_BASE_URL",
+        "https://gateway.example/anthropic",
+    )
+    _write_auth_store(tmp_path, {"version": 1, "providers": {}})
+
+    from fabric_cli.auth_commands import auth_add_command
+
+    class _Args:
+        provider = "anthropic"
+        auth_type = "api-key"
+        api_key = "eyJ.proxy.signature"
+        label = "proxy"
+
+    auth_add_command(_Args())
+
+    payload = json.loads((tmp_path / "fabric" / "auth.json").read_text())
+    entry = payload["credential_pool"]["anthropic"][0]
+    assert entry["access_token"] == "eyJ.proxy.signature"
+    assert entry["base_url"] == "https://gateway.example/anthropic"
 
 
 def test_auth_add_qwen_oauth_sets_active_provider(tmp_path, monkeypatch):
@@ -1958,5 +2005,3 @@ def test_auth_remove_codex_manual_device_code_suppresses_canonical(tmp_path, mon
 
     auth_remove_command(SimpleNamespace(provider="openai-codex", target="1"))
     assert is_source_suppressed("openai-codex", "device_code")
-
-

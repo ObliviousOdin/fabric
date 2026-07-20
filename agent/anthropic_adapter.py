@@ -4,9 +4,9 @@ Translates between Fabric's internal OpenAI-style message format and
 Anthropic's Messages API. Follows the same pattern as the codex_responses
 adapter — all provider-specific logic is isolated here.
 
-Auth supports:
-  - Regular API keys (sk-ant-api*) → x-api-key header
-  - OAuth/setup-token-shaped credentials (sk-ant-oat*) → Bearer auth, sent as-is
+Native Anthropic credential resolution accepts regular API keys only and sends
+them with ``x-api-key``. OAuth/setup-token shapes are recognized defensively so
+they cannot be mistaken for API keys.
 
 Fabric identifies itself honestly to Anthropic's API. It does not read, mint,
 or reuse Claude Code's (or any other first-party client's) OAuth credentials,
@@ -17,7 +17,7 @@ import copy
 import json
 import logging
 import os
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlsplit, urlunsplit
 
 from typing import Any, Dict, List, Optional, Tuple
 from utils import base_url_host_matches, normalize_proxy_env_vars
@@ -366,6 +366,103 @@ def _normalize_base_url_text(base_url) -> str:
     return str(base_url).strip()
 
 
+def _anthropic_endpoint_identity(base_url: str | None) -> str:
+    """Return a canonical identity for pairing an Anthropic key and route.
+
+    Scheme and host are case-insensitive, default ports are equivalent, and
+    the terminal ``/v1`` accepted/removed by the Anthropic SDK is not part of
+    the credential boundary.  Other path and query components remain part of
+    the identity; only Azure's transport-only ``api-version`` query is ignored.
+    """
+    normalized = _normalize_base_url_text(base_url)
+    if not normalized:
+        return ""
+    try:
+        parsed = urlsplit(normalized)
+        scheme = parsed.scheme.lower()
+        raw_hostname = parsed.hostname or ""
+        if not scheme or not raw_hostname:
+            return normalized.rstrip("/")
+        # RFC 6874 scoped IPv6 zone identifiers are interface-local and their
+        # spelling can be case-sensitive. Fail closed to exact textual identity
+        # instead of lowercasing or otherwise canonicalizing the zone id.
+        if "%" in raw_hostname:
+            return normalized.rstrip("/")
+        hostname = raw_hostname.lower().rstrip(".")
+        try:
+            port = parsed.port
+        except ValueError:
+            return normalized.rstrip("/")
+        if (scheme, port) in {("http", 80), ("https", 443)}:
+            port = None
+        host_text = f"[{hostname}]" if ":" in hostname else hostname
+        host_and_port = (
+            f"{host_text}:{port}" if port is not None else host_text
+        )
+        # URL credentials are part of the route boundary. Preserve userinfo
+        # byte-for-byte and case-sensitively while canonicalizing only the
+        # scheme/host/default port around it.
+        userinfo, separator, _ = parsed.netloc.rpartition("@")
+        netloc = (
+            f"{userinfo}@{host_and_port}" if separator else host_and_port
+        )
+        path = (parsed.path or "").rstrip("/")
+        if path.endswith("/v1"):
+            path = path[:-3].rstrip("/")
+        trusted_azure_suffixes = (
+            "azure.com",
+            "azure.us",
+            "azure.cn",
+            "azure.de",
+        )
+        legacy_azure_route = (
+            "/anthropic" in path.lower()
+            and any(
+                hostname.endswith(f".openai.{suffix}")
+                for suffix in trusted_azure_suffixes
+            )
+        )
+        original_query = parsed.query
+        query = original_query
+        if legacy_azure_route and query:
+            # Signed proxy queries may treat pair order, duplicate fields, and
+            # raw percent-encoding as authentication material. Remove only
+            # Azure's transport-only api-version field, retaining every other
+            # byte and its original position.
+            query = "&".join(
+                component
+                for component in query.split("&")
+                if unquote(component.partition("=")[0]).lower()
+                != "api-version"
+            )
+        identity = urlunsplit(
+            (scheme, netloc, path, query, "")
+        )
+        had_query_delimiter = "?" in normalized.partition("#")[0]
+        removed_transport_only_query = bool(
+            legacy_azure_route and original_query and not query
+        )
+        if (
+            had_query_delimiter
+            and not query
+            and not removed_transport_only_query
+        ):
+            identity += "?"
+        return identity
+    except Exception:
+        return normalized.rstrip("/")
+
+
+def _anthropic_endpoints_match(
+    left: str | None,
+    right: str | None,
+) -> bool:
+    """Return whether two URLs identify the same Anthropic credential route."""
+    left_identity = _anthropic_endpoint_identity(left)
+    right_identity = _anthropic_endpoint_identity(right)
+    return bool(left_identity and right_identity and left_identity == right_identity)
+
+
 def _is_third_party_anthropic_endpoint(base_url: str | None) -> bool:
     """Return True for non-Anthropic endpoints using the Anthropic Messages API.
 
@@ -377,9 +474,67 @@ def _is_third_party_anthropic_endpoint(base_url: str | None) -> bool:
     if not normalized:
         return False  # No base_url = direct Anthropic API
     normalized = normalized.rstrip("/").lower()
-    if "anthropic.com" in normalized:
-        return False  # Direct Anthropic API — OAuth applies
+    try:
+        hostname = (urlparse(normalized).hostname or "").rstrip(".")
+    except Exception:
+        hostname = ""
+    if (
+        hostname == "anthropic.com"
+        or hostname.endswith(".anthropic.com")
+        or hostname == "claude.com"
+        or hostname.endswith(".claude.com")
+    ):
+        return False  # First-party Anthropic/Claude endpoint.
     return True  # Any other endpoint is a third-party proxy
+
+
+def _is_anthropic_messages_endpoint(base_url: str | None) -> bool:
+    """Return whether a configured URL plausibly serves Anthropic Messages."""
+    normalized = _normalize_base_url_text(base_url).rstrip("/")
+    if not normalized:
+        return False
+    try:
+        parsed = urlparse(normalized)
+        hostname = (parsed.hostname or "").strip().lower().rstrip(".")
+        path = parsed.path.lower().rstrip("/")
+    except Exception:
+        return False
+    if not hostname:
+        return False
+    if (
+        hostname == "api.anthropic.com"
+        or hostname.endswith(".anthropic.com")
+        or hostname.endswith(".claude.com")
+    ):
+        return True
+    if _is_azure_anthropic_endpoint(normalized):
+        return True
+    if path.endswith("/anthropic") or path.endswith("/anthropic/v1"):
+        return True
+    return hostname == "api.kimi.com" and "/coding" in path
+
+
+def _anthropic_api_key_shape_allowed(
+    key: str,
+    base_url: str | None = None,
+) -> bool:
+    """Return whether a static key shape is valid for this endpoint.
+
+    OAuth-shaped values are forbidden for Anthropic's own API, but opaque JWT
+    and bearer-looking strings are legitimate API keys for some third-party
+    Anthropic-compatible gateways. Endpoint awareness prevents the native
+    subscription path from returning while preserving those providers.
+    """
+    if not isinstance(key, str) or not key.strip():
+        return False
+    normalized = key.strip()
+    if normalized.startswith(("sk-ant-oat", "cc-")):
+        # These are unambiguously Anthropic/Claude Code subscription
+        # credentials, not third-party API keys.
+        return False
+    return not _is_oauth_token(normalized) or _is_third_party_anthropic_endpoint(
+        base_url
+    )
 
 
 def _is_kimi_coding_endpoint(base_url: str | None) -> bool:
@@ -477,8 +632,9 @@ def _requires_bearer_auth(base_url: str | None) -> bool:
 
     Some third-party /anthropic endpoints implement Anthropic's Messages API but
     require Authorization: Bearer instead of Anthropic's native x-api-key header.
-    MiniMax's global and China Anthropic-compatible endpoints, and Azure AI
-    Foundry's Anthropic-style endpoint follow this pattern.
+    MiniMax's global and China endpoints use Bearer. The legacy Azure OpenAI
+    ``/anthropic`` compatibility route also retains its historical Bearer
+    behavior; modern ``services.ai.azure.*`` Foundry endpoints use x-api-key.
     """
     normalized = _normalize_base_url_text(base_url)
     if not normalized:
@@ -486,7 +642,7 @@ def _requires_bearer_auth(base_url: str | None) -> bool:
     normalized = normalized.rstrip("/").lower()
     return (
         normalized.startswith(("https://api.minimax.io/anthropic", "https://api.minimaxi.com/anthropic"))
-        or "azure.com" in normalized
+        or _is_legacy_azure_anthropic_endpoint(normalized)
     )
 
 
@@ -495,7 +651,7 @@ def _base_url_needs_context_1m_beta(base_url: str | None) -> bool:
     normalized = _normalize_base_url_text(base_url).lower()
     if not normalized:
         return False
-    return "azure.com" in normalized
+    return _is_azure_anthropic_endpoint(normalized)
 
 
 def _is_minimax_anthropic_endpoint(base_url: str | None) -> bool:
@@ -518,11 +674,13 @@ def _is_azure_anthropic_endpoint(base_url: str | None) -> bool:
 
     Covers both the modern Foundry host family (``*.services.ai.azure.*``)
     and the legacy Azure OpenAI host family (``*.openai.azure.*``) when
-    serving Anthropic's ``/anthropic`` route. Used to opt-in those hosts
-    to the ``api-version`` query-param plumbing required by Azure.
+    serving Anthropic's ``/anthropic`` route. Used for Azure-specific behavior
+    shared by both route families, such as the 1M-context beta. Query-param
+    compatibility is restricted separately to the legacy host family.
 
-    Intentionally avoids a finite allow-list of TLD suffixes so it works
-    across sovereign / private Azure clouds.
+    Automatic Azure handling is restricted to Microsoft's public and
+    sovereign Azure DNS suffixes; a hostname substring must never trigger
+    ambient Azure secret forwarding or Azure-specific request behavior.
     """
     normalized = _normalize_base_url_text(base_url)
     if not normalized:
@@ -530,10 +688,102 @@ def _is_azure_anthropic_endpoint(base_url: str | None) -> bool:
     parsed = urlparse(normalized)
     host = (parsed.hostname or "").lower().rstrip(".")
     path = (parsed.path or "").lower()
-    host_padded = f".{host}."
-    is_foundry_host = ".services.ai.azure." in host_padded
-    is_legacy_azoai_host = ".openai.azure." in host_padded
+    trusted_suffixes = ("azure.com", "azure.us", "azure.cn", "azure.de")
+    is_foundry_host = any(
+        host.endswith(f".services.ai.{suffix}")
+        for suffix in trusted_suffixes
+    )
+    is_legacy_azoai_host = any(
+        host.endswith(f".openai.{suffix}")
+        for suffix in trusted_suffixes
+    )
     return (is_foundry_host or is_legacy_azoai_host) and "/anthropic" in path
+
+
+def _is_explicit_azure_anthropic_endpoint(base_url: str | None) -> bool:
+    """Return True for structurally valid explicitly configured Azure routes.
+
+    Azure private DNS zones and future sovereign suffixes are not enumerable.
+    This broader predicate therefore must never authorize ambient Azure key
+    discovery. It is used only alongside an ``AzureEntraTokenProvider`` that
+    the explicit ``provider=azure-foundry`` runtime constructed.
+    """
+    normalized = _normalize_base_url_text(base_url)
+    if not normalized:
+        return False
+    try:
+        parsed = urlparse(normalized)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        path = (parsed.path or "").lower()
+    except Exception:
+        return False
+    labels = host.split(".")
+    foundry_marker = ("services", "ai", "azure")
+    legacy_marker = ("openai", "azure")
+
+    def _contains_azure_marker(marker: tuple[str, ...]) -> bool:
+        width = len(marker)
+        return any(
+            tuple(labels[index:index + width]) == marker
+            # Require both a resource label and a DNS suffix around the Azure
+            # service marker (e.g. resource.services.ai.azure.private).
+            and index > 0
+            and index + width < len(labels)
+            for index in range(len(labels) - width + 1)
+        )
+
+    return (
+        _contains_azure_marker(foundry_marker)
+        or _contains_azure_marker(legacy_marker)
+    ) and "/anthropic" in path
+
+
+def _is_legacy_azure_anthropic_endpoint(base_url: str | None) -> bool:
+    """Return True for the legacy ``*.openai.azure.*`` Anthropic route."""
+    normalized = _normalize_base_url_text(base_url)
+    if not normalized:
+        return False
+    parsed = urlparse(normalized)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path = (parsed.path or "").lower()
+    trusted_suffixes = ("azure.com", "azure.us", "azure.cn", "azure.de")
+    return (
+        any(host.endswith(f".openai.{suffix}") for suffix in trusted_suffixes)
+        and "/anthropic" in path
+    )
+
+
+def _anthropic_static_auth_headers(
+    api_key: str,
+    base_url: str | None,
+) -> Dict[str, str]:
+    """Build validated auth headers for direct Anthropic-format probes."""
+    if not _anthropic_api_key_shape_allowed(api_key, base_url):
+        raise ValueError(
+            "Anthropic OAuth/setup tokens cannot be used as API keys in Fabric."
+        )
+    headers = {"anthropic-version": "2023-06-01"}
+    if _requires_bearer_auth(base_url):
+        headers["Authorization"] = f"Bearer {api_key}"
+    else:
+        headers["x-api-key"] = api_key
+    return headers
+
+
+def _with_anthropic_api_version(
+    url: str,
+    base_url: str | None = None,
+) -> str:
+    """Append the API version required by the legacy Azure OpenAI route."""
+    if not _is_legacy_azure_anthropic_endpoint(base_url or url):
+        return url
+    parts = urlsplit(url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    if not any(key.lower() == "api-version" for key, _ in query):
+        query.append(("api-version", "2025-04-15"))
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+    )
 
 
 def _common_betas_for_base_url(
@@ -546,8 +796,9 @@ def _common_betas_for_base_url(
     MiniMax's Anthropic-compatible endpoints (Bearer-auth) reject requests
     that include Anthropic's ``fine-grained-tool-streaming`` beta — every
     tool-use message triggers a connection error. They also reject the
-    1M-context beta. Azure AI Foundry's Anthropic endpoint also uses
-    Bearer auth but keeps both betas (it needs the 1M beta for 1M context).
+    1M-context beta. Azure AI Foundry keeps both betas (it needs the 1M beta
+    for 1M context); modern static-key routes use ``x-api-key``, while Entra ID
+    and the legacy Azure OpenAI compatibility route use Bearer authentication.
 
     The ``context-1m-2025-08-07`` beta is not sent to native Anthropic by
     default because some subscriptions reject it. Add it only for endpoint
@@ -637,7 +888,7 @@ def _build_anthropic_client_with_bearer_hook(
     }
 
     if normalized_base_url:
-        if _is_azure_anthropic_endpoint(normalized_base_url) and "api-version" not in normalized_base_url:
+        if _is_legacy_azure_anthropic_endpoint(normalized_base_url) and "api-version" not in normalized_base_url:
             kwargs["base_url"] = normalized_base_url
             kwargs["default_query"] = {"api-version": "2025-04-15"}
         else:
@@ -670,12 +921,12 @@ def build_anthropic_client(
     drop_context_1m_beta: bool = False,
     disable_environment_proxy: bool = False,
 ):
-    """Create an Anthropic client, auto-detecting setup-tokens vs API keys.
+    """Create an Anthropic client for a validated static API credential.
 
     ``api_key`` accepts either:
 
-    * a static ``str`` — the historical contract for all key-based and
-      OAuth flows.
+    * a static ``str`` — the historical contract for key-based providers and
+      Anthropic-compatible endpoints.
     * a ``Callable[[], str]`` — an Entra ID bearer token provider from
       :mod:`agent.azure_identity_adapter`. The Anthropic SDK itself
       requires a static string, so when given a callable we construct
@@ -690,10 +941,7 @@ def build_anthropic_client(
     providers.
 
     ``drop_context_1m_beta=True`` strips ``context-1m-2025-08-07`` from the
-    client-level ``anthropic-beta`` header. Used by the reactive OAuth retry
-    path in ``run_agent.py`` when a subscription rejects the beta; leave at
-    its default on fresh clients so 1M-capable subscriptions keep the
-    capability.
+    client-level ``anthropic-beta`` header for a reactive compatibility retry.
 
     Returns an anthropic.Anthropic instance.
     """
@@ -704,13 +952,52 @@ def build_anthropic_client(
             "Install it with: pip install 'anthropic>=0.39.0'"
         )
 
-    # Callable api_key → Entra ID bearer provider path. Delegated to a
-    # helper so the existing static-key code below stays unchanged.
+    # Callable credentials are deliberately limited to endpoint families
+    # whose runtime contract requires rotating bearer tokens. Accepting an
+    # arbitrary callable here would bypass the static OAuth/setup-token shape
+    # guard and could re-enable first-party subscription credentials on native
+    # Anthropic by wrapping them in ``lambda``.
     if callable(api_key) and not isinstance(api_key, str):
+        from agent.azure_identity_adapter import (
+            is_azure_entra_token_provider,
+        )
+
+        trusted_azure_route = _is_azure_anthropic_endpoint(base_url)
+        explicit_azure_route = (
+            is_azure_entra_token_provider(api_key)
+            and _is_explicit_azure_anthropic_endpoint(base_url)
+        )
+        if not (
+            trusted_azure_route
+            or explicit_azure_route
+            or _is_minimax_anthropic_endpoint(base_url)
+        ):
+            raise ValueError(
+                "Callable Anthropic bearer credentials are supported only "
+                "for Microsoft Foundry Entra ID and MiniMax OAuth endpoints."
+            )
+        raw_token_provider = api_key
+
+        def _validated_token_provider() -> str:
+            token = str(raw_token_provider() or "").strip()
+            if not _anthropic_api_key_shape_allowed(token, base_url):
+                raise ValueError(
+                    "Anthropic OAuth/setup tokens cannot be used as API keys "
+                    "in Fabric. Use credentials issued for the configured "
+                    "third-party endpoint."
+                )
+            return token
+
         return _build_anthropic_client_with_bearer_hook(
-            api_key, base_url, timeout,
+            _validated_token_provider, base_url, timeout,
             drop_context_1m_beta=drop_context_1m_beta,
             disable_environment_proxy=disable_environment_proxy,
+        )
+
+    if not _anthropic_api_key_shape_allowed(str(api_key or ""), base_url):
+        raise ValueError(
+            "Anthropic OAuth/setup tokens cannot be used as API keys in Fabric. "
+            "Use an API key issued for the configured endpoint."
         )
 
     if not disable_environment_proxy:
@@ -740,11 +1027,9 @@ def build_anthropic_client(
         owned_http_client = Client(timeout=timeout_obj, trust_env=False)
         kwargs["http_client"] = owned_http_client
     if normalized_base_url:
-        # Azure Anthropic endpoints require an ``api-version`` query parameter.
-        # Pass it via default_query so the SDK appends it to every request URL
-        # without corrupting the base_url (appending it directly produces
-        # malformed paths like /anthropic?api-version=.../v1/messages).
-        if _is_azure_anthropic_endpoint(normalized_base_url) and "api-version" not in normalized_base_url:
+        # The legacy Azure OpenAI Anthropic route requires an ``api-version``
+        # query parameter. Modern services.ai.azure.* Foundry endpoints do not.
+        if _is_legacy_azure_anthropic_endpoint(normalized_base_url) and "api-version" not in normalized_base_url:
             kwargs["base_url"] = normalized_base_url.rstrip("/")
             kwargs["default_query"] = {"api-version": "2025-04-15"}
         else:
@@ -779,14 +1064,6 @@ def build_anthropic_client(
         # don't follow Anthropic's sk-ant-* prefix convention and would be
         # misclassified as OAuth tokens.
         kwargs["api_key"] = api_key
-        if common_betas:
-            kwargs["default_headers"] = {"anthropic-beta": ",".join(common_betas)}
-    elif _is_oauth_token(api_key):
-        # OAuth/setup-token-shaped credential → Bearer auth, identified honestly
-        # as Fabric. These tokens are scoped to Anthropic's own first-party
-        # clients, so Anthropic's API is expected to reject them here rather
-        # than Fabric spoofing another client's identity to get them accepted.
-        kwargs["auth_token"] = api_key
         if common_betas:
             kwargs["default_headers"] = {"anthropic-beta": ",".join(common_betas)}
     else:
@@ -845,7 +1122,7 @@ def build_anthropic_bedrock_client(region: str):
     )
 
 
-def resolve_anthropic_token() -> Optional[str]:
+def resolve_anthropic_token(base_url: str | None = None) -> Optional[str]:
     """Resolve an Anthropic API key from the environment.
 
     Fabric authenticates to native Anthropic with a regular API key only —
@@ -855,7 +1132,8 @@ def resolve_anthropic_token() -> Optional[str]:
     Returns the token string or None.
     """
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if api_key and not _is_oauth_token(api_key):
+    effective_base_url = base_url or os.getenv("ANTHROPIC_BASE_URL", "").strip()
+    if _anthropic_api_key_shape_allowed(api_key, effective_base_url):
         return api_key
     return None
 

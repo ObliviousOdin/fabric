@@ -91,6 +91,10 @@ def _normalize_provider(provider: str) -> str:
 def _provider_base_url(provider: str) -> str:
     if provider == "openrouter":
         return OPENROUTER_BASE_URL
+    if provider == "anthropic":
+        from fabric_cli.config import _configured_anthropic_api_key_base_url
+
+        return _configured_anthropic_api_key_base_url()
     if provider.startswith(CUSTOM_POOL_PREFIX):
         from agent.credential_pool import _get_custom_provider_config
 
@@ -221,6 +225,14 @@ def auth_add_command(args) -> None:
             token = masked_secret_prompt("Paste your API key: ").strip()
         if not token:
             raise SystemExit("No API key provided.")
+        base_url = _provider_base_url(provider)
+        if provider == "anthropic":
+            from fabric_cli.config import _validate_anthropic_api_key
+
+            try:
+                token = _validate_anthropic_api_key(token, base_url=base_url)
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
         default_label = _api_key_default_label(len(pool.entries()) + 1)
         label = (getattr(args, "label", None) or "").strip()
         if not label:
@@ -236,7 +248,7 @@ def auth_add_command(args) -> None:
             priority=0,
             source=SOURCE_MANUAL,
             access_token=token,
-            base_url=_provider_base_url(provider),
+            base_url=base_url,
         )
         pool.add_entry(entry)
         print(f'Added {provider} credential #{len(pool.entries())}: "{label}"')

@@ -34,6 +34,22 @@ from agent.model_metadata import (
 )
 
 
+@pytest.mark.parametrize(
+    "credential",
+    ["sk-ant-oat01-retired", "cc-claude-code-token", "eyJ.native.oauth"],
+)
+def test_anthropic_context_probe_rejects_subscription_credentials(credential):
+    from agent.model_metadata import _query_anthropic_context_length
+
+    with patch("agent.model_metadata.requests.get") as request:
+        assert _query_anthropic_context_length(
+            "claude-sonnet-4-6",
+            "https://api.anthropic.com",
+            credential,
+        ) is None
+    request.assert_not_called()
+
+
 # =========================================================================
 # Token estimation
 # =========================================================================

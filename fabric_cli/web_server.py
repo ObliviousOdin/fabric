@@ -6514,7 +6514,15 @@ async def get_env_vars(profile: Optional[str] = None):
 async def set_env_var(body: EnvVarUpdate, profile: Optional[str] = None):
     try:
         with _profile_scope(body.profile or profile):
-            _save_profile_env_value(body.key, body.value)
+            if body.key.strip().upper() == "ANTHROPIC_API_KEY":
+                from fabric_cli.config import save_anthropic_api_key
+
+                save_anthropic_api_key(
+                    body.value,
+                    save_fn=_save_profile_env_value,
+                )
+            else:
+                _save_profile_env_value(body.key, body.value)
         return {"ok": True, "key": body.key}
     except ValueError as exc:
         # save_env_value raises ValueError for invalid names and for keys
@@ -6678,6 +6686,11 @@ async def remove_env_var(body: EnvVarDelete, profile: Optional[str] = None):
     try:
         with _profile_scope(body.profile or profile):
             removed = _remove_profile_env_value(body.key)
+            if body.key.strip().upper() == "ANTHROPIC_API_KEY":
+                # ANTHROPIC_TOKEN was Fabric's retired native OAuth slot.
+                # Removing the supported API key should not leave that stale
+                # credential behind in the same profile.
+                _remove_profile_env_value("ANTHROPIC_TOKEN")
         if not removed:
             raise HTTPException(status_code=404, detail=f"{body.key} not found in .env")
         return {"ok": True, "key": body.key}
@@ -8473,49 +8486,59 @@ def _anthropic_key_status() -> Dict[str, Any]:
     """Status for the read-only "Anthropic API Key" Accounts-tab card.
 
     Fabric authenticates to native Anthropic with a plain API key only (see
-    NOTICE) — this reports whether ``ANTHROPIC_API_KEY`` is set, from ``.env``,
-    the shell, or an external secret source like Bitwarden (whose keys are
-    injected into the process env during ``load_fabric_dotenv()``, so the same
-    check covers them). There is no login flow to start from here; the key is
-    managed via Settings → Keys.
+    NOTICE) — this reports keys from ``ANTHROPIC_API_KEY`` and keys added with
+    ``fabric auth add anthropic --type api-key``. There is no OAuth login flow
+    to start from here.
     """
-    env_var_order: tuple = ("ANTHROPIC_API_KEY",)
     try:
-        from fabric_cli.auth import PROVIDER_REGISTRY
-        env_var_order = PROVIDER_REGISTRY["anthropic"].api_key_env_vars
-    except (ImportError, KeyError):
-        pass
-    try:
-        from fabric_cli.config import get_env_value
+        from fabric_cli.auth import _resolve_anthropic_api_key
     except ImportError:
-        get_env_value = None  # type: ignore
-    try:
-        from fabric_cli.env_loader import format_secret_source_suffix
-    except ImportError:
-        format_secret_source_suffix = None  # type: ignore
-    try:
-        from agent.anthropic_adapter import _is_oauth_token
-    except ImportError:
-        _is_oauth_token = None  # type: ignore
+        return {"logged_in": False, "source": None}
 
-    for var in env_var_order:
-        value = get_env_value(var) if get_env_value else os.getenv(var)
-        if not value:
-            continue
-        if _is_oauth_token is not None and _is_oauth_token(value):
-            # OAuth/setup-token-shaped values are scoped to Anthropic's own
-            # first-party clients — never accepted as a Fabric API key.
-            continue
-        suffix = format_secret_source_suffix(var) if format_secret_source_suffix else ""
+    value, source = _resolve_anthropic_api_key()
+    if not value:
+        return {"logged_in": False, "source": None}
+
+    if source.startswith("credential_pool"):
+        label = source.split(":", 1)[1] or "Anthropic API key"
+        is_global_fallback = source.startswith("credential_pool_global:")
         return {
             "logged_in": True,
-            "source": "env_var",
-            "source_label": f"{var}{suffix}",
+            "source": (
+                "credential_pool_global"
+                if is_global_fallback
+                else "credential_pool"
+            ),
+            "source_label": (
+                f"default profile · fabric auth: {label}"
+                if is_global_fallback
+                else f"fabric auth: {label}"
+            ),
             "token_preview": _truncate_token(value),
             "expires_at": None,
             "has_refresh_token": False,
         }
-    return {"logged_in": False, "source": None}
+
+    try:
+        from fabric_cli.env_loader import format_secret_source_suffix
+    except ImportError:
+        format_secret_source_suffix = None  # type: ignore
+    var = (
+        source.split(":", 1)[1]
+        if source.startswith("env:")
+        else "ANTHROPIC_API_KEY"
+    )
+    suffix = (
+        format_secret_source_suffix(var) if format_secret_source_suffix else ""
+    )
+    return {
+        "logged_in": True,
+        "source": "env_var",
+        "source_label": f"{var}{suffix}",
+        "token_preview": _truncate_token(value),
+        "expires_at": None,
+        "has_refresh_token": False,
+    }
 
 
 def _copilot_acp_status() -> Dict[str, Any]:
@@ -8731,9 +8754,17 @@ def _oauth_provider_disconnect_command(provider: Dict[str, Any]) -> Optional[str
 def _oauth_provider_disconnect_hint(provider: Dict[str, Any], status: Dict[str, Any]) -> Optional[str]:
     """Return the manual disconnect path when the API cannot clear this provider."""
     if provider.get("id") == "anthropic":
-        # Always env/.env-backed (see _anthropic_key_status) — never routed
-        # through the generic "external" wording below, even on the
-        # empty-status fast-path check before status is resolved.
+        if status.get("source") == "credential_pool_global":
+            return (
+                "This key is inherited from the default profile. Switch to the "
+                "default profile, then remove it with `fabric auth remove "
+                "anthropic <credential>`."
+            )
+        if status.get("source") == "credential_pool":
+            return "Remove it with `fabric auth remove anthropic <credential>`."
+        # Env/.env-backed keys are managed by the Keys tab. Keep this as the
+        # empty-status fast-path hint too so DELETE never removes an external
+        # key source it cannot identify.
         return "Remove the API key from Settings → Keys instead."
     if provider.get("flow") == "external":
         if _oauth_provider_disconnect_command(provider):
@@ -12698,6 +12729,22 @@ async def add_credential_pool_entry(body: CredentialPoolAdd):
     api_key = (body.api_key or "").strip()
     if not provider or not api_key:
         raise HTTPException(status_code=400, detail="provider and api_key are required")
+    if provider == "anthropic":
+        from fabric_cli.config import (
+            _configured_anthropic_api_key_base_url,
+            _validate_anthropic_api_key,
+        )
+
+        anthropic_base_url = _configured_anthropic_api_key_base_url()
+        try:
+            api_key = _validate_anthropic_api_key(
+                api_key,
+                base_url=anthropic_base_url,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        anthropic_base_url = ""
 
     try:
         pool = load_pool(provider)
@@ -12710,6 +12757,7 @@ async def add_credential_pool_entry(body: CredentialPoolAdd):
             priority=0,
             source=SOURCE_MANUAL,
             access_token=api_key,
+            base_url=anthropic_base_url or None,
         )
         pool.add_entry(entry)
     except Exception as exc:

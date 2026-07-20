@@ -12447,7 +12447,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             status_code = getattr(e, "status_code", None)
             _hist_len = len(history) if 'history' in locals() else 0
             if status_code == 401:
-                status_hint = " Check your API key or run `claude /login` to refresh OAuth credentials."
+                status_hint = " Check or re-authenticate the configured provider credentials."
             elif status_code == 402:
                 status_hint = " Your API balance or quota is exhausted. Check your provider dashboard."
             elif status_code == 429:

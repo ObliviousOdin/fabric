@@ -264,6 +264,8 @@ def _read_manifest(plugin_dir: Path) -> dict:
     """Read plugin.yaml and return the parsed dict, or empty dict."""
     manifest_file = plugin_dir / "plugin.yaml"
     if not manifest_file.exists():
+        manifest_file = plugin_dir / "plugin.yml"
+    if not manifest_file.exists():
         return {}
     try:
         import yaml
@@ -743,13 +745,13 @@ def _save_enabled_set(enabled: set) -> None:
     save_config(config)
 
 
-def _resolve_plugin_key(name: str) -> Optional[str]:
-    """Resolve a user-supplied plugin identifier to its canonical registry key.
+def _resolve_plugin_entry(name: str) -> Optional[tuple]:
+    """Resolve a user-supplied identifier to one discovery entry.
 
     Accepts either the bare manifest name (``nemo_relay``), the directory
     name, or the full path-derived key (``observability/nemo_relay``) and
-    returns the canonical key the loader gates on (``manifest.key`` or, for a
-    flat plugin, the bare name). Returns ``None`` when no plugin matches.
+    returns the six-field entry for the plugin selected by normal discovery
+    precedence. Returns ``None`` when no plugin matches.
 
     This is the single normalization point so ``fabric plugins enable`` /
     ``disable`` write the same key that ``PluginManager`` matches against —
@@ -760,14 +762,20 @@ def _resolve_plugin_key(name: str) -> Optional[str]:
     for entry in entries:
         # entry = (name, version, description, source, dir_path, key)
         if name == entry[5] or name == entry[0]:
-            return entry[5]
+            return entry
     # 2. Fall back to a bare leaf-name match (e.g. "nemo_relay" ->
     #    "observability/nemo_relay"), but only when it resolves to exactly one
     #    plugin so we never silently pick the wrong same-named nested plugin.
-    leaf_matches = [entry[5] for entry in entries if name == entry[5].split("/")[-1]]
+    leaf_matches = [entry for entry in entries if name == entry[5].split("/")[-1]]
     if len(leaf_matches) == 1:
         return leaf_matches[0]
     return None
+
+
+def _resolve_plugin_key(name: str) -> Optional[str]:
+    """Resolve a user-supplied plugin identifier to its canonical key."""
+    entry = _resolve_plugin_entry(name)
+    return entry[5] if entry is not None else None
 
 
 def _resolve_plugin_key_and_source(name: str) -> Optional[tuple]:
@@ -777,18 +785,15 @@ def _resolve_plugin_key_and_source(name: str) -> Optional[tuple]:
     plugin's source (``"bundled"``, ``"user"``, ``"project"``, ...) so the
     enable path can tell whether a built-in-override consent prompt is needed.
     """
-    entries = _discover_all_plugins()
-    for entry in entries:
-        # entry = (name, version, description, source, dir_path, key)
-        if name == entry[5] or name == entry[0]:
-            return (entry[5], entry[3])
-    leaf_matches = [
-        (entry[5], entry[3]) for entry in entries
-        if name == entry[5].split("/")[-1]
-    ]
-    if len(leaf_matches) == 1:
-        return leaf_matches[0]
-    return None
+    entry = _resolve_plugin_entry(name)
+    return (entry[5], entry[3]) if entry is not None else None
+
+
+def _plugin_entry_aliases(entry: tuple) -> set[str]:
+    """Return every config alias accepted for one discovered plugin."""
+    manifest_name = entry[0]
+    key = entry[5]
+    return {manifest_name, key, key.split("/")[-1]}
 
 
 def _set_plugin_entry_flag(plugin_id: str, key: str, value: bool) -> None:
@@ -812,7 +817,12 @@ def _set_plugin_entry_flag(plugin_id: str, key: str, value: bool) -> None:
 
 
 def cmd_enable(name: str, allow_tool_override: Optional[bool] = None) -> None:
-    """Add a plugin to the enabled allow-list (and remove it from disabled).
+    """Enable a plugin and remove it from the explicit deny-list.
+
+    Repository-bundled ``default_enabled`` plugins remain implicit: re-enabling
+    one clears deny aliases but never leaves its key in the general allow-list.
+    Otherwise a later user-installed plugin that shadows the same key would
+    inherit that stale grant.
 
     For non-bundled plugins, prompt the operator about granting the
     privileged ``allow_tool_override`` capability (replacing built-in tools
@@ -826,35 +836,31 @@ def cmd_enable(name: str, allow_tool_override: Optional[bool] = None) -> None:
     console = Console()
     # Discover the plugin — check installed (user) AND bundled, including
     # nested category plugins — and normalize to its canonical registry key.
-    resolved = _resolve_plugin_key_and_source(name)
-    if resolved is None:
+    entry = _resolve_plugin_entry(name)
+    if entry is None:
         console.print(f"[red]Plugin '{name}' is not installed or bundled.[/red]")
         sys.exit(1)
-    key, source = resolved
+    key, source = entry[5], entry[3]
+    aliases = _plugin_entry_aliases(entry)
+    implicit_default = _entry_default_enabled(entry)
 
     enabled = _get_enabled_set()
     disabled = _get_disabled_set()
+    previous_enabled = set(enabled)
+    previous_disabled = set(disabled)
 
-    already_enabled = key in enabled and key not in disabled
-
-    if not already_enabled:
+    if implicit_default:
+        # Scrub grants written by older enable paths as well as avoiding a new
+        # one. Repository trust applies only while the winning source remains
+        # bundled; it must not transfer to a future same-key user plugin.
+        enabled.difference_update(aliases)
+    else:
         enabled.add(key)
-        disabled.discard(key)
-        # Drop every alias of this plugin from the disabled list so an
-        # explicit disable under a different form can't keep it off. The
-        # loader's disable check matches on BOTH the canonical key
-        # (``web/firecrawl``) AND the manifest name (``web-firecrawl``);
-        # a stale entry under either form makes "explicit disable wins"
-        # (plugins.py) silently veto this enable. Discard the key, its
-        # bare leaf, and the manifest name. (#40190 follow-up.)
-        bare = key.split("/")[-1]
-        if bare != key:
-            disabled.discard(bare)
-        for entry in _discover_all_plugins():
-            # entry = (name, version, description, source, dir_path, key)
-            if entry[5] == key:
-                disabled.discard(entry[0])
-                break
+    # Drop every alias so an explicit disable recorded under a legacy form
+    # cannot silently veto this enable.
+    disabled.difference_update(aliases)
+
+    if enabled != previous_enabled or disabled != previous_disabled:
         _save_enabled_set(enabled)
         _save_disabled_set(disabled)
         console.print(
@@ -1073,13 +1079,75 @@ def _discover_entrypoint_plugins() -> list[tuple[str, str, str, str]]:
     return entries
 
 
-def _plugin_status(name: str, enabled: set, disabled: set, key: str = "") -> str:
-    """Return the user-facing activation state for a plugin name or key."""
+def _plugin_status(
+    name: str,
+    enabled: set,
+    disabled: set,
+    key: str = "",
+    *,
+    source: str = "",
+    default_enabled: bool = False,
+) -> str:
+    """Return source-aware user-facing activation state.
+
+    ``default_enabled`` is effective only for bundled manifests.  Keeping the
+    source check here gives the dashboard hub a shared helper without widening
+    ``_discover_all_plugins()``'s long-standing six-item tuple contract.
+    """
     if name in disabled or key in disabled:
         return "disabled"
     if name in enabled or key in enabled:
         return "enabled"
+    if source == "bundled" and default_enabled is True:
+        return "enabled"
     return "not enabled"
+
+
+def _plugin_runtime_status(
+    name: str,
+    enabled: set,
+    disabled: set,
+    key: str = "",
+    *,
+    source: str = "",
+    default_enabled: bool = False,
+) -> str:
+    """Dashboard-facing state using the hub's ``inactive`` label."""
+    status = _plugin_status(
+        name,
+        enabled,
+        disabled,
+        key,
+        source=source,
+        default_enabled=default_enabled,
+    )
+    return "inactive" if status == "not enabled" else status
+
+
+def _entry_default_enabled(entry: tuple) -> bool:
+    """Read the strict manifest flag for one six-field discovery entry."""
+    if len(entry) < 6 or entry[3] != "bundled":
+        return False
+    raw_path = entry[4]
+    if not isinstance(raw_path, (str, Path)):
+        return False
+    path = Path(raw_path)
+    if not path.is_dir():
+        return False
+    return _read_manifest(path).get("default_enabled") is True
+
+
+def _entry_plugin_status(entry: tuple, enabled: set, disabled: set) -> str:
+    """Resolve effective state for one discovery entry."""
+    name, _version, _description, source, _dir, key = entry
+    return _plugin_status(
+        name,
+        enabled,
+        disabled,
+        key,
+        source=source,
+        default_enabled=_entry_default_enabled(entry),
+    )
 
 
 def _filter_plugin_entries(entries: list, args: Any, enabled: set, disabled: set) -> list:
@@ -1090,7 +1158,7 @@ def _filter_plugin_entries(entries: list, args: Any, enabled: set, disabled: set
     if getattr(args, "enabled", False):
         filtered = [
             entry for entry in filtered
-            if _plugin_status(entry[0], enabled, disabled, key=entry[5]) == "enabled"
+            if _entry_plugin_status(entry, enabled, disabled) == "enabled"
         ]
     return filtered
 
@@ -1115,7 +1183,11 @@ def cmd_list(args: Any | None = None) -> None:
         payload = [
             {
                 "name": name,
-                "status": _plugin_status(name, enabled, disabled, key=key),
+                "status": _entry_plugin_status(
+                    (name, version, description, source, _dir, key),
+                    enabled,
+                    disabled,
+                ),
                 "version": str(version),
                 "description": description,
                 "source": source,
@@ -1127,7 +1199,11 @@ def cmd_list(args: Any | None = None) -> None:
 
     if getattr(args, "plain", False):
         for name, version, _description, source, _dir, key in entries:
-            status = _plugin_status(name, enabled, disabled, key=key)
+            status = _entry_plugin_status(
+                (name, version, _description, source, _dir, key),
+                enabled,
+                disabled,
+            )
             print(f"{status:12} {source:8} {str(version):8} {name}")
         return
 
@@ -1143,7 +1219,11 @@ def cmd_list(args: Any | None = None) -> None:
     table.add_column("Source", style="dim")
 
     for name, version, description, source, _dir, key in entries:
-        status_name = _plugin_status(name, enabled, disabled, key=key)
+        status_name = _entry_plugin_status(
+            (name, version, description, source, _dir, key),
+            enabled,
+            disabled,
+        )
         if status_name == "disabled":
             status = "[red]disabled[/red]"
         elif status_name == "enabled":
@@ -1355,21 +1435,18 @@ def cmd_toggle() -> None:
     plugin_keys = []
     plugin_labels = []
     plugin_selected = set()
+    default_enabled_indices = set()
 
     for i, (name, _version, description, source, _d, key) in enumerate(entries):
+        entry = (name, _version, description, source, _d, key)
         label = f"{name} \u2014 {description}" if description else name
         if source == "bundled":
             label = f"{label} [bundled]"
         plugin_keys.append(key)
         plugin_labels.append(label)
-        # Selected (enabled) when in enabled-set AND not in disabled-set.
-        # Accept the legacy bare name on either side for back-compat with
-        # existing configs written before this normalization.
-        is_on = (
-            (key in enabled_set or name in enabled_set)
-            and key not in disabled_set
-            and name not in disabled_set
-        )
+        if _entry_default_enabled(entry):
+            default_enabled_indices.add(i)
+        is_on = _entry_plugin_status(entry, enabled_set, disabled_set) == "enabled"
         if is_on:
             plugin_selected.add(i)
 
@@ -1398,18 +1475,21 @@ def cmd_toggle() -> None:
     try:
         import curses
         _run_composite_ui(curses, plugin_keys, plugin_labels, plugin_selected,
-                          disabled_set, categories, console)
+                          disabled_set, categories, console,
+                          default_enabled_indices=default_enabled_indices)
     except ImportError:
         _run_composite_fallback(plugin_keys, plugin_labels, plugin_selected,
-                                disabled_set, categories, console)
+                                disabled_set, categories, console,
+                                default_enabled_indices=default_enabled_indices)
 
 
 def _run_composite_ui(curses, plugin_keys, plugin_labels, plugin_selected,
-                      disabled, categories, console):
+                      disabled, categories, console, default_enabled_indices=None):
     """Custom curses screen with checkboxes + category action rows."""
     from fabric_cli.curses_ui import flush_stdin
 
     chosen = set(plugin_selected)
+    default_enabled_indices = set(default_enabled_indices or ())
     n_plugins = len(plugin_keys)
     # Total rows: plugins + separator + categories
     # separator is not navigable
@@ -1635,7 +1715,11 @@ def _run_composite_ui(curses, plugin_keys, plugin_labels, plugin_selected,
     for i, key in enumerate(plugin_keys):
         bare = key.split("/")[-1]
         if i in chosen:
-            new_enabled.add(key)
+            # Keep repository defaults implicit.  Persisting the key in the
+            # general allow-list would also enable a future same-key user
+            # plugin after source precedence selects it.
+            if i not in default_enabled_indices:
+                new_enabled.add(key)
             new_disabled.discard(key)
             # Drop any stale legacy bare-leaf disable so re-enabling here
             # fully clears the plugin from the disabled-list.
@@ -1652,8 +1736,8 @@ def _run_composite_ui(curses, plugin_keys, plugin_labels, plugin_selected,
         _save_enabled_set(new_enabled)
         _save_disabled_set(new_disabled)
         console.print(
-            f"\n[green]\u2713[/green] General plugins: {len(new_enabled)} enabled, "
-            f"{len(plugin_keys) - len(new_enabled)} disabled."
+            f"\n[green]\u2713[/green] General plugins: {len(chosen)} enabled, "
+            f"{len(plugin_keys) - len(chosen)} disabled."
         )
     elif n_plugins > 0:
         console.print("\n[dim]General plugins unchanged.[/dim]")
@@ -1672,11 +1756,12 @@ def _run_composite_ui(curses, plugin_keys, plugin_labels, plugin_selected,
 
 
 def _run_composite_fallback(plugin_keys, plugin_labels, plugin_selected,
-                            disabled, categories, console):
+                            disabled, categories, console, default_enabled_indices=None):
     """Text-based fallback for the composite plugins UI."""
     from fabric_cli.colors import Colors, color
 
     print(color("\n  Plugins", Colors.YELLOW))
+    default_enabled_indices = set(default_enabled_indices or ())
 
     # General plugins
     if plugin_keys:
@@ -1708,7 +1793,8 @@ def _run_composite_fallback(plugin_keys, plugin_labels, plugin_selected,
         for i, key in enumerate(plugin_keys):
             bare = key.split("/")[-1]
             if i in chosen:
-                new_enabled.add(key)
+                if i not in default_enabled_indices:
+                    new_enabled.add(key)
                 new_disabled.discard(key)
                 if bare != key:
                     new_disabled.discard(bare)
@@ -1876,30 +1962,35 @@ def dashboard_set_agent_plugin_enabled(name: str, *, enabled: bool) -> dict[str,
     For plugins that provide tools (toolsets), also toggles the toolset in
     ``platform_toolsets`` so the agent actually sees the tools in sessions.
     """
-    if not _plugin_exists(name):
+    entry = _resolve_plugin_entry(name)
+    if entry is None:
         return {"ok": False, "error": f"Plugin '{name}' is not installed or bundled."}
 
+    key = entry[5]
+    aliases = _plugin_entry_aliases(entry)
+    implicit_default = _entry_default_enabled(entry)
     en = _get_enabled_set()
     dis = _get_disabled_set()
+    previous_en = set(en)
+    previous_dis = set(dis)
 
     if enabled:
-        if name in en and name not in dis:
-            return {"ok": True, "name": name, "unchanged": True}
-        en.add(name)
-        dis.discard(name)
-        _save_enabled_set(en)
-        _save_disabled_set(dis)
-        _toggle_plugin_toolset(name, enable=True)
-        return {"ok": True, "name": name, "unchanged": False}
+        if implicit_default:
+            en.difference_update(aliases)
+        else:
+            en.add(key)
+        dis.difference_update(aliases)
+    else:
+        en.difference_update(aliases)
+        dis.add(key)
 
-    if name not in en and name in dis:
+    changed = en != previous_en or dis != previous_dis
+    if not changed:
         return {"ok": True, "name": name, "unchanged": True}
 
-    en.discard(name)
-    dis.add(name)
     _save_enabled_set(en)
     _save_disabled_set(dis)
-    _toggle_plugin_toolset(name, enable=False)
+    _toggle_plugin_toolset(key, enable=enabled)
     return {"ok": True, "name": name, "unchanged": False}
 
 

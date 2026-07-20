@@ -2033,3 +2033,12 @@ class TestProfilesToServe:
     def test_on_no_named_profiles_returns_just_default(self, profile_env):
         serve = profiles_to_serve(multiplex=True)
         assert [n for n, _ in serve] == ["default"]
+
+    def test_on_optional_limit_bounds_management_enumeration(self, profile_env):
+        for name in ("alpha", "bravo", "charlie", "delta", "echo"):
+            create_profile(name, no_alias=True)
+
+        serve = profiles_to_serve(multiplex=True, max_profiles=3)
+
+        assert serve[0][0] == "default"
+        assert len(serve) == 3

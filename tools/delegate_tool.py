@@ -1380,13 +1380,28 @@ def _build_child_agent(
             logger.debug("spawn_requested relay failed: %s", exc)
 
     try:
-        from fabric_cli.plugins import invoke_hook as _invoke_hook
+        from fabric_cli.plugins import (
+            emit_capability_event as _emit_capability_event,
+            invoke_hook as _invoke_hook,
+        )
+        _child_session_id = getattr(child, "session_id", None)
+        _parent_session_id = getattr(parent_agent, "session_id", None)
+        _parent_turn_id = getattr(parent_agent, "_current_turn_id", "") or ""
+        _emit_capability_event(
+            capability="agent",
+            action="started",
+            outcome="success",
+            subject_id=_child_session_id or subagent_id or None,
+            session_id=_parent_session_id or None,
+            turn_id=_parent_turn_id or None,
+            event_id=_child_session_id or subagent_id or None,
+        )
         _invoke_hook(
             "subagent_start",
-            parent_session_id=getattr(parent_agent, "session_id", None),
-            parent_turn_id=getattr(parent_agent, "_current_turn_id", "") or "",
+            parent_session_id=_parent_session_id,
+            parent_turn_id=_parent_turn_id,
             parent_subagent_id=parent_subagent_id,
-            child_session_id=getattr(child, "session_id", None),
+            child_session_id=_child_session_id,
             child_subagent_id=subagent_id,
             child_role=effective_role,
             child_goal=goal,
@@ -2702,16 +2717,20 @@ def delegate_task(
         # child was closed.
         _parent_session_id = getattr(parent_agent, "session_id", None)
         try:
-            from fabric_cli.plugins import invoke_hook as _invoke_hook
+            from fabric_cli.plugins import (
+                emit_capability_event as _emit_capability_event,
+                invoke_hook as _invoke_hook,
+            )
         except Exception:
             _invoke_hook = None
+            _emit_capability_event = None
         # Aggregate child spend here so the parent's footer/UI reflect the true
         # cost of a subagent-heavy turn.  Port of Kilo-Org/kilocode#9448.  Each
         # child's cost was captured in _run_single_child before its AIAgent was
         # closed; we fold them into the parent in one pass alongside the
         # subagent_stop hook loop so we don't walk `results` twice.
         _children_cost_total = 0.0
-        for entry in results:
+        for _result_index, entry in enumerate(results):
             child_role = entry.pop("_child_role", None)
             child_cost = entry.pop("_child_cost_usd", 0.0)
             try:
@@ -2728,15 +2747,38 @@ def delegate_task(
                     if isinstance(_child_index, int) and 0 <= _child_index < len(children)
                     else None
                 )
+                _child_session_id = getattr(_child_agent, "session_id", None)
+                _parent_turn_id = (
+                    getattr(parent_agent, "_current_turn_id", "") or ""
+                )
+                _duration_ms = int((entry.get("duration_seconds") or 0) * 1000)
+                _child_ref = _child_session_id or f"task-index:{_child_index if _child_index >= 0 else _result_index}"
+                _child_status = str(entry.get("status") or "").casefold()
+                _emit_capability_event(
+                    capability="agent",
+                    action="stopped",
+                    outcome=(
+                        "success"
+                        if _child_status in {"completed", "success", "ok"}
+                        else "interrupted"
+                        if _child_status in {"interrupted", "timeout", "cancelled", "canceled"}
+                        else "failed"
+                    ),
+                    subject_id=_child_ref,
+                    session_id=_parent_session_id or None,
+                    turn_id=_parent_turn_id or None,
+                    event_id=_child_ref,
+                    duration_ms=max(0, _duration_ms),
+                )
                 _invoke_hook(
                     "subagent_stop",
                     parent_session_id=_parent_session_id,
-                    parent_turn_id=getattr(parent_agent, "_current_turn_id", "") or "",
-                    child_session_id=getattr(_child_agent, "session_id", None),
+                    parent_turn_id=_parent_turn_id,
+                    child_session_id=_child_session_id,
                     child_role=child_role,
                     child_summary=entry.get("summary"),
                     child_status=entry.get("status"),
-                    duration_ms=int((entry.get("duration_seconds") or 0) * 1000),
+                    duration_ms=_duration_ms,
                 )
             except Exception:
                 logger.debug("subagent_stop hook invocation failed", exc_info=True)

@@ -959,11 +959,77 @@ def _coerce_boolean(value: str):
 def _tool_result_observer_fields(result: Any) -> tuple[str, Optional[str], Optional[str]]:
     try:
         parsed_result = json.loads(result) if isinstance(result, str) else result
-        if isinstance(parsed_result, dict) and parsed_result.get("error"):
-            return "error", "tool_error", str(parsed_result.get("error"))
+        if isinstance(parsed_result, dict):
+            if parsed_result.get("success") is False:
+                return (
+                    "error",
+                    "tool_error",
+                    str(parsed_result.get("error") or "tool reported success=false"),
+                )
+            if parsed_result.get("error"):
+                return "error", "tool_error", str(parsed_result.get("error"))
     except Exception:
         pass
     return "ok", None, None
+
+
+_CAPABILITY_RESULT_SAMPLE_CHARS = 8_192
+_CAPABILITY_RESULT_PARSE_MAX_CHARS = 8_192
+_CAPABILITY_ERROR_PREFIX = re.compile(
+    r'^\s*\{\s*"error"\s*:\s*(?:"(?!")|\{|\[|true\b|-?\d)',
+    re.IGNORECASE,
+)
+_CAPABILITY_FALSE_PREFIX = re.compile(
+    r'^\s*\{\s*"success"\s*:\s*false\b',
+    re.IGNORECASE,
+)
+_CAPABILITY_FALSE_SUFFIX = re.compile(
+    r'(?<!\\)"success"\s*:\s*false\s*\}\s*$',
+    re.IGNORECASE,
+)
+_CAPABILITY_ERROR_SUFFIX = re.compile(
+    r'(?<!\\)"error"\s*:\s*'
+    r'(?:(?:"[^"\\]*(?:\\.[^"\\]*)+")|(?:"[^"\\]+")|true\b|-?\d+(?:\.\d+)?|\{.*\}|\[.*\])'
+    r'\s*\}\s*$',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _tool_result_capability_status(result: Any) -> str:
+    """Classify a result without inspecting or copying unbounded content.
+
+    Rich ``post_tool_call`` consumers retain the precise parser above.  The
+    default local capability observer needs only success/failure, so it parses
+    complete JSON only under a hard parse ceiling. Oversized strings get
+    bounded head and tail checks for conventional top-level error shapes.
+    """
+    if isinstance(result, dict):
+        if result.get("success") is False or result.get("error"):
+            return "error"
+        return "ok"
+    if not isinstance(result, str):
+        return "ok"
+
+    if len(result) > _CAPABILITY_RESULT_PARSE_MAX_CHARS:
+        head = result[:_CAPABILITY_RESULT_SAMPLE_CHARS]
+        tail = result[-_CAPABILITY_RESULT_SAMPLE_CHARS:]
+        if (
+            _CAPABILITY_FALSE_PREFIX.match(head)
+            or _CAPABILITY_ERROR_PREFIX.match(head)
+            or _CAPABILITY_FALSE_SUFFIX.search(tail)
+            or _CAPABILITY_ERROR_SUFFIX.search(tail)
+        ):
+            return "error"
+        return "ok"
+    try:
+        parsed = json.loads(result)
+    except Exception:
+        return "ok"
+    if isinstance(parsed, dict) and (
+        parsed.get("success") is False or parsed.get("error")
+    ):
+        return "error"
+    return "ok"
 
 
 def _emit_post_tool_call_hook(
@@ -992,11 +1058,35 @@ def _emit_post_tool_call_hook(
     listener will actually consume it).
     """
     try:
-        from fabric_cli.plugins import has_hook, invoke_hook
-        if not has_hook("post_tool_call"):
+        from fabric_cli.plugins import emit_capability_event, has_hook, invoke_hook
+        has_capability_listener = has_hook("capability_event")
+        has_rich_listener = has_hook("post_tool_call")
+        if not has_capability_listener and not has_rich_listener:
             return
-        if status is None:
+        if status is None and has_rich_listener:
             status, error_type, error_message = _tool_result_observer_fields(result)
+        elif status is None:
+            status = _tool_result_capability_status(result)
+        if has_capability_listener:
+            normalized_status = str(status or "").casefold()
+            outcome = (
+                "success"
+                if normalized_status in {"ok", "success", "completed"}
+                else "interrupted"
+                if normalized_status in {"interrupted", "cancelled", "canceled", "timeout"}
+                else "failed"
+            )
+            emit_capability_event(
+                capability="tool",
+                action=function_name,
+                outcome=outcome,
+                session_id=session_id or None,
+                turn_id=turn_id or None,
+                event_id=tool_call_id or None,
+                duration_ms=max(0, int(duration_ms)),
+            )
+        if not has_rich_listener:
+            return
         invoke_hook(
             "post_tool_call",
             tool_name=function_name,

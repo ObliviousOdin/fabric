@@ -1,9 +1,9 @@
 {
   "name": "achievements",
   "label": "Achievements",
-  "description": "Private local milestones with manual score sharing.",
+  "description": "A private, local Fabric Journey for capability quests, mastery, and friendly sharing.",
   "icon": "Star",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "tab": {
     "path": "/workspace/achievements",
     "aliases": ["/achievements"],

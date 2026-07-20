@@ -141,6 +141,10 @@ class MemoryStore:
         # Per-turn counter of failed at-capacity consolidation attempts; reset
         # at each turn boundary by reset_consolidation_failures() (#42405).
         self._consolidation_failures = 0
+        # System-prompt formatting can be requested more than once while an
+        # agent is initialized.  Count a frozen target at most once per store
+        # (effectively once per session) so retries do not inflate progress.
+        self._capability_recalls_emitted: set[str] = set()
 
     def reset_consolidation_failures(self) -> None:
         """Reset the per-turn consolidation-failure counter (call at turn start)."""
@@ -652,6 +656,13 @@ class MemoryStore:
         Returns None if the snapshot is empty (no entries at load time).
         """
         block = self._system_prompt_snapshot.get(target, "")
+        if block and target not in self._capability_recalls_emitted:
+            self._capability_recalls_emitted.add(target)
+            _emit_memory_capability(
+                action="recalled",
+                target=target,
+                count=max(1, len(self._entries_for(target))),
+            )
         return block if block else None
 
     # -- Internal helpers --
@@ -985,7 +996,7 @@ def _missing_old_text_error(store: "MemoryStore", target: str, action: str) -> s
     )
 
 
-def memory_tool(
+def _memory_tool_impl(
     action: str = None,
     target: str = "memory",
     content: str = None,
@@ -1063,6 +1074,61 @@ def memory_tool(
     return json.dumps(result, ensure_ascii=False)
 
 
+def _emit_memory_capability(*, action: str, target: str, count: int) -> None:
+    """Best-effort projection of memory activity without memory content."""
+    try:
+        from fabric_cli.plugins import emit_capability_event
+
+        emit_capability_event(
+            capability="memory",
+            action=action,
+            outcome="success",
+            subject_id=target,
+            count=max(1, count),
+        )
+    except Exception:
+        # Memory reads and writes must never depend on optional observers.
+        pass
+
+
+def memory_tool(
+    action: str = None,
+    target: str = "memory",
+    content: str = None,
+    old_text: str = None,
+    operations: Optional[List[Dict[str, Any]]] = None,
+    store: Optional[MemoryStore] = None,
+) -> str:
+    """Run the memory tool and observe only successful, committed writes."""
+    result_json = _memory_tool_impl(
+        action=action,
+        target=target,
+        content=content,
+        old_text=old_text,
+        operations=operations,
+        store=store,
+    )
+    try:
+        result = json.loads(result_json)
+        if (
+            isinstance(result, dict)
+            and result.get("success") is True
+            and result.get("staged") is not True
+        ):
+            event_target = result.get("target")
+            if event_target in {"memory", "user"}:
+                operation_count = len(operations) if operations else 1
+                _emit_memory_capability(
+                    action="stored",
+                    target=event_target,
+                    count=operation_count,
+                )
+    except Exception:
+        # Parsing or observation is deliberately outside the write path.
+        pass
+    return result_json
+
+
 def check_memory_requirements() -> bool:
     """Memory tool has no external requirements -- always available."""
     return True
@@ -1113,6 +1179,15 @@ def apply_memory_pending(payload: Dict[str, Any], store: "MemoryStore") -> Dict[
         )
     except Exception:
         logger.debug("Approved memory governance recording unavailable", exc_info=True)
+    if isinstance(result, dict) and result.get("success") is True:
+        operation_count = (
+            len(payload.get("operations") or []) if action == "batch" else 1
+        )
+        _emit_memory_capability(
+            action="stored",
+            target=target,
+            count=operation_count,
+        )
     return result
 # OpenAI Function-Calling Schema
 # =============================================================================
@@ -1202,4 +1277,3 @@ registry.register(
     check_fn=check_memory_requirements,
     emoji="🧠",
 )
-

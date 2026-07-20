@@ -1461,6 +1461,19 @@ DEFAULT_CONFIG = {
         "allow_project_plugins": False,
     },
 
+    # Profile-local achievements journey.  Runtime observers record only the
+    # closed capability metadata contract; no prompts, outputs, arguments,
+    # paths, or errors are stored.  These are behavioral settings, not secrets,
+    # so they belong in config.yaml rather than .env.
+    "achievements": {
+        "tracking_enabled": True,
+        "active_time_enabled": True,
+        "celebration_mode": "standard",
+        "raw_event_retention_days": 90,
+        # Empty until the user completes the first-run outcome picker.
+        "preferred_outcome": "",
+    },
+
     # Anthropic prompt caching (Claude via OpenRouter or native Anthropic API).
     # cache_ttl must be "5m" or "1h" (Anthropic-supported tiers); other values are ignored.
     "prompt_caching": {

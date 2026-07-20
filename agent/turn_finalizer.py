@@ -488,6 +488,27 @@ def finalize_turn(
     # handled by the CLI (atexit / /reset) and gateway (session expiry /
     # _reset_session).
 
+    # Closed lifecycle signal for local capability consumers.  Keep this
+    # separate from the rich compatibility hook below so consumers that need
+    # only product outcomes never receive messages or model response content.
+    try:
+        from fabric_cli.plugins import emit_capability_event as _emit_capability_event
+
+        _emit_capability_event(
+            capability="conversation",
+            action="turn_completed",
+            outcome=(
+                "interrupted" if interrupted else "success" if completed else "failed"
+            ),
+            session_id=agent.session_id or None,
+            turn_id=turn_id or None,
+            surface=(getattr(agent, "platform", None) or None),
+            provider=(getattr(agent, "provider", None) or None),
+            event_id=turn_id or None,
+        )
+    except Exception:
+        logger.debug("conversation capability completion emission failed")
+
     # Plugin hook: on_session_end
     # Fired at the very end of every run_conversation call.
     # Plugins can use this for cleanup, flushing buffers, etc.

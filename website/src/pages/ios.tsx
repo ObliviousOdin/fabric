@@ -1,7 +1,7 @@
 import React from "react";
 import Layout from "@theme/Layout";
 
-// Once the first build is live, paste the public TestFlight invitation link
+// Once the public beta group is live, paste the TestFlight invitation link
 // here (App Store Connect -> TestFlight -> your tester group -> Public Link).
 // Until this is a real https:// link the page shows a "coming soon" state, so
 // it is safe to ship before the beta exists.
@@ -21,8 +21,9 @@ export default function IosDownloadPage(): React.ReactElement {
             <h1>Fabric for iPhone</h1>
             <p className="hero__subtitle">
               A native remote control for your own Fabric agent. The app is a
-              thin client: it connects to a <code>fabric serve</code> gateway you
-              run, so your files, tools, and sessions never leave that machine.
+              thin client that connects to a <code>fabric serve</code> gateway
+              you control; execution and provider choices remain part of that
+              Fabric setup instead of moving into a second mobile backend.
             </p>
 
             {live ? (
@@ -42,10 +43,11 @@ export default function IosDownloadPage(): React.ReactElement {
                 role="alert"
                 style={{ padding: "1rem 1.25rem", borderRadius: 8 }}
               >
-                <strong>Beta invite link coming soon.</strong> The first build is
-                being prepared in TestFlight. Maintainers: paste the public
-                TestFlight link into <code>website/src/pages/ios.tsx</code> to
-                turn this into a live install button.
+                <strong>Public beta invite coming soon.</strong> An internal
+                TestFlight preview is already running. Invited testers can open
+                it from TestFlight; everyone else can join when the public group
+                opens. Maintainers: paste that public invitation into{" "}
+                <code>website/src/pages/ios.tsx</code> to enable the button.
               </div>
             )}
 
@@ -63,10 +65,18 @@ export default function IosDownloadPage(): React.ReactElement {
               <li>
                 Install <strong>TestFlight</strong> from the App Store.
               </li>
-              <li>
-                Tap <strong>Join the TestFlight beta</strong> above and accept
-                the invitation.
-              </li>
+              {live ? (
+                <li>
+                  Tap <strong>Join the TestFlight beta</strong> above and accept
+                  the invitation.
+                </li>
+              ) : (
+                <li>
+                  If you are already an internal tester, open the Fabric invite
+                  in TestFlight. Otherwise, return when the public invitation is
+                  published.
+                </li>
+              )}
               <li>
                 On the machine running Fabric, start a gateway:{" "}
                 <code>fabric mobile --install none</code>. It prints a pairing QR

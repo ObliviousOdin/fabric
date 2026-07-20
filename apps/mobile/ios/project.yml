@@ -49,9 +49,9 @@ targets:
         NSLocalNetworkUsageDescription: >-
           Fabric connects to the Fabric gateway running on your local network
           or tailnet.
-        # `fabric serve` on a LAN/tailnet host is plain http; the ATS
-        # exception covers local + private-range networking only. Public
-        # gateways must be https.
+        # Declare local-network access without weakening ATS globally. Fabric
+        # TestFlight connections should still use HTTPS, including IP-based
+        # LAN and tailnet endpoints.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
   FabricTests:

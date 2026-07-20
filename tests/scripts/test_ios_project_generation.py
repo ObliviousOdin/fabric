@@ -76,6 +76,16 @@ class IOSProjectGenerationTests(unittest.TestCase):
         self.assertEqual(self.capture.read_bytes(), self.original_spec)
         self.assert_source_manifest_unchanged()
 
+    def test_non_executable_configured_generator_fails_closed(self) -> None:
+        self.fake_xcodegen.chmod(0o644)
+
+        result = self.run_post_clone()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("FABRIC_XCODEGEN_BIN is not executable", result.stderr)
+        self.assertFalse(self.capture.exists())
+        self.assert_source_manifest_unchanged()
+
     def test_release_overrides_are_applied_only_to_temporary_spec(self) -> None:
         result = self.run_post_clone(
             FABRIC_IOS_BUNDLE_ID="com.example.fabric.mobile",
@@ -143,6 +153,42 @@ class IOSProjectGenerationTests(unittest.TestCase):
                 self.assertIn("must be", result.stderr)
                 self.assertFalse(self.capture.exists())
                 self.assert_source_manifest_unchanged()
+
+    def test_release_fails_closed_when_source_bundle_marker_drifts(self) -> None:
+        changed_spec = self.project_spec.read_text(encoding="utf-8").replace(
+            "io.github.obliviousodin.fabric.mobile",
+            "com.changed.fabric.mobile",
+        )
+        self.project_spec.write_text(changed_spec, encoding="utf-8")
+        self.original_spec = self.project_spec.read_bytes()
+
+        result = self.run_post_clone(
+            FABRIC_IOS_BUNDLE_ID="com.example.fabric.mobile",
+            FABRIC_IOS_BUILD_NUMBER="42",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("source iOS bundle marker changed", result.stderr)
+        self.assertFalse(self.capture.exists())
+        self.assert_source_manifest_unchanged()
+
+    def test_release_fails_closed_when_source_build_marker_drifts(self) -> None:
+        changed_spec = self.project_spec.read_text(encoding="utf-8").replace(
+            'CURRENT_PROJECT_VERSION: "1"',
+            "CURRENT_PROJECT_VERSION: development",
+        )
+        self.project_spec.write_text(changed_spec, encoding="utf-8")
+        self.original_spec = self.project_spec.read_bytes()
+
+        result = self.run_post_clone(
+            FABRIC_IOS_BUNDLE_ID="com.example.fabric.mobile",
+            FABRIC_IOS_BUILD_NUMBER="42",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("source iOS build marker changed", result.stderr)
+        self.assertFalse(self.capture.exists())
+        self.assert_source_manifest_unchanged()
 
 
 if __name__ == "__main__":

@@ -88,18 +88,34 @@ if [ -z "$bundle_id" ] && [ -n "$build_number" ]; then
 fi
 
 if [ -n "$bundle_id" ]; then
+  if ! grep -Fq 'io.github.obliviousodin.fabric.mobile' "$generated_spec"; then
+    echo "The source iOS bundle marker changed; update ci_post_clone.sh before releasing" >&2
+    exit 2
+  fi
   echo "Applying the configured iOS bundle identifier to the generated project"
   next_spec="$work/project.bundle.yml"
   sed "s#io\\.github\\.obliviousodin\\.fabric\\.mobile#$bundle_id#g" \
     "$generated_spec" > "$next_spec"
+  if grep -Fq 'io.github.obliviousodin.fabric.mobile' "$next_spec"; then
+    echo "The configured iOS bundle identifier was not applied completely" >&2
+    exit 2
+  fi
   mv "$next_spec" "$generated_spec"
 fi
 
 if [ -n "$build_number" ]; then
+  if ! grep -Eq 'CURRENT_PROJECT_VERSION: "[0-9][0-9]*"' "$generated_spec"; then
+    echo "The source iOS build marker changed; update ci_post_clone.sh before releasing" >&2
+    exit 2
+  fi
   echo "Applying iOS build number $build_number to the generated project"
   next_spec="$work/project.build.yml"
   sed "s#CURRENT_PROJECT_VERSION: \"[0-9][0-9]*\"#CURRENT_PROJECT_VERSION: \"$build_number\"#" \
     "$generated_spec" > "$next_spec"
+  if ! grep -Fq "CURRENT_PROJECT_VERSION: \"$build_number\"" "$next_spec"; then
+    echo "The configured iOS build number was not applied" >&2
+    exit 2
+  fi
   mv "$next_spec" "$generated_spec"
 fi
 

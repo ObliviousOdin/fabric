@@ -15,7 +15,7 @@ identity in this repository.
 | **App name** | your choice (e.g. `Fabric`) | You — when creating the App Store Connect record (Step 2). |
 | **Apple Team ID** | your 10-char team (from developer.apple.com → Membership) | Xcode Cloud pulls this from your Apple account automatically. Only needed by hand for local builds (`Signing.xcconfig`). |
 | **Start-condition branch** | `main` | Release only reviewed, merged source. |
-| **TestFlight public link** | appears after the first build | You — paste into `website/src/pages/ios.tsx` (Step 6). |
+| **TestFlight public link** | appears after a public tester group is enabled | You — paste into `website/src/pages/ios.tsx` (Step 6). |
 
 The source bundle ID is a development default. Bundle IDs are globally unique,
 so every TestFlight workflow must set `FABRIC_IOS_BUNDLE_ID` to the identifier

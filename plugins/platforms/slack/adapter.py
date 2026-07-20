@@ -449,9 +449,9 @@ class SlackAdapter(BasePlatformAdapter):
         # Dedup cache: prevents duplicate bot responses when Socket Mode
         # reconnects redeliver events.
         self._dedup = MessageDeduplicator()
-        # Track pending approval message_ts → resolved flag to prevent
-        # double-clicks on approval buttons.
-        self._approval_resolved: Dict[str, bool] = {}
+        # Track the exact core approval represented by each Block Kit message.
+        # The core request ID, not session FIFO order, is authoritative.
+        self._approval_requests: Dict[str, Tuple[str, str]] = {}
         # Track timestamps of messages sent by the bot so we can respond
         # to thread replies even without an explicit @mention.
         self._bot_message_ts: set = set()
@@ -3245,6 +3245,7 @@ class SlackAdapter(BasePlatformAdapter):
         chat_id: str,
         command: str,
         session_key: str,
+        request_id: str,
         description: str = "dangerous command",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
@@ -3255,6 +3256,9 @@ class SlackAdapter(BasePlatformAdapter):
         """
         if not self._app:
             return SendResult(success=False, error="Not connected")
+        request_id = str(request_id or "").strip()
+        if not request_id:
+            return SendResult(success=False, error="Missing approval request ID")
 
         try:
             thread_ts = self._resolve_thread_ts(None, metadata)
@@ -3270,6 +3274,10 @@ class SlackAdapter(BasePlatformAdapter):
             reason = f"Reason: {description[:500]}"
             budget = 3000 - len(header) - len(reason) - len("``````\n") - len("...")
             cmd_preview = command[:budget] + "..." if len(command) > budget else command
+            button_value = json.dumps(
+                {"session_key": session_key, "request_id": request_id},
+                separators=(",", ":"),
+            )
 
             blocks = [
                 {
@@ -3287,26 +3295,26 @@ class SlackAdapter(BasePlatformAdapter):
                             "text": {"type": "plain_text", "text": "Allow Once"},
                             "style": "primary",
                             "action_id": "fabric_approve_once",
-                            "value": session_key,
+                            "value": button_value,
                         },
                         {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Allow Session"},
                             "action_id": "fabric_approve_session",
-                            "value": session_key,
+                            "value": button_value,
                         },
                         {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Always Allow"},
                             "action_id": "fabric_approve_always",
-                            "value": session_key,
+                            "value": button_value,
                         },
                         {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Deny"},
                             "style": "danger",
                             "action_id": "fabric_deny",
-                            "value": session_key,
+                            "value": button_value,
                         },
                     ],
                 },
@@ -3323,7 +3331,7 @@ class SlackAdapter(BasePlatformAdapter):
             result = await self._get_client(chat_id).chat_postMessage(**kwargs)
             msg_ts = result.get("ts", "")
             if msg_ts:
-                self._approval_resolved[msg_ts] = False
+                self._approval_requests[msg_ts] = (session_key, request_id)
 
             return SendResult(success=True, message_id=msg_ts, raw_response=result)
         except Exception as e:
@@ -3578,7 +3586,16 @@ class SlackAdapter(BasePlatformAdapter):
         await ack()
 
         action_id = action.get("action_id", "")
-        session_key = action.get("value", "")
+        try:
+            action_value = json.loads(action.get("value", ""))
+        except (TypeError, ValueError):
+            logger.warning("[Slack] Invalid approval button payload")
+            return
+        if not isinstance(action_value, dict):
+            logger.warning("[Slack] Invalid approval button payload")
+            return
+        session_key = str(action_value.get("session_key") or "")
+        request_id = str(action_value.get("request_id") or "")
         message = body.get("message", {})
         msg_ts = message.get("ts", "")
         channel_id = body.get("channel", {}).get("id", "")
@@ -3617,11 +3634,43 @@ class SlackAdapter(BasePlatformAdapter):
             "fabric_approve_always": "always",
             "fabric_deny": "deny",
         }
-        choice = choice_map.get(action_id, "deny")
-
-        # Prevent double-clicks — atomic pop; first caller gets False, others get True (default)
-        if self._approval_resolved.pop(msg_ts, True):
+        choice = choice_map.get(action_id)
+        if not choice or not session_key or not request_id:
+            logger.warning("[Slack] Invalid approval action payload")
             return
+
+        # Unknown, stale, or tampered messages are not successful approvals.
+        # Do not consume local state until the exact core request resolves.
+        expected_request = self._approval_requests.get(msg_ts)
+        if expected_request != (session_key, request_id):
+            return
+
+        try:
+            from tools.approval import resolve_gateway_approval
+
+            count = resolve_gateway_approval(
+                session_key,
+                choice,
+                resolve_all=False,
+                request_id=request_id,
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to resolve gateway approval from Slack button: %s", exc
+            )
+            return
+        if count != 1:
+            logger.warning(
+                "Slack approval button was stale or already resolved "
+                "(session=%s, request_id=%s)",
+                session_key,
+                request_id,
+            )
+            return
+
+        # No await occurs between the authoritative resolution and this pop,
+        # so concurrent callbacks cannot both present a success state.
+        self._approval_requests.pop(msg_ts, None)
 
         # Update the message to show the decision and remove buttons
         label_map = {
@@ -3665,24 +3714,15 @@ class SlackAdapter(BasePlatformAdapter):
         except Exception as e:
             logger.warning("[Slack] Failed to update approval message: %s", e)
 
-        # Resolve the approval — this unblocks the agent thread
-        try:
-            from tools.approval import resolve_gateway_approval
-
-            count = resolve_gateway_approval(session_key, choice)
-            logger.info(
-                "Slack button resolved %d approval(s) for session %s (choice=%s, user=%s)",
-                count,
-                session_key,
-                choice,
-                user_name,
-            )
-        except Exception as exc:
-            logger.error(
-                "Failed to resolve gateway approval from Slack button: %s", exc
-            )
-
-        # (approval state already consumed by atomic pop above)
+        logger.info(
+            "Slack button resolved %d approval(s) for session %s "
+            "(request_id=%s, choice=%s, user=%s)",
+            count,
+            session_key,
+            request_id,
+            choice,
+            user_name,
+        )
 
     # ----- Thread context fetching -----
 

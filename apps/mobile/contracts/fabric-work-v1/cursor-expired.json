@@ -1,0 +1,12 @@
+{
+  "code": -32047,
+  "message": "Work cursor is outside the retained ledger range; bootstrap again.",
+  "data": {
+    "code": "cursor_expired",
+    "bootstrap": true,
+    "reason": "retention_floor",
+    "ledger_id": "ledger_11111111111111111111111111111111",
+    "event_floor": 80,
+    "high_water": 105
+  }
+}

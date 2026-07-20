@@ -22,7 +22,10 @@ def _restore_stdout():
 @pytest.fixture()
 def server():
     with patch.dict("sys.modules", {
-        "fabric_constants": MagicMock(get_fabric_home=MagicMock(return_value="/tmp/test_home")),
+        "fabric_constants": MagicMock(
+            get_fabric_home=MagicMock(return_value="/tmp/test_home"),
+            get_fabric_home_override=MagicMock(return_value=None),
+        ),
         "fabric_cli.env_loader": MagicMock(),
         "fabric_cli.banner": MagicMock(),
         "fabric_state": MagicMock(),
@@ -90,6 +93,18 @@ def test_ok_envelope(server):
 def test_err_envelope(server):
     assert server._err("r2", 4001, "nope") == {
         "jsonrpc": "2.0", "id": "r2", "error": {"code": 4001, "message": "nope"},
+    }
+
+
+def test_err_envelope_with_sanitized_data(server):
+    assert server._err("r2", 4009, "stale", {"code": "version_conflict"}) == {
+        "jsonrpc": "2.0",
+        "id": "r2",
+        "error": {
+            "code": 4009,
+            "message": "stale",
+            "data": {"code": "version_conflict"},
+        },
     }
 
 

@@ -31,6 +31,8 @@ from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Iterator
 
+from fabric_cli.work_backup import is_work_store_private_basename
+
 
 _STATE_FILENAME = "provider-accounts.json"
 _LOCK_FILENAME = "provider-accounts.lock"
@@ -482,7 +484,11 @@ def _is_private_profile_relative(relative: Path) -> bool:
     if len(parts) != 1:
         return False
     name = parts[0]
-    return name in {_STATE_FILENAME, _LOCK_FILENAME} or name.startswith(_TEMP_PREFIX)
+    return (
+        name in {_STATE_FILENAME, _LOCK_FILENAME}
+        or name.startswith(_TEMP_PREFIX)
+        or is_work_store_private_basename(name)
+    )
 
 
 def _is_private_structural_path(
@@ -625,6 +631,8 @@ def _member_is_private(parts: tuple[str, ...]) -> bool:
     if not parts:
         return False
     lowered = tuple(part.lower() for part in parts)
+    if is_work_store_private_basename(lowered[-1]):
+        return True
     if lowered[-1] in {
         ".env",
         "auth.json",
@@ -659,6 +667,7 @@ def _member_indicator(parts: tuple[str, ...]) -> str | None:
     if joined in {
         "config.yaml",
         "state.db",
+        "work.db",
         "memory_store.db",
         "cron/jobs.json",
     }:

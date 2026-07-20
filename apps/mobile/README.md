@@ -3,12 +3,15 @@
 Native mobile clients for [Fabric](../../README.md): SwiftUI on iOS and
 Jetpack Compose on Android. Both connect to a running Fabric backend
 (`fabric serve`) over the same JSON-RPC/WebSocket contract the desktop app
-uses — no new server surface is required.
+uses. Mobile capability negotiation is an additive authenticated RPC on that
+existing channel, not a new model tool or a second agent runtime.
 
-> **Status: development preview.** Both native clients compile and their unit,
-> protocol, simulator, debug, and unsigned release checks run from this
-> checkout. They are not store releases yet: physical-device accessibility,
-> signing, privacy metadata, and hosted-CI gates in `PRODUCTION.md` still apply.
+> **Status: development preview.** iOS unit, simulator, debug, and unsigned
+> release checks are verified. Android's capability-gated source and contract
+> tests compile directly, while Gradle unit/lint and emulator/device validation
+> still require an Android-SDK/JDK-equipped host. Neither client is a store
+> release: physical-device accessibility, signing, privacy metadata, and the
+> hosted-CI gates in `PRODUCTION.md` still apply.
 
 ## Quick start
 
@@ -83,6 +86,7 @@ Everything below exists today in `fabric_cli/web_server.py` and
 | --- | --- | --- |
 | Liveness/probe | `GET /api/status` | Public. `auth_required: true` marks a gated gateway (`authModeFromStatus` in the desktop). |
 | RPC channel | `WS /api/ws?token=…` or `?ticket=…` | JSON-RPC 2.0 requests + `method: "event"` frames. Token mode uses the dashboard session token; gated mode mints a single-use ticket at `POST /api/auth/ws-ticket`. |
+| Mobile contract | `gateway.capabilities` | Authenticated, read-only contract/version negotiation. Called after every socket connect and before any session RPC. |
 | REST auth header | `X-Fabric-Session-Token` | For token-mode REST calls. |
 | Sign-in options | `GET /api/auth/providers` | Gated only: `{providers: [{name, display_name, supports_password}]}`. |
 | Password login | `POST /auth/password-login` | Gated only: `{provider, username, password}` → dashboard access and refresh cookies. |
@@ -101,21 +105,62 @@ Two auth modes, decided by the server's bind (June 2026 hardening):
 RPC methods the v1 slice uses (of ~120 registered in
 `tui_gateway/server.py`):
 
+- `gateway.capabilities` — deterministic curated method availability, feature
+  relationships, server version metadata, and execution truth. Contract v1
+  says work and tools execute on the gateway, active work survives a phone
+  disconnect, a gateway restart interrupts in-process agent execution (though
+  durable ledger state may remain), and the gateway host must remain online.
 - `session.create` — params `{cols, source: "mobile", cwd?, profile?, model?, provider?, reasoning_effort?, fast?}` → `{session_id, stored_session_id, info}`
 - `session.resume` — `{session_id, cols, profile?}` → authoritative stored
   history, in-flight turn, `history_version`, durable `session_key`, and any
   pending approval/clarification/sudo/secret interactions
 - `session.list` — → `{sessions: [{id, title, preview, started_at, message_count, source}]}`
 - `session.active_list` — live in-memory gateway sessions with runtime status (`working`/`waiting`/`starting`/`idle`)
+- `session.close` — best-effort cleanup for an idle runtime after the client
+  switches sessions; omitted while the runtime is still working
 - `prompt.submit` — `{session_id, text}`
-- `prompt.background` — `{session_id, text}` → detached task; result returns as a `background.complete` event
+- `prompt.background` — `{session_id, text}` → detached task; result returns as a `background.complete` event, with additive `job_id` when the durable adapter is present
 - `session.steer` — `{session_id, text}` → inject a mid-turn note without interrupting (`AIAgent.steer`)
 - `session.interrupt` — `{session_id}`
 - `slash.exec` / `commands.catalog` — the TUI's slash-command dispatch surface and its registry-backed catalog
 - `process.list` / `process.kill` — session-owned background processes (preview servers, watchers)
 - `computer.screenshot` — read-only PNG capture of the gateway host's screen (the live-view "PiP"); returns `{png_b64, width, height, mime}` or error 5040 when the host can't capture
-- `approval.respond` — `{session_id, choice: "allow"|"deny", all?: bool}`
-- `clarify.respond` / `sudo.respond` / `secret.respond` — `{request_id, answer|password|value}`, unblocking the agent's blocking prompts
+- `approval.respond` — `{session_id, request_id, choice: "once"|"session"|"always"|"deny"}`; programmatic clients resolve exactly one request and remove UI only when the receipt echoes that ID with `resolved: 1`
+- `clarify.respond` / `sudo.respond` / `secret.respond` — `{session_id, request_id, answer|password|value}`, unblocking only the owning session's exact prompt; the receipt must echo `request_id`
+
+Capability state is connection-scoped and never persisted across launches or
+server switches. A valid compatible payload enables only its advertised
+methods. JSON-RPC `-32601` alone selects the explicit shipped-v1 legacy method
+set; timeouts, closed sockets, other RPC failures, malformed payloads, and
+incompatible minimum versions never silently become legacy. UI controls and
+their action handlers both enforce this policy, so hidden or stale controls
+cannot dispatch an unsupported mutation.
+
+### FMB-002 Durable Work preview
+
+Durable Work is deliberately still unadvertised. iOS and Android both contain
+active capability-gated create/sync/recovery source paths. Android Gradle,
+lint, and emulator/device lifecycle verification are pending on an
+Android-SDK/JDK-equipped host. Because the current gateway manifest does not
+advertise the complete `durable_work` method set, both clients continue to use
+`prompt.background` in released behavior. This prevents a partial server
+upgrade from producing a second or ambiguous work surface.
+
+Once the capability is truthfully advertised, a capability-aware background
+action creates one `job.create` request with a stable in-memory mutation key,
+retains the returned `job_id`, and reconstructs state through `job.sync`.
+Legacy fallback is permitted only when the capability is absent; a timeout or
+typed failure from a durable mutation is never retried through
+`prompt.background`.
+
+The server owns profile-private `work.db`; it retains bounded, redacted Job,
+Attention, and event state rather than raw prompts, answers, passwords, or
+secrets. A phone disconnect does not stop a running Job, but a gateway restart
+does not resume its in-process agent execution: unresolved work becomes a
+truthful terminal/interrupted state and clients resync. Terminal history is
+TTL-pruned with tombstones; an expired cursor must bootstrap again. Push,
+lock-screen actions, and device-level identity remain later FMB-003/FMB-004
+work and are not implied by this preview.
 
 Streaming events consumed (`GatewayEventName` in
 `apps/shared/src/json-rpc-gateway.ts` is the canonical list):
@@ -124,7 +169,7 @@ Streaming events consumed (`GatewayEventName` in
 (`payload.{kind,text}`), `tool.start` / `tool.progress` / `tool.complete`,
 `approval.request` (command pre-redacted server-side), `clarify.request`
 (`{question, choices, request_id}`), `sudo.request` / `secret.request`
-(`{prompt?, request_id}`), `background.complete` (`{task_id, text}`),
+(`{prompt?, request_id}`), `background.complete` (`{task_id, text, job_id?}`),
 `error`.
 
 ## Decision record: why fully native (and what was rejected)
@@ -337,8 +382,11 @@ kotlinx-serialization.
 5. **Push notifications** — APNs/FCM for `approval.request` and turn
    completion while backgrounded; requires a small gateway-side notifier
    (new server work — the only item here that is).
-6. **Attachments & voice** — `image.attach_bytes`, `voice.*` methods already
-   exist server-side; wire camera roll + mic.
+6. **Attachments & phone audio** — existing attachment RPCs can support the
+   camera/file path. The current `voice.record` and `voice.tts` RPCs use the
+   gateway host's microphone and speakers, so they are deliberately not mobile
+   voice capabilities. Phone capture, STT, and audio return/native playback need
+   a separate phone-audio transport contract before the native apps expose them.
 7. ~~**Reconnect/resilience**~~ — done: background socket teardown preserves
    gateway/chat identity; foreground reconnect performs an authoritative
    `session.resume` before mutation controls become available.

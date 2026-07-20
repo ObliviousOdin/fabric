@@ -39,6 +39,7 @@ import mimetypes
 import os
 import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
@@ -73,6 +74,8 @@ from gateway.platforms.base import (
 from gateway.platforms.helpers import strip_markdown
 
 logger = logging.getLogger(__name__)
+
+_APPROVAL_STATE_CACHE_SIZE = 1000
 
 
 class QQCloseError(Exception):
@@ -260,6 +263,10 @@ class QQAdapter(BasePlatformAdapter):
         # box; callers can override with set_interaction_callback(None) or
         # register a custom handler.
         self._interaction_callback = self._default_interaction_dispatch
+        # Opaque keyboard correlation id → (session key, authoritative core
+        # request id). Never trust a session key received back from QQ: exact
+        # request IDs keep two concurrent approvals in one session isolated.
+        self._exec_approval_state: "OrderedDict[str, Tuple[str, str]]" = OrderedDict()
 
     # ------------------------------------------------------------------
     # Properties
@@ -1066,11 +1073,29 @@ class QQAdapter(BasePlatformAdapter):
 
     @staticmethod
     def _parse_gateway_session_key(session_key: str) -> Optional[Dict[str, str]]:
-        """Parse ``agent:main:<platform>:<chat_type>:<chat_id>[:<user_id>]``."""
+        """Parse a durable gateway session key for interaction authorization.
+
+        ``build_session_key`` reserves the second segment for the profile
+        namespace (``main`` for the default profile, otherwise the profile
+        name).  The remaining positional layout is stable across profiles.
+
+        QQ's transport calls private chats ``c2c`` and guild channels
+        ``guild``, but the durable source contract normalizes those to ``dm``
+        and ``group`` respectively.  This parser deliberately accepts only
+        the durable vocabulary emitted by ``build_session_key``.
+        """
         parts = str(session_key or "").split(":")
-        if len(parts) < 5 or parts[0] != "agent" or parts[1] != "main":
+        if (
+            len(parts) < 5
+            or parts[0] != "agent"
+            or not parts[1]
+            or parts[2] != "qqbot"
+            or parts[3] not in {"dm", "group"}
+            or not parts[4]
+        ):
             return None
         parsed = {
+            "profile_namespace": parts[1],
             "platform": parts[2],
             "chat_type": parts[3],
             "chat_id": parts[4],
@@ -1087,19 +1112,40 @@ class QQAdapter(BasePlatformAdapter):
         """Authorize approval/update interactions against session + operator."""
         parsed = self._parse_gateway_session_key(session_key)
         operator = str(event.operator_openid or "").strip()
-        if not parsed or parsed.get("platform") != "qqbot" or not operator:
+        if not parsed or not operator:
             return False
 
         chat_type = parsed.get("chat_type", "")
         chat_id = parsed.get("chat_id", "")
-        if chat_type == "c2c":
-            return bool(chat_id) and operator == chat_id
+        if chat_type == "dm":
+            # Programmatic keyboards are supported for QQ C2C DMs.  Require
+            # both the interaction route and the operator to be the same
+            # openid encoded by the durable DM session key.  Guild DMs use a
+            # guild id as their delivery target and do not support keyboards,
+            # so they intentionally fail closed here.
+            event_chat = str(event.user_openid or "").strip()
+            return (
+                event.scene == "c2c"
+                and bool(event_chat)
+                and event_chat == chat_id
+                and operator == chat_id
+            )
 
-        if chat_type in {"group", "guild"}:
-            event_chat = str(event.group_openid or event.guild_id or "").strip()
+        if chat_type == "group":
+            # QQ native groups expose group_openid; guild messages are stored
+            # as ordinary ``group`` SessionSources keyed by channel_id.
+            if event.scene == "group":
+                event_chat = str(event.group_openid or "").strip()
+            elif event.scene == "guild":
+                event_chat = str(event.channel_id or "").strip()
+            else:
+                return False
             if not event_chat or event_chat != chat_id:
                 return False
             session_user = str(parsed.get("user_id", "")).strip()
+            # A shared group key has no initiating user identity to bind the
+            # all-users QQ button to.  Do not weaken that boundary: the send
+            # path falls back to typed controls for such sessions.
             return bool(session_user) and operator == session_user
 
         return False
@@ -1110,7 +1156,7 @@ class QQAdapter(BasePlatformAdapter):
     ) -> None:
         """Route ``INTERACTION_CREATE`` button clicks to the right subsystem.
 
-        - ``approve:<session_key>:<decision>`` →
+        - ``approve:<approval_id>:<decision>`` →
           :func:`tools.approval.resolve_gateway_approval`
           (unblocks the agent thread waiting on a dangerous-command approval).
         - ``update_prompt:<answer>`` →
@@ -1129,7 +1175,16 @@ class QQAdapter(BasePlatformAdapter):
 
         approval = parse_approval_button_data(button_data)
         if approval is not None:
-            session_key, decision = approval
+            approval_id, decision = approval
+            approval_state = self._exec_approval_state.get(approval_id)
+            if approval_state is None:
+                logger.info(
+                    "[%s] Ignored stale approval button (approval_id=%s)",
+                    self._log_tag,
+                    approval_id,
+                )
+                return
+            session_key, request_id = approval_state
             choice = self._APPROVAL_BUTTON_TO_CHOICE.get(decision)
             if choice is None:
                 logger.warning(
@@ -1147,14 +1202,31 @@ class QQAdapter(BasePlatformAdapter):
             try:
                 # Import lazily to keep the adapter importable in tests that
                 # don't exercise the approval subsystem.
-                from tools.approval import resolve_gateway_approval
-                count = resolve_gateway_approval(session_key, choice)
-                logger.info(
-                    "[%s] Button resolved %d approval(s) for session %s "
-                    "(choice=%s, operator=%s)",
-                    self._log_tag, count, session_key, choice,
-                    event.operator_openid,
+                from tools.approval import (
+                    normalize_gateway_approval_choice,
+                    resolve_gateway_approval,
                 )
+                normalized_choice = normalize_gateway_approval_choice(choice)
+                count = resolve_gateway_approval(
+                    session_key,
+                    normalized_choice,
+                    resolve_all=False,
+                    request_id=request_id,
+                )
+                if count == 1:
+                    self._exec_approval_state.pop(approval_id, None)
+                    logger.info(
+                        "[%s] Button resolved approval for session %s "
+                        "(request_id=%s, choice=%s, operator=%s)",
+                        self._log_tag, session_key, request_id,
+                        normalized_choice, event.operator_openid,
+                    )
+                else:
+                    logger.info(
+                        "[%s] Approval button did not resolve its exact waiter "
+                        "(session=%s, request_id=%s, resolved=%d)",
+                        self._log_tag, session_key, request_id, count,
+                    )
             except Exception as exc:
                 logger.error(
                     "[%s] resolve_gateway_approval failed for session %s: %s",
@@ -1164,7 +1236,26 @@ class QQAdapter(BasePlatformAdapter):
 
         update_answer = parse_update_prompt_button_data(button_data)
         if update_answer is not None:
-            update_session_key = f"agent:main:qqbot:{event.scene}:{event.group_openid or event.guild_id or event.user_openid}"
+            from gateway.session import build_session_key
+
+            if event.scene == "c2c":
+                update_chat_id = event.user_openid
+                update_chat_type = "dm"
+            elif event.scene == "group":
+                update_chat_id = event.group_openid
+                update_chat_type = "group"
+            elif event.scene == "guild":
+                update_chat_id = event.channel_id
+                update_chat_type = "group"
+            else:
+                update_chat_id = ""
+                update_chat_type = ""
+            update_source = self.build_source(
+                chat_id=update_chat_id,
+                user_id=event.operator_openid,
+                chat_type=update_chat_type,
+            )
+            update_session_key = build_session_key(update_source)
             if not self._is_authorized_interaction_for_session(event, update_session_key):
                 logger.warning(
                     "[%s] Rejected unauthorized update prompt click (operator=%s)",
@@ -2626,6 +2717,7 @@ class QQAdapter(BasePlatformAdapter):
             chat_id: str,
             req: ApprovalRequest,
             reply_to: Optional[str] = None,
+            approval_id: Optional[str] = None,
     ) -> SendResult:
         """Send a 3-button approval request (``allow-once / allow-always / deny``).
 
@@ -2634,13 +2726,15 @@ class QQAdapter(BasePlatformAdapter):
 
         Users click the button → ``INTERACTION_CREATE`` fires → the adapter's
         registered :meth:`set_interaction_callback` handler decodes
-        ``button_data`` via :func:`parse_approval_button_data`.
+        ``button_data`` via :func:`parse_approval_button_data`. Gateway exec
+        approvals pass an opaque *approval_id* that is bound to an exact core
+        request in ``_exec_approval_state``.
         """
         from gateway.platforms.qqbot.keyboards import build_approval_text
         return await self.send_with_keyboard(
             chat_id,
             build_approval_text(req),
-            build_approval_keyboard(req.session_key),
+            build_approval_keyboard(approval_id or req.session_key),
             reply_to=reply_to,
         )
 
@@ -2658,6 +2752,7 @@ class QQAdapter(BasePlatformAdapter):
             chat_id: str,
             command: str,
             session_key: str,
+            request_id: str,
             description: str = "dangerous command",
             metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
@@ -2669,6 +2764,33 @@ class QQAdapter(BasePlatformAdapter):
         adapter's interaction callback (:meth:`_default_interaction_dispatch`).
         """
         del metadata  # QQ doesn't have thread_id / DM targeting overrides.
+
+        authoritative_request_id = str(request_id or "").strip()
+        if not authoritative_request_id:
+            return SendResult(success=False, error="Approval request_id is required")
+
+        approval_route = self._parse_gateway_session_key(session_key)
+        if approval_route is None:
+            return SendResult(
+                success=False,
+                error="Approval session_key is not a QQ gateway session",
+            )
+        if approval_route["chat_id"] != str(chat_id):
+            return SendResult(
+                success=False,
+                error="Approval target does not match its QQ gateway session",
+            )
+        if (
+            approval_route["chat_type"] == "group"
+            and not approval_route.get("user_id")
+        ):
+            return SendResult(
+                success=False,
+                error=(
+                    "QQ approval buttons require a per-user group session; "
+                    "use typed approval controls for shared groups"
+                ),
+            )
 
         # Use the reply-to message for passive-message context when we have one.
         # QQ requires a msg_id on outbound messages to a user we've never
@@ -2682,9 +2804,19 @@ class QQAdapter(BasePlatformAdapter):
             command_preview=command,
             timeout_sec=self._APPROVAL_TIMEOUT_SECONDS,
         )
-        return await self.send_approval_request(
-            chat_id, req, reply_to=msg_id,
+        approval_id = uuid.uuid4().hex
+        approval_state = (session_key, authoritative_request_id)
+        # Reserve before the network send: QQ can expose the keyboard before
+        # its send response reaches us. Roll back the reservation on failure.
+        self._exec_approval_state[approval_id] = approval_state
+        while len(self._exec_approval_state) > _APPROVAL_STATE_CACHE_SIZE:
+            self._exec_approval_state.popitem(last=False)
+        result = await self.send_approval_request(
+            chat_id, req, reply_to=msg_id, approval_id=approval_id,
         )
+        if not result.success and self._exec_approval_state.get(approval_id) == approval_state:
+            self._exec_approval_state.pop(approval_id, None)
+        return result
 
     _APPROVAL_TIMEOUT_SECONDS = 300  # matches gateway's default gateway_timeout
 

@@ -32,11 +32,17 @@ function part(toolName: string): ToolPart {
 
 function setRequest(command = 'rm -rf /tmp/x', allowPermanent?: boolean) {
   $activeSessionId.set('sess-1')
-  setApprovalRequest({ allowPermanent, command, description: 'dangerous command', sessionId: 'sess-1' })
+  setApprovalRequest({
+    allowPermanent,
+    command,
+    description: 'dangerous command',
+    requestId: 'approval-1',
+    sessionId: 'sess-1'
+  })
 }
 
 function mockGateway() {
-  const request = vi.fn().mockResolvedValue({ resolved: true })
+  const request = vi.fn().mockResolvedValue({ request_id: 'approval-1', resolved: 1 })
   $gateway.set({ request } as unknown as FabricGateway)
 
   return request
@@ -79,9 +85,70 @@ describe('PendingToolApproval', () => {
     fireEvent.click(screen.getByRole('button', { name: /Run/ }))
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledWith('approval.respond', { choice: 'once', session_id: 'sess-1' })
+      expect(request).toHaveBeenCalledWith('approval.respond', {
+        choice: 'once',
+        request_id: 'approval-1',
+        session_id: 'sess-1'
+      })
     })
     expect($approvalRequest.get()).toBeNull()
+  })
+
+  it('resolves visible approval A by exact id, then resurfaces and resolves same-session B', async () => {
+    const request = vi.fn().mockImplementation(async (_method: string, params: { request_id: string }) => ({
+      request_id: params.request_id,
+      resolved: 1
+    }))
+
+    $gateway.set({ request } as unknown as FabricGateway)
+    $activeSessionId.set('sess-1')
+    setApprovalRequest({
+      command: 'command-a',
+      description: 'first approval',
+      requestId: 'approval-a',
+      sessionId: 'sess-1'
+    })
+    setApprovalRequest({
+      command: 'command-b',
+      description: 'second approval',
+      requestId: 'approval-b',
+      sessionId: 'sess-1'
+    })
+    render(<PendingToolApproval part={part('terminal')} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(request).toHaveBeenNthCalledWith(1, 'approval.respond', {
+        choice: 'once',
+        request_id: 'approval-a',
+        session_id: 'sess-1'
+      })
+      expect($approvalRequest.get()).toMatchObject({ command: 'command-b', requestId: 'approval-b' })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(request).toHaveBeenNthCalledWith(2, 'approval.respond', {
+        choice: 'once',
+        request_id: 'approval-b',
+        session_id: 'sess-1'
+      })
+      expect($approvalRequest.get()).toBeNull()
+    })
+  })
+
+  it('keeps the request when the backend resolves zero approvals', async () => {
+    const request = vi.fn().mockResolvedValue({ resolved: 0 })
+    $gateway.set({ request } as unknown as FabricGateway)
+    setRequest()
+    render(<PendingToolApproval part={part('terminal')} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => expect(request).toHaveBeenCalledOnce())
+    expect($approvalRequest.get()?.requestId).toBe('approval-1')
   })
 
   it('reveals the full command inside the details panel when opened', () => {
@@ -110,6 +177,7 @@ describe('PendingToolApproval', () => {
       command: 'rm -rf /var/data',
       description: warning,
       patternKey: 'recursive_delete',
+      requestId: 'approval-1',
       sessionId: 'sess-1'
     })
     render(<PendingToolApproval part={part('terminal')} />)
@@ -125,6 +193,7 @@ describe('PendingToolApproval', () => {
       command: 'rm -rf /tmp/x',
       description: 'recursive delete',
       patternKey: 'recursive_delete',
+      requestId: 'approval-1',
       sessionId: 'sess-1'
     })
     render(<PendingToolApproval part={part('terminal')} />)
@@ -138,6 +207,7 @@ describe('PendingToolApproval', () => {
       command: 'chmod -R 777 /tmp/x', // not high-risk → open the panel manually
       cwd: '/remote/host/workspace',
       description: 'dangerous command',
+      requestId: 'approval-1',
       sessionId: 'sess-1'
     })
     render(<PendingToolApproval part={part('terminal')} />)
@@ -167,7 +237,11 @@ describe('PendingToolApproval', () => {
     fireEvent.click(screen.getByRole('button', { name: /Reject/ }))
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledWith('approval.respond', { choice: 'deny', session_id: 'sess-1' })
+      expect(request).toHaveBeenCalledWith('approval.respond', {
+        choice: 'deny',
+        request_id: 'approval-1',
+        session_id: 'sess-1'
+      })
     })
   })
 
@@ -223,12 +297,18 @@ describe('PendingToolApproval', () => {
     // Two concurrent sessions with parked approvals. The floating fallback stays
     // mounted and swaps the request when the active session changes, so the
     // per-request key must remount the bar and re-apply the high-risk default.
-    setApprovalRequest({ command: 'ls -la', description: 'directory listing', sessionId: 'sess-low' })
+    setApprovalRequest({
+      command: 'ls -la',
+      description: 'directory listing',
+      requestId: 'approval-low',
+      sessionId: 'sess-low'
+    })
     setApprovalRequest({
       allowPermanent: false,
       command: 'rm -rf /var/data',
       description: 'recursive delete',
       patternKey: 'recursive_delete',
+      requestId: 'approval-high',
       sessionId: 'sess-high'
     })
 

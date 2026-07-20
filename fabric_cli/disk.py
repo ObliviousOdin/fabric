@@ -200,8 +200,11 @@ CATEGORIES: tuple[DiskCategory, ...] = (
         usage_paths=(
             "projects.db", "kanban.db", "kanban", "verification_evidence.db",
             "response_store.db", "response_store.db-wal", "response_store.db-shm",
+            "work.db", "work.db-wal", "work.db-shm", "work.db-journal",
+            "work.db.init.lock", "work.db.lock", "work.db.lifecycle.lock",
+            "work.db.lifecycle.guard", "work.db.owners.json",
         ),
-        note="Projects, kanban, and gateway databases.",
+        note="Projects, kanban, gateway, and durable Work databases.",
     ),
     DiskCategory(
         "cron", "Scheduler",

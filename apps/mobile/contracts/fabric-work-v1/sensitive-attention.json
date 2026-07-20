@@ -1,0 +1,53 @@
+{
+  "contract": {
+    "name": "fabric.work",
+    "version": 1,
+    "min_compatible": 1
+  },
+  "ledger_id": "ledger_11111111111111111111111111111111",
+  "work_profile_id": "profile_11111111111111111111111111111111",
+  "mode": "delta",
+  "watermark": 104,
+  "cursor": 104,
+  "has_more": false,
+  "next_page_token": null,
+  "jobs": [],
+  "attention": [],
+  "events": [
+    {
+      "event_id": 104,
+      "event_type": "attention.opened",
+      "subject_type": "attention",
+      "subject_id": "attn_ffffffffffffffffffffffffffffffff",
+      "job_id": null,
+      "run_id": null,
+      "subject_version": 1,
+      "subject": {
+        "attention_id": "attn_ffffffffffffffffffffffffffffffff",
+        "version": 1,
+        "job_id": null,
+        "run_id": null,
+        "source_session_key": "session:foreground-sensitive",
+        "runtime_session_id": "runtime-qa",
+        "request_id": "22222222222222222222222222222222",
+        "kind": "secret",
+        "state": "pending",
+        "blocking": true,
+        "sensitive": true,
+        "title": "Authentication is required",
+        "public_payload": {
+          "service": "release registry",
+          "purpose": "Continue the approved release verification"
+        },
+        "allowed_actions": ["submit", "cancel"],
+        "created_at": 1784451606000,
+        "updated_at": 1784451606000,
+        "expires_at": 1784452206000,
+        "resolved_at": null,
+        "terminal_reason": null
+      },
+      "tombstone": false,
+      "created_at": 1784451606000
+    }
+  ]
+}

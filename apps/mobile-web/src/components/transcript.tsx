@@ -19,6 +19,7 @@ const Streamdown = lazy(async () => {
 });
 
 interface TranscriptProps {
+  connected: boolean;
   messages: RemoteMessage[];
   onSuggestion: (text: string) => void;
   running: boolean;
@@ -169,26 +170,42 @@ const SUGGESTIONS = [
   "Run the relevant tests and summarize any failures.",
 ];
 
-function EmptyTranscript({ onSuggestion }: Pick<TranscriptProps, "onSuggestion">) {
+function EmptyTranscript({
+  connected,
+  onSuggestion,
+}: Pick<TranscriptProps, "connected" | "onSuggestion">) {
   return (
     <div className="empty-transcript">
       <img src={`${import.meta.env.BASE_URL}fabric-mark-192.png`} alt="" />
-      <p className="eyebrow">Ready on your gateway</p>
-      <h2>What are we working on?</h2>
-      <p>Start a task here or resume a session from the sidebar.</p>
-      <div className="suggestion-list">
-        {SUGGESTIONS.map((suggestion) => (
-          <button key={suggestion} type="button" onClick={() => onSuggestion(suggestion)}>
-            <span>{suggestion}</span>
-            <IconChevronRight size={16} />
-          </button>
-        ))}
-      </div>
+      <p className="eyebrow">
+        {connected ? "Ready on your gateway" : "Gateway disconnected"}
+      </p>
+      <h2>{connected ? "What are we working on?" : "Reconnect to continue."}</h2>
+      <p>
+        {connected
+          ? "Start a task here or resume a session from the sidebar."
+          : "Your draft is safe. Reconnect to refresh this gateway's sessions and work."}
+      </p>
+      {connected && (
+        <div className="suggestion-list">
+          {SUGGESTIONS.map((suggestion) => (
+            <button key={suggestion} type="button" onClick={() => onSuggestion(suggestion)}>
+              <span>{suggestion}</span>
+              <IconChevronRight size={16} />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-export function Transcript({ messages, onSuggestion, running }: TranscriptProps) {
+export function Transcript({
+  connected,
+  messages,
+  onSuggestion,
+  running,
+}: TranscriptProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const streamVersion = useMemo(
@@ -232,7 +249,7 @@ export function Transcript({ messages, onSuggestion, running }: TranscriptProps)
           {messages.length ? (
             messages.map((message) => <MessageRow key={message.id} message={message} />)
           ) : (
-            <EmptyTranscript onSuggestion={onSuggestion} />
+            <EmptyTranscript connected={connected} onSuggestion={onSuggestion} />
           )}
           {running && messages.at(-1)?.role !== "assistant" && (
             <div className="waiting-for-agent"><IconLoader2 className="spin" size={16} /> Starting agent…</div>

@@ -73,6 +73,14 @@ struct PendingPrompt: Equatable {
     let choices: [String]
 
     var isSecureEntry: Bool { kind != .clarify }
+
+    var responseMethod: String {
+        switch kind {
+        case .clarify: return "clarify.respond"
+        case .sudo: return "sudo.respond"
+        case .secret: return "secret.respond"
+        }
+    }
 }
 
 enum PendingInteraction: Equatable {
@@ -87,6 +95,14 @@ enum PendingInteraction: Equatable {
             return "\(prompt.kind):\(prompt.requestId)"
         }
     }
+}
+
+/// One user intent awaiting a durable create receipt. Its stable key is held
+/// only in memory so a timeout/reconnect retry cannot create a second Job.
+private struct PendingDurableBackgroundMutation: Equatable {
+    let text: String
+    let title: String
+    let idempotencyKey: String
 }
 
 struct PendingInteractionQueue {
@@ -123,6 +139,15 @@ final class ChatViewModel {
     private(set) var pendingPrompt: PendingPrompt?
     private(set) var sessionReady = false
     private(set) var sessionError: String?
+    /// Server-issued Work namespace that fences durable background mutations
+    /// and the in-memory Job recovery path. It does not render a Work UI.
+    private(set) var workIdentity: FabricWorkSessionIdentity?
+    /// Sanitized public Job after-states keyed by their server-issued IDs.
+    /// This is intentionally in-memory until the Work projection UI lands.
+    private(set) var durableBackgroundJobs: [String: FabricWorkJobSummary] = [:]
+    /// Reference-only current Work state. It is populated exclusively by
+    /// validated bootstrap/delta pages, never by an event hint.
+    private(set) var durableWorkProjection: FabricWorkProjection?
 
     let api: GatewayAPI
     private(set) var storedSessionId: String?
@@ -132,6 +157,12 @@ final class ChatViewModel {
     private var interactionQueue = PendingInteractionQueue()
     private var bootstrapGeneration = 0
     private var starting = false
+    private let supportsMethod: (String) -> Bool
+    private let durableWorkNegotiation: () -> GatewayCapabilityNegotiation?
+    private let workGatewayID: () -> String?
+    private var pendingDurableBackgroundMutations: [PendingDurableBackgroundMutation] = []
+    private var workSyncInFlight = false
+    private var workSyncNeedsAnotherPass = false
 
     static func approval(from event: GatewayEvent) -> PendingApproval? {
         guard
@@ -146,9 +177,57 @@ final class ChatViewModel {
         )
     }
 
-    init(api: GatewayAPI, resumeStoredSessionId: String?) {
+    init(
+        api: GatewayAPI,
+        resumeStoredSessionId: String?,
+        supportsMethod: @escaping (String) -> Bool,
+        durableWorkNegotiation: @escaping () -> GatewayCapabilityNegotiation? = { nil },
+        workGatewayID: @escaping () -> String? = { nil }
+    ) {
         self.api = api
         self.storedSessionId = resumeStoredSessionId
+        self.supportsMethod = supportsMethod
+        self.durableWorkNegotiation = durableWorkNegotiation
+        self.workGatewayID = workGatewayID
+    }
+
+    func supportsGatewayMethod(_ method: String) -> Bool {
+        supportsMethod(method)
+    }
+
+    /// A durable-capable gateway never falls through to `prompt.background`.
+    /// The server-issued Work profile identity is also required before this
+    /// client can bind a Job to the current session scope.
+    var canSendInBackground: Bool {
+        if durableWorkNegotiation()?.supportsDurableWork == true {
+            return workIdentity != nil
+        }
+        return supportsMethod("prompt.background")
+    }
+
+    private func canCall(_ method: String, action: String) -> Bool {
+        guard supportsMethod(method) else {
+            messages.append(TranscriptMessage(
+                role: .system,
+                text: "\(action) is unavailable on this gateway."
+            ))
+            return false
+        }
+        return true
+    }
+
+    private func installWorkIdentity(_ identity: FabricWorkSessionIdentity?) {
+        // A gateway profile change is a new Work namespace. Do not show or
+        // refresh Job IDs that were learned under the previous one.
+        if workIdentity?.profileID != identity?.profileID {
+            durableBackgroundJobs.removeAll()
+            durableWorkProjection = nil
+            // A raw prompt retry must never cross the server-issued profile
+            // boundary. The user can submit a new intent after a profile
+            // change, with a new idempotency key.
+            pendingDurableBackgroundMutations.removeAll()
+        }
+        workIdentity = identity
     }
 
     private func enqueueInteraction(_ interaction: PendingInteraction) {
@@ -180,6 +259,11 @@ final class ChatViewModel {
 
     func start() async {
         guard sessionId == nil, !starting else { return }
+        let method = storedSessionId == nil ? "session.create" : "session.resume"
+        guard supportsMethod(method) else {
+            sessionError = "This gateway does not support the required \(method) control."
+            return
+        }
         starting = true
         bootstrapGeneration += 1
         let generation = bootstrapGeneration
@@ -207,6 +291,7 @@ final class ChatViewModel {
                 return
             }
             storedSessionId = durableId
+            installWorkIdentity(live.workIdentity)
             if restoring {
                 messages = Self.restoredMessages(from: live)
                 busy = live.running
@@ -223,6 +308,11 @@ final class ChatViewModel {
             }
             sessionReady = true
             sessionError = nil
+            Task { [weak self] in
+                await self?.retryPendingDurableBackgroundMutations()
+                await self?.syncDurableWork()
+                await self?.refreshDurableBackgroundJobs()
+            }
         } catch {
             guard generation == bootstrapGeneration, !Task.isCancelled else { return }
             pendingEvents.removeAll()
@@ -247,6 +337,10 @@ final class ChatViewModel {
             if self.storedSessionId == nil {
                 sessionError = "Session creation outcome is unknown. Check Active sessions before starting another chat."
             }
+            return
+        }
+        guard supportsMethod("session.resume") else {
+            sessionError = "This gateway does not support session.resume."
             return
         }
 
@@ -278,6 +372,7 @@ final class ChatViewModel {
             clearInteractions()
             statusLine = nil
             self.storedSessionId = durableId
+            installWorkIdentity(live.workIdentity)
             sessionId = live.sessionId
             let events = Self.eventsForReplay(
                 pendingEvents,
@@ -288,6 +383,11 @@ final class ChatViewModel {
             for event in events { handle(event) }
             sessionReady = true
             sessionError = nil
+            Task { [weak self] in
+                await self?.retryPendingDurableBackgroundMutations()
+                await self?.syncDurableWork()
+                await self?.refreshDurableBackgroundJobs()
+            }
         } catch {
             guard generation == bootstrapGeneration, !Task.isCancelled else { return }
             pendingEvents.removeAll()
@@ -301,6 +401,9 @@ final class ChatViewModel {
         unsubscribe?()
         unsubscribe = nil
         pendingEvents.removeAll()
+        // Never retain raw background prompt text after this chat surface is
+        // discarded. Durable public Job summaries remain server-authoritative.
+        pendingDurableBackgroundMutations.removeAll()
     }
 
     /// Route a composer submit the way the TUI does: a busy turn gets a
@@ -320,6 +423,7 @@ final class ChatViewModel {
             return
         }
 
+        guard canCall("prompt.submit", action: "Sending messages") else { return }
         messages.append(TranscriptMessage(role: .user, text: trimmed))
         busy = true
         do {
@@ -332,6 +436,7 @@ final class ChatViewModel {
 
     /// Inject a note into the running turn without interrupting it.
     func steer(_ text: String) async {
+        guard canCall("session.steer", action: "Steering") else { return }
         guard let sessionId else { return }
         do {
             let queued = try await api.steer(sessionId: sessionId, text: text)
@@ -348,6 +453,7 @@ final class ChatViewModel {
 
     /// Dispatch a slash command (`/status`, `/model`, skills, quick commands…).
     func execSlash(_ command: String) async {
+        guard canCall("slash.exec", action: "Slash commands") else { return }
         guard let sessionId else { return }
         messages.append(TranscriptMessage(role: .user, text: command))
         do {
@@ -360,11 +466,30 @@ final class ChatViewModel {
         }
     }
 
-    /// Run the text as a detached background task; the result comes back as
-    /// a `background.complete` event even while other turns run.
+    /// Run the text as a detached background task. On a truthfully advertised
+    /// Work gateway this is an idempotent `job.create`; legacy
+    /// `prompt.background` remains only for gateways that do not advertise
+    /// Durable Work at all.
     func sendInBackground(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let sessionId, !trimmed.isEmpty else { return }
+        if let negotiation = durableWorkNegotiation(), negotiation.supportsDurableWork {
+            guard workIdentity != nil else {
+                messages.append(TranscriptMessage(
+                    role: .system,
+                    text: "Durable background work is unavailable until this session provides a valid Work profile identity."
+                ))
+                return
+            }
+            await submitDurableBackgroundWork(
+                sessionID: sessionId,
+                text: trimmed,
+                negotiation: negotiation
+            )
+            return
+        }
+
+        guard canCall("prompt.background", action: "Background work") else { return }
         messages.append(TranscriptMessage(role: .user, text: trimmed))
         do {
             let taskId = try await api.submitBackgroundPrompt(sessionId: sessionId, text: trimmed)
@@ -377,12 +502,226 @@ final class ChatViewModel {
         }
     }
 
+    private func submitDurableBackgroundWork(
+        sessionID: String,
+        text: String,
+        negotiation: GatewayCapabilityNegotiation
+    ) async {
+        let title = "Background work"
+        let existing = pendingDurableBackgroundMutations.first {
+            $0.text == text && $0.title == title
+        }
+        let mutation = existing ?? PendingDurableBackgroundMutation(
+            text: text,
+            title: title,
+            idempotencyKey: UUID().uuidString
+        )
+        if existing == nil {
+            pendingDurableBackgroundMutations.append(mutation)
+            messages.append(TranscriptMessage(role: .user, text: text))
+        }
+
+        do {
+            let receipt = try await api.createBackgroundWork(
+                sessionID: sessionID,
+                text: mutation.text,
+                title: mutation.title,
+                idempotencyKey: mutation.idempotencyKey,
+                negotiation: negotiation
+            )
+            pendingDurableBackgroundMutations.removeAll {
+                $0.idempotencyKey == mutation.idempotencyKey
+            }
+            durableBackgroundJobs[receipt.job.jobID] = receipt.job
+            Task { [weak self] in
+                await self?.syncDurableWork()
+            }
+            let taskID = receipt.taskID ?? receipt.job.runtimeSessionID
+            messages.append(TranscriptMessage(
+                role: .info,
+                text: "Background Job started \(receipt.job.jobID)\(taskID.map { " (\($0))" } ?? "")."
+            ))
+        } catch {
+            // Preserve the exact idempotency key only when the outcome may be
+            // unknown. A later explicit retry replays the original receipt
+            // instead of creating a duplicate Job. Never fall back to the
+            // legacy RPC after this durable attempt.
+            if !Self.mayNeedDurableBackgroundRetry(error) {
+                pendingDurableBackgroundMutations.removeAll {
+                    $0.idempotencyKey == mutation.idempotencyKey
+                }
+            }
+            messages.append(TranscriptMessage(
+                role: .system,
+                text: "Background Job failed: \(error.localizedDescription)"
+            ))
+        }
+    }
+
+    private func refreshDurableBackgroundJobs() async {
+        guard let sessionId,
+              workIdentity != nil,
+              let negotiation = durableWorkNegotiation(),
+              negotiation.supportsDurableWork
+        else { return }
+        let generation = bootstrapGeneration
+        let jobIDs = Array(durableBackgroundJobs.keys)
+        for jobID in jobIDs {
+            do {
+                let job = try await api.getWorkJob(
+                    sessionID: sessionId,
+                    jobID: jobID,
+                    negotiation: negotiation
+                )
+                guard generation == bootstrapGeneration, self.sessionId == sessionId else { return }
+                durableBackgroundJobs[jobID] = job
+            } catch {
+                // The ledger remains authoritative; leave the last sanitized
+                // after-state visible until a later Work event/reconnect can
+                // refresh it. Do not turn a refresh failure into legacy work.
+            }
+        }
+    }
+
+    private func retryPendingDurableBackgroundMutations() async {
+        guard let sessionId,
+              workIdentity != nil,
+              let negotiation = durableWorkNegotiation(),
+              negotiation.supportsDurableWork
+        else { return }
+        // Snapshot before awaiting: a receipt removes the matching mutation.
+        let mutations = pendingDurableBackgroundMutations
+        for mutation in mutations {
+            await submitDurableBackgroundWork(
+                sessionID: sessionId,
+                text: mutation.text,
+                negotiation: negotiation
+            )
+        }
+    }
+
+    /// Bootstrap or advance the one fenced Work projection for this chat. A
+    /// `work.changed` event only calls this method; it never supplies state.
+    private func syncDurableWork() async {
+        guard let sessionId,
+              let identity = workIdentity,
+              let gatewayID = workGatewayID(),
+              let scope = identity.syncScope(gatewayID: gatewayID),
+              let negotiation = durableWorkNegotiation(),
+              negotiation.supportsDurableWork
+        else { return }
+
+        if workSyncInFlight {
+            workSyncNeedsAnotherPass = true
+            return
+        }
+        workSyncInFlight = true
+        defer {
+            workSyncInFlight = false
+            if workSyncNeedsAnotherPass {
+                workSyncNeedsAnotherPass = false
+                Task { [weak self] in
+                    await self?.syncDurableWork()
+                }
+            }
+        }
+
+        do {
+            var state: FabricWorkProjection
+            if let existing = durableWorkProjection,
+               existing.gatewayID == scope.gatewayID,
+               existing.profileID == scope.profileID {
+                state = existing
+            } else {
+                state = try FabricWorkProjectionReducer.create(scope: scope)
+            }
+            var mode: FabricWorkProjectionPhase =
+                state.phase == .empty || state.phase == .bootstrapping ? .bootstrapping : .syncing
+            var pages = 0
+
+            while pages < 1_000 {
+                pages += 1
+                let response: FabricWorkGatewayResponse
+                let context: FabricWorkSyncRequestContext
+                switch mode {
+                case .bootstrapping:
+                    let token = state.nextPageToken
+                    context = FabricWorkSyncRequestContext(scope: scope, pageToken: token)
+                    response = try await api.syncWork(
+                        sessionID: sessionId,
+                        request: .bootstrap(pageToken: token, limit: FabricWorkLimits.syncPageItems),
+                        negotiation: negotiation
+                    )
+                case .syncing:
+                    guard let ledgerID = state.ledgerID, let cursor = state.cursor else {
+                        mode = .bootstrapping
+                        continue
+                    }
+                    context = FabricWorkSyncRequestContext(scope: scope, after: cursor)
+                    response = try await api.syncWork(
+                        sessionID: sessionId,
+                        request: .delta(
+                            ledgerID: ledgerID,
+                            after: cursor,
+                            limit: FabricWorkLimits.syncPageItems
+                        ),
+                        negotiation: negotiation
+                    )
+                case .empty, .current:
+                    // This local state machine uses only bootstrap/syncing.
+                    return
+                }
+
+                switch response {
+                case .page(let page):
+                    state = try FabricWorkProjectionReducer.apply(state, page: page, context: context)
+                    durableWorkProjection = state
+                    refreshKnownJobStates(from: state)
+                    if state.phase == .current { return }
+                    mode = page.mode == "bootstrap" ? .bootstrapping : .syncing
+                case .reset(let reset):
+                    state = try FabricWorkProjectionReducer.applyCursorReset(
+                        state,
+                        reset: reset,
+                        scope: scope
+                    )
+                    durableWorkProjection = state
+                    durableBackgroundJobs.removeAll()
+                    mode = .bootstrapping
+                }
+            }
+        } catch {
+            // A malformed page/RPC failure never updates `state` outside the
+            // reducer. Later event hints or reconnect recovery retry safely.
+        }
+    }
+
+    private func refreshKnownJobStates(from projection: FabricWorkProjection) {
+        for jobID in Array(durableBackgroundJobs.keys) {
+            if let job = projection.jobs[jobID] {
+                durableBackgroundJobs[jobID] = job
+            }
+        }
+    }
+
+    private static func mayNeedDurableBackgroundRetry(_ error: Error) -> Bool {
+        guard let gatewayError = error as? GatewayClientError else { return false }
+        switch gatewayError {
+        case .notConnected, .connectFailed, .socketClosed, .requestTimedOut:
+            return true
+        case .rpc(_, _, let data):
+            return (data as? [String: Any])?["retryable"] as? Bool == true
+        }
+    }
+
     func interrupt() async {
+        guard canCall("session.interrupt", action: "Interrupting a turn") else { return }
         guard let sessionId else { return }
         try? await api.interrupt(sessionId: sessionId)
     }
 
     func respondToApproval(allow: Bool) async {
+        guard canCall("approval.respond", action: "Approval responses") else { return }
         guard let sessionId, let approval = pendingApproval else { return }
         let interaction = PendingInteraction.approval(approval)
         let generation = bootstrapGeneration
@@ -390,7 +729,7 @@ final class ChatViewModel {
             try await api.respondToApproval(
                 sessionId: sessionId,
                 requestId: approval.requestId,
-                choice: allow ? "allow" : "deny"
+                choice: allow ? "once" : "deny"
             )
             guard generation == bootstrapGeneration else { return }
             removeInteraction(interaction)
@@ -403,17 +742,30 @@ final class ChatViewModel {
     /// Answer the pending clarify/sudo/secret prompt. An empty answer is a
     /// valid "dismiss" (the server releases the wait with an empty string).
     func respondToPrompt(_ answer: String) async {
-        guard let prompt = pendingPrompt else { return }
+        guard let sessionId, let prompt = pendingPrompt else { return }
+        guard canCall(prompt.responseMethod, action: "Prompt responses") else { return }
         let interaction = PendingInteraction.prompt(prompt)
         let generation = bootstrapGeneration
         do {
             switch prompt.kind {
             case .clarify:
-                try await api.respondToClarify(requestId: prompt.requestId, answer: answer)
+                try await api.respondToClarify(
+                    sessionId: sessionId,
+                    requestId: prompt.requestId,
+                    answer: answer
+                )
             case .sudo:
-                try await api.respondToSudo(requestId: prompt.requestId, password: answer)
+                try await api.respondToSudo(
+                    sessionId: sessionId,
+                    requestId: prompt.requestId,
+                    password: answer
+                )
             case .secret:
-                try await api.respondToSecret(requestId: prompt.requestId, value: answer)
+                try await api.respondToSecret(
+                    sessionId: sessionId,
+                    requestId: prompt.requestId,
+                    value: answer
+                )
             }
             guard generation == bootstrapGeneration else { return }
             removeInteraction(interaction)
@@ -455,6 +807,22 @@ final class ChatViewModel {
         }
 
         switch event.type {
+        case "session.info":
+            // A refreshed snapshot may carry a new profile namespace. If the
+            // gateway provides an invalid *or missing* one, fail closed by
+            // clearing the old binding rather than retaining a stale profile
+            // namespace. A legacy gateway cannot manufacture a Work identity.
+            installWorkIdentity(FabricWorkSessionIdentity.from(sessionInfo: event.payload))
+
+        case "work.changed":
+            // A hint never mutates local Job state by itself. It only wakes a
+            // typed bootstrap/delta reconciliation; the helper applies its
+            // own capability, session, and profile-identity gates.
+            Task { [weak self] in
+                await self?.syncDurableWork()
+                await self?.refreshDurableBackgroundJobs()
+            }
+
         case "message.start":
             busy = true
             statusLine = nil
@@ -507,7 +875,10 @@ final class ChatViewModel {
             enqueueInteraction(.approval(approval))
 
         case "clarify.request":
-            guard let requestId = event.payload["request_id"] as? String else { return }
+            guard
+                let requestId = event.payload["request_id"] as? String,
+                !requestId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return }
             enqueueInteraction(.prompt(PendingPrompt(
                 kind: .clarify,
                 requestId: requestId,
@@ -516,7 +887,10 @@ final class ChatViewModel {
             )))
 
         case "sudo.request":
-            guard let requestId = event.payload["request_id"] as? String else { return }
+            guard
+                let requestId = event.payload["request_id"] as? String,
+                !requestId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return }
             enqueueInteraction(.prompt(PendingPrompt(
                 kind: .sudo,
                 requestId: requestId,
@@ -525,7 +899,10 @@ final class ChatViewModel {
             )))
 
         case "secret.request":
-            guard let requestId = event.payload["request_id"] as? String else { return }
+            guard
+                let requestId = event.payload["request_id"] as? String,
+                !requestId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return }
             enqueueInteraction(.prompt(PendingPrompt(
                 kind: .secret,
                 requestId: requestId,
@@ -535,11 +912,18 @@ final class ChatViewModel {
 
         case "background.complete":
             let taskId = event.payload["task_id"] as? String
+            let jobID = event.payload["job_id"] as? String
             let text = event.payloadText ?? ""
             messages.append(TranscriptMessage(
                 role: .info,
                 text: "Background task\(taskId.map { " \($0)" } ?? "") finished:\n\(text)"
             ))
+            if let jobID, durableBackgroundJobs[jobID] != nil {
+                Task { [weak self] in
+                    await self?.syncDurableWork()
+                    await self?.refreshDurableBackgroundJobs()
+                }
+            }
 
         case "error":
             busy = false

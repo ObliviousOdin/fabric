@@ -54,6 +54,20 @@ def _make_adapter() -> FeishuAdapter:
     return adapter
 
 
+def _approval_state(
+    session_key: str,
+    message_id: str,
+    chat_id: str,
+    request_id: str = "req-1",
+) -> dict[str, str]:
+    return {
+        "session_key": session_key,
+        "request_id": request_id,
+        "message_id": message_id,
+        "chat_id": chat_id,
+    }
+
+
 def _make_card_action_data(
     action_value: dict,
     chat_id: str = "oc_12345",
@@ -103,6 +117,7 @@ class TestFeishuExecApproval:
                 chat_id="oc_12345",
                 command="rm -rf /important",
                 session_key="agent:main:feishu:group:oc_12345",
+                request_id="req-1",
                 description="dangerous deletion",
             )
 
@@ -127,6 +142,7 @@ class TestFeishuExecApproval:
         assert action_names == [
             "approve_once", "approve_session", "approve_always", "deny"
         ]
+        assert {a["value"]["request_id"] for a in actions} == {"req-1"}
 
     @pytest.mark.asyncio
     async def test_stores_approval_state(self):
@@ -144,12 +160,14 @@ class TestFeishuExecApproval:
                 chat_id="oc_12345",
                 command="echo test",
                 session_key="my-session-key",
+                request_id="req-state",
             )
 
         assert len(adapter._approval_state) == 1
         approval_id = list(adapter._approval_state.keys())[0]
         state = adapter._approval_state[approval_id]
         assert state["session_key"] == "my-session-key"
+        assert state["request_id"] == "req-state"
         assert state["message_id"] == "msg_002"
         assert state["chat_id"] == "oc_12345"
 
@@ -158,7 +176,7 @@ class TestFeishuExecApproval:
         adapter = _make_adapter()
         adapter._client = None
         result = await adapter.send_exec_approval(
-            chat_id="oc_12345", command="ls", session_key="s"
+            chat_id="oc_12345", command="ls", session_key="s", request_id="req-offline"
         )
         assert result.success is False
 
@@ -176,7 +194,7 @@ class TestFeishuExecApproval:
         ) as mock_send:
             long_cmd = "x" * 5000
             await adapter.send_exec_approval(
-                chat_id="oc_12345", command=long_cmd, session_key="s"
+                chat_id="oc_12345", command=long_cmd, session_key="s", request_id="req-long"
             )
 
         card = json.loads(mock_send.call_args[1]["payload"])
@@ -197,10 +215,10 @@ class TestFeishuExecApproval:
             return_value=mock_response,
         ):
             await adapter.send_exec_approval(
-                chat_id="oc_1", command="cmd1", session_key="s1"
+                chat_id="oc_1", command="cmd1", session_key="s1", request_id="req-1"
             )
             await adapter.send_exec_approval(
-                chat_id="oc_2", command="cmd2", session_key="s2"
+                chat_id="oc_2", command="cmd2", session_key="s2", request_id="req-2"
             )
 
         assert len(adapter._approval_state) == 2
@@ -313,59 +331,65 @@ class TestResolveApproval:
     @pytest.mark.asyncio
     async def test_resolves_once(self):
         adapter = _make_adapter()
-        adapter._approval_state[1] = {
-            "session_key": "agent:main:feishu:group:oc_12345",
-            "message_id": "msg_001",
-            "chat_id": "oc_12345",
-        }
+        adapter._approval_state[1] = _approval_state(
+            "agent:main:feishu:group:oc_12345",
+            "msg_001",
+            "oc_12345",
+            "req-once",
+        )
 
         with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
             await adapter._resolve_approval(1, "once", "Norbert", open_id="ou_user1", chat_id="oc_12345")
 
-        mock_resolve.assert_called_once_with("agent:main:feishu:group:oc_12345", "once")
+        mock_resolve.assert_called_once_with(
+            "agent:main:feishu:group:oc_12345",
+            "once",
+            resolve_all=False,
+            request_id="req-once",
+        )
         assert 1 not in adapter._approval_state
 
     @pytest.mark.asyncio
     async def test_resolves_deny(self):
         adapter = _make_adapter()
-        adapter._approval_state[2] = {
-            "session_key": "some-session",
-            "message_id": "msg_002",
-            "chat_id": "oc_12345",
-        }
+        adapter._approval_state[2] = _approval_state(
+            "some-session", "msg_002", "oc_12345", "req-deny"
+        )
 
         with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
             await adapter._resolve_approval(2, "deny", "Alice", open_id="ou_user1", chat_id="oc_12345")
 
-        mock_resolve.assert_called_once_with("some-session", "deny")
+        mock_resolve.assert_called_once_with(
+            "some-session", "deny", resolve_all=False, request_id="req-deny"
+        )
 
     @pytest.mark.asyncio
     async def test_resolves_session(self):
         adapter = _make_adapter()
-        adapter._approval_state[3] = {
-            "session_key": "sess-3",
-            "message_id": "msg_003",
-            "chat_id": "oc_99",
-        }
+        adapter._approval_state[3] = _approval_state(
+            "sess-3", "msg_003", "oc_99", "req-session"
+        )
 
         with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
             await adapter._resolve_approval(3, "session", "Bob", open_id="ou_user1", chat_id="oc_99")
 
-        mock_resolve.assert_called_once_with("sess-3", "session")
+        mock_resolve.assert_called_once_with(
+            "sess-3", "session", resolve_all=False, request_id="req-session"
+        )
 
     @pytest.mark.asyncio
     async def test_resolves_always(self):
         adapter = _make_adapter()
-        adapter._approval_state[4] = {
-            "session_key": "sess-4",
-            "message_id": "msg_004",
-            "chat_id": "oc_55",
-        }
+        adapter._approval_state[4] = _approval_state(
+            "sess-4", "msg_004", "oc_55", "req-always"
+        )
 
         with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
             await adapter._resolve_approval(4, "always", "Carol", open_id="ou_user1", chat_id="oc_55")
 
-        mock_resolve.assert_called_once_with("sess-4", "always")
+        mock_resolve.assert_called_once_with(
+            "sess-4", "always", resolve_all=False, request_id="req-always"
+        )
 
     @pytest.mark.asyncio
     async def test_already_resolved_drops_silently(self):
@@ -380,11 +404,9 @@ class TestResolveApproval:
     async def test_unauthorized_click_does_not_resolve(self):
         adapter = _make_adapter()
         adapter._admins = {"ou_admin"}
-        adapter._approval_state[5] = {
-            "session_key": "sess-5",
-            "message_id": "msg_005",
-            "chat_id": "oc_12345",
-        }
+        adapter._approval_state[5] = _approval_state(
+            "sess-5", "msg_005", "oc_12345", "req-auth"
+        )
 
         with patch("tools.approval.resolve_gateway_approval") as mock_resolve:
             await adapter._resolve_approval(5, "once", "Mallory", open_id="ou_intruder", chat_id="oc_12345")
@@ -395,17 +417,49 @@ class TestResolveApproval:
     @pytest.mark.asyncio
     async def test_chat_mismatch_does_not_resolve(self):
         adapter = _make_adapter()
-        adapter._approval_state[6] = {
-            "session_key": "sess-6",
-            "message_id": "msg_006",
-            "chat_id": "oc_expected",
-        }
+        adapter._approval_state[6] = _approval_state(
+            "sess-6", "msg_006", "oc_expected", "req-chat"
+        )
 
         with patch("tools.approval.resolve_gateway_approval") as mock_resolve:
             await adapter._resolve_approval(6, "session", "Norbert", open_id="ou_user1", chat_id="oc_wrong")
 
         mock_resolve.assert_not_called()
         assert 6 in adapter._approval_state
+
+    @pytest.mark.asyncio
+    async def test_zero_resolve_keeps_local_state(self):
+        adapter = _make_adapter()
+        adapter._approval_state[7] = _approval_state(
+            "sess-7", "msg_007", "oc_12345", "req-stale"
+        )
+
+        with patch("tools.approval.resolve_gateway_approval", return_value=0):
+            resolved = await adapter._resolve_approval(
+                7, "once", "Norbert", open_id="ou_user1", chat_id="oc_12345"
+            )
+
+        assert resolved is False
+        assert adapter._approval_state[7]["request_id"] == "req-stale"
+
+    @pytest.mark.asyncio
+    async def test_resolves_exact_second_same_session_approval(self):
+        adapter = _make_adapter()
+        adapter._approval_state.update({
+            8: _approval_state("same-session", "msg_008", "oc_12345", "req-first"),
+            9: _approval_state("same-session", "msg_009", "oc_12345", "req-second"),
+        })
+
+        with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
+            resolved = await adapter._resolve_approval(
+                9, "once", "Norbert", open_id="ou_user1", chat_id="oc_12345"
+            )
+
+        assert resolved is True
+        mock_resolve.assert_called_once_with(
+            "same-session", "once", resolve_all=False, request_id="req-second"
+        )
+        assert set(adapter._approval_state) == {8}
 
 # ===========================================================================
 # _handle_card_action_event — non-approval card actions
@@ -480,18 +534,20 @@ class TestCardActionCallbackResponse:
         adapter._loop = MagicMock()
         adapter._loop.is_closed = MagicMock(return_value=False)
         adapter._allowed_group_users = {"ou_bob"}
-        adapter._approval_state[1] = {
-            "session_key": "sess-1",
-            "message_id": "msg-1",
-            "chat_id": "oc_12345",
-        }
+        adapter._approval_state[1] = _approval_state(
+            "sess-1", "msg-1", "oc_12345", "req-approve"
+        )
         data = _make_card_action_data(
-            {"fabric_action": "approve_once", "approval_id": 1},
+            {
+                "fabric_action": "approve_once",
+                "approval_id": 1,
+                "request_id": "req-approve",
+            },
             open_id="ou_bob",
         )
         adapter._sender_name_cache["ou_bob"] = ("Bob", 9999999999)
 
-        with patch("asyncio.run_coroutine_threadsafe", side_effect=_close_submitted_coro):
+        with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
             response = adapter._on_card_action_trigger(data)
 
         assert response is not None
@@ -501,22 +557,28 @@ class TestCardActionCallbackResponse:
         assert card["header"]["template"] == "green"
         assert "Approved once" in card["header"]["title"]["content"]
         assert "Bob" in card["elements"][0]["content"]
+        mock_resolve.assert_called_once_with(
+            "sess-1", "once", resolve_all=False, request_id="req-approve"
+        )
+        assert 1 not in adapter._approval_state
 
     def test_returns_card_for_deny_action(self, _patch_callback_card_types):
         adapter = _make_adapter()
         adapter._loop = MagicMock()
         adapter._loop.is_closed = MagicMock(return_value=False)
         adapter._allowed_group_users = {"ou_user1"}
-        adapter._approval_state[2] = {
-            "session_key": "sess-2",
-            "message_id": "msg-2",
-            "chat_id": "oc_12345",
-        }
+        adapter._approval_state[2] = _approval_state(
+            "sess-2", "msg-2", "oc_12345", "req-deny-card"
+        )
         data = _make_card_action_data(
-            {"fabric_action": "deny", "approval_id": 2},
+            {
+                "fabric_action": "deny",
+                "approval_id": 2,
+                "request_id": "req-deny-card",
+            },
         )
 
-        with patch("asyncio.run_coroutine_threadsafe", side_effect=_close_submitted_coro):
+        with patch("tools.approval.resolve_gateway_approval", return_value=1):
             response = adapter._on_card_action_trigger(data)
 
         assert response.card is not None
@@ -554,17 +616,19 @@ class TestCardActionCallbackResponse:
         adapter._loop = MagicMock()
         adapter._loop.is_closed = MagicMock(return_value=False)
         adapter._allowed_group_users = {"ou_unknown"}
-        adapter._approval_state[3] = {
-            "session_key": "sess-3",
-            "message_id": "msg-3",
-            "chat_id": "oc_12345",
-        }
+        adapter._approval_state[3] = _approval_state(
+            "sess-3", "msg-3", "oc_12345", "req-fallback"
+        )
         data = _make_card_action_data(
-            {"fabric_action": "approve_session", "approval_id": 3},
+            {
+                "fabric_action": "approve_session",
+                "approval_id": 3,
+                "request_id": "req-fallback",
+            },
             open_id="ou_unknown",
         )
 
-        with patch("asyncio.run_coroutine_threadsafe", side_effect=_close_submitted_coro):
+        with patch("tools.approval.resolve_gateway_approval", return_value=1):
             response = adapter._on_card_action_trigger(data)
 
         card = response.card.data
@@ -575,18 +639,20 @@ class TestCardActionCallbackResponse:
         adapter._loop = MagicMock()
         adapter._loop.is_closed = MagicMock(return_value=False)
         adapter._allowed_group_users = {"ou_expired"}
-        adapter._approval_state[4] = {
-            "session_key": "sess-4",
-            "message_id": "msg-4",
-            "chat_id": "oc_12345",
-        }
+        adapter._approval_state[4] = _approval_state(
+            "sess-4", "msg-4", "oc_12345", "req-expired-name"
+        )
         data = _make_card_action_data(
-            {"fabric_action": "approve_once", "approval_id": 4},
+            {
+                "fabric_action": "approve_once",
+                "approval_id": 4,
+                "request_id": "req-expired-name",
+            },
             open_id="ou_expired",
         )
         adapter._sender_name_cache["ou_expired"] = ("Old Name", 1)
 
-        with patch("asyncio.run_coroutine_threadsafe", side_effect=_close_submitted_coro):
+        with patch("tools.approval.resolve_gateway_approval", return_value=1):
             response = adapter._on_card_action_trigger(data)
 
         card = response.card.data
@@ -598,45 +664,74 @@ class TestCardActionCallbackResponse:
         adapter._loop = MagicMock()
         adapter._loop.is_closed = MagicMock(return_value=False)
         adapter._allowed_group_users = {"ou_allowed"}
-        adapter._approval_state[5] = {
-            "session_key": "sess-5",
-            "message_id": "msg-5",
-            "chat_id": "oc_12345",
-        }
+        adapter._approval_state[5] = _approval_state(
+            "sess-5", "msg-5", "oc_12345", "req-unauthorized"
+        )
         data = _make_card_action_data(
-            {"fabric_action": "approve_once", "approval_id": 5},
+            {
+                "fabric_action": "approve_once",
+                "approval_id": 5,
+                "request_id": "req-unauthorized",
+            },
             open_id="ou_attacker",
         )
 
-        with patch("asyncio.run_coroutine_threadsafe") as mock_submit:
+        with patch("tools.approval.resolve_gateway_approval") as mock_resolve:
             response = adapter._on_card_action_trigger(data)
 
         assert response is not None
         assert response.card is None
-        mock_submit.assert_not_called()
+        mock_resolve.assert_not_called()
 
     def test_rejects_approval_click_when_callback_chat_mismatches(self, _patch_callback_card_types):
         adapter = _make_adapter()
         adapter._loop = MagicMock()
         adapter._loop.is_closed = MagicMock(return_value=False)
         adapter._allowed_group_users = {"ou_bob"}
-        adapter._approval_state[6] = {
-            "session_key": "sess-6",
-            "message_id": "msg-6",
-            "chat_id": "oc_expected",
-        }
+        adapter._approval_state[6] = _approval_state(
+            "sess-6", "msg-6", "oc_expected", "req-mismatch"
+        )
         data = _make_card_action_data(
-            {"fabric_action": "approve_once", "approval_id": 6},
+            {
+                "fabric_action": "approve_once",
+                "approval_id": 6,
+                "request_id": "req-mismatch",
+            },
             chat_id="oc_mismatch",
             open_id="ou_bob",
         )
 
-        with patch("asyncio.run_coroutine_threadsafe") as mock_submit:
+        with patch("tools.approval.resolve_gateway_approval") as mock_resolve:
             response = adapter._on_card_action_trigger(data)
 
         assert response is not None
         assert response.card is None
-        mock_submit.assert_not_called()
+        mock_resolve.assert_not_called()
+
+    def test_zero_resolve_returns_no_success_card_and_keeps_state(
+        self, _patch_callback_card_types
+    ):
+        adapter = _make_adapter()
+        adapter._loop = MagicMock()
+        adapter._loop.is_closed = MagicMock(return_value=False)
+        adapter._allowed_group_users = {"ou_bob"}
+        adapter._approval_state[7] = _approval_state(
+            "sess-7", "msg-7", "oc_12345", "req-stale"
+        )
+        data = _make_card_action_data(
+            {
+                "fabric_action": "approve_once",
+                "approval_id": 7,
+                "request_id": "req-stale",
+            },
+            open_id="ou_bob",
+        )
+
+        with patch("tools.approval.resolve_gateway_approval", return_value=0):
+            response = adapter._on_card_action_trigger(data)
+
+        assert response.card is None
+        assert adapter._approval_state[7]["request_id"] == "req-stale"
 
     def test_returns_card_for_update_prompt_yes(self, _patch_callback_card_types):
         adapter = _make_adapter()

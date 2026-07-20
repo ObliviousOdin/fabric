@@ -71,6 +71,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.skill_utils import is_excluded_skill_path
+from fabric_cli.work_backup import WORK_STORE_PRIVATE_BASENAMES
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +103,7 @@ USER_OWNED_EXCLUDE: frozenset = frozenset({
     "auth.json", ".env",
     # Databases & runtime state
     "state.db", "state.db-shm", "state.db-wal",
+    *WORK_STORE_PRIVATE_BASENAMES,
     "response_store.db",
     "response_store.db-shm", "response_store.db-wal",
     "gateway.pid", "gateway_state.json", "processes.json",

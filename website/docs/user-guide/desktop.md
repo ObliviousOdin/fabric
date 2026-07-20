@@ -105,6 +105,13 @@ irreversible. The panel opens automatically for high-risk approvals. Enable
 approval needs you and Fabric is already focused on that chat — the one case no
 desktop notification is shown — respecting the global mute.
 
+Every approval is tied to the exact backend request that raised it. If parallel
+tool calls need several approvals, Desktop keeps them in arrival order instead
+of replacing the visible prompt. In-app and native-notification actions carry
+that request identity, and Desktop dismisses an approval only after the backend
+receipt confirms the same request. An old notification action therefore cannot
+approve or clear a newer command in the conversation.
+
 Open **Command Center → System** for a live host panel (CPU, memory, disk,
 load, network throughput, and GPU when available). It uses the same
 `/api/system/stats` collector as the web dashboard Host card and

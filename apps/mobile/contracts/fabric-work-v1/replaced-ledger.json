@@ -1,0 +1,12 @@
+{
+  "code": -32047,
+  "message": "Work cursor is no longer valid; bootstrap the current ledger.",
+  "data": {
+    "code": "cursor_expired",
+    "bootstrap": true,
+    "reason": "ledger_replaced",
+    "ledger_id": "ledger_22222222222222222222222222222222",
+    "event_floor": 1,
+    "high_water": 12
+  }
+}

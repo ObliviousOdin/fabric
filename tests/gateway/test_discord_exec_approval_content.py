@@ -32,6 +32,7 @@ async def test_exec_approval_prompt_uses_visible_content_with_command_and_reason
         chat_id="555",
         command=command,
         session_key="discord:555",
+        request_id="req-1",
         description="script execution via -c flag",
     )
 
@@ -58,6 +59,7 @@ async def test_exec_approval_prompt_truncates_long_command_in_content():
         chat_id="555",
         command=long_command,
         session_key="discord:555",
+        request_id="req-long",
         description="long generated shell command",
     )
 

@@ -28,6 +28,10 @@ interface PromptStore<T extends KeyedPrompt> {
   set: (request: T) => void
 }
 
+interface RequestKeyedPrompt extends KeyedPrompt {
+  requestId: string
+}
+
 // One per-session prompt kind: a map keyed by session, plus an active-session
 // view for the overlays. `clear` drops one session's entry (a request-id
 // mismatch is a no-op so a stale resolve can't wipe a newer prompt); with no
@@ -65,9 +69,96 @@ function keyedPromptStore<T extends KeyedPrompt>(): PromptStore<T> {
   }
 }
 
-// Approval is session-keyed on the backend (one in-flight approval per session,
-// resolved via approval.respond {choice, session_id}). It carries no request_id,
-// unlike sudo/secret which are _block()-style request/response.
+// Approvals are different from the other blocking prompts: parallel tool
+// calls can legitimately park more than one approval under the same runtime
+// session. Keep them in arrival order and expose only the head to the UI. An
+// exact-id clear removes that one request and, when it was the head, promotes
+// the next sibling without waiting for another gateway event.
+function queuedPromptStore<T extends RequestKeyedPrompt>(): PromptStore<T> {
+  const $all = atom<Record<string, T[]>>({})
+
+  return {
+    $active: computed([$all, $activeSessionId], (all, activeId) => all[keyFor(activeId)]?.[0] ?? null),
+    reset: () => $all.set({}),
+    set: request => {
+      const key = keyFor(request.sessionId)
+      const all = $all.get()
+      const queue = all[key] ?? []
+      const existingIndex = queue.findIndex(item => item.requestId === request.requestId)
+      const nextQueue = [...queue]
+
+      if (existingIndex >= 0) {
+        // Gateway replays refresh metadata in place but never create a second
+        // actionable copy of the same authoritative request.
+        nextQueue[existingIndex] = request
+      } else {
+        nextQueue.push(request)
+      }
+
+      $all.set({ ...all, [key]: nextQueue })
+    },
+    clear(sessionId, requestId) {
+      const all = $all.get()
+
+      if (sessionId !== undefined) {
+        const key = keyFor(sessionId)
+        const queue = all[key]
+
+        if (!queue) {
+          return
+        }
+
+        const next = { ...all }
+
+        if (!requestId) {
+          delete next[key]
+        } else {
+          const remaining = queue.filter(request => request.requestId !== requestId)
+
+          if (remaining.length === queue.length) {
+            return
+          }
+
+          if (remaining.length) {
+            next[key] = remaining
+          } else {
+            delete next[key]
+          }
+        }
+
+        $all.set(next)
+
+        return
+      }
+
+      if (!requestId) {
+        $all.set({})
+
+        return
+      }
+
+      const next: Record<string, T[]> = {}
+      let changed = false
+
+      for (const [key, queue] of Object.entries(all)) {
+        const remaining = queue.filter(request => request.requestId !== requestId)
+        changed ||= remaining.length !== queue.length
+
+        if (remaining.length) {
+          next[key] = remaining
+        }
+      }
+
+      if (changed) {
+        $all.set(next)
+      }
+    }
+  }
+}
+
+// Approval is session-keyed on the backend and carries an authoritative
+// request id. Responses must include both; a stale id must never resolve or
+// dismiss a newer approval parked under the same session.
 export interface ApprovalRequest extends KeyedPrompt {
   // false when the backend won't honor a permanent allow (tirith warning) → hide "Always allow".
   allowPermanent?: boolean
@@ -84,6 +175,7 @@ export interface ApprovalRequest extends KeyedPrompt {
   // the floating fallback may omit them.
   patternKey?: string
   patternKeys?: string[]
+  requestId: string
 }
 
 export interface SudoRequest extends KeyedPrompt {
@@ -96,7 +188,7 @@ export interface SecretRequest extends KeyedPrompt {
   requestId: string
 }
 
-const approval = keyedPromptStore<ApprovalRequest>()
+const approval = queuedPromptStore<ApprovalRequest>()
 const sudo = keyedPromptStore<SudoRequest>()
 const secret = keyedPromptStore<SecretRequest>()
 const $approvalInlineAnchorCount = atom(0)

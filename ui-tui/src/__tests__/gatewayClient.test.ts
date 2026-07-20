@@ -263,6 +263,43 @@ describe('GatewayClient websocket attach mode', () => {
     gw.kill()
   })
 
+  it('retains the authoritative approval request id in the sidecar projection', async () => {
+    launchContext.gateway_url = 'ws://gateway.test/api/ws?token=abc'
+    launchContext.sidecar_url = 'ws://gateway.test/api/pub?token=abc&channel=demo'
+
+    const gw = new GatewayClient({ launchContext })
+
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    const sidecarSocket = FakeWebSocket.instances[1]!
+
+    sidecarSocket.open()
+    gw.drain()
+    await Promise.resolve()
+
+    gatewaySocket.message(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'event',
+        params: {
+          type: 'approval.request',
+          session_id: 'sid-1',
+          payload: { command: 'private command', description: 'private reason', request_id: 'approval-1' }
+        }
+      })
+    )
+
+    expect(JSON.parse(sidecarSocket.sent.at(-1) ?? '{}').params).toEqual({
+      type: 'approval.request',
+      session_id: 'sid-1',
+      payload: { request_id: 'approval-1' }
+    })
+
+    gw.kill()
+  })
+
   it('buffers semantic frames until the sidecar opens and strips heavy session metadata', async () => {
     launchContext.gateway_url = 'ws://gateway.test/api/ws?token=abc'
     launchContext.sidecar_url = 'ws://gateway.test/api/pub?token=abc&channel=demo'

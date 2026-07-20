@@ -77,6 +77,10 @@ from fabric_cli.config import (
     write_platform_config_field,
     _deep_merge,
 )
+from fabric_cli.work_backup import (
+    WORK_STORE_PRIVATE_BASENAMES,
+    is_work_store_private_basename,
+)
 from gateway.status import (
     derive_gateway_busy,
     derive_gateway_drainable,
@@ -1444,6 +1448,7 @@ _SENSITIVE_MANAGED_FILE_BASENAMES = frozenset({
     # Private provider-account request metadata and its runtime lock.
     "provider-accounts.json",
     "provider-accounts.lock",
+    *WORK_STORE_PRIVATE_BASENAMES,
     # git's credential-store helper cache (agent.file_safety blocks this too).
     ".git-credentials",
 })
@@ -1487,6 +1492,8 @@ def _is_sensitive_filename(name: str) -> bool:
     if lowered == ".env" or lowered.startswith(".env.") or lowered == ".envrc":
         return True
     if lowered.startswith(".provider-accounts.json.tmp."):
+        return True
+    if is_work_store_private_basename(lowered):
         return True
     return lowered in _SENSITIVE_MANAGED_FILE_BASENAMES
 
@@ -15725,15 +15732,63 @@ def _ws_auth_mode() -> str:
     return "loopback"
 
 
-def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
-    """Validate WS-upgrade auth; return ``(reason, credential)``.
+@dataclass(frozen=True)
+class _WSAuthentication:
+    """One verified upgrade result, including its server-derived context."""
+
+    reason: Optional[str]
+    credential: str
+    auth_context: Optional["WSAuthContext"]
+
+
+def _ws_gateway_identity() -> str:
+    """Return a server-only scope input for an opaque transport projection."""
+    host = str(getattr(app.state, "bound_host", "") or "unbound")
+    port = str(getattr(app.state, "bound_port", "") or "unbound")
+    return f"dashboard:{host}:{port}"
+
+
+def _authenticated_ws_result(
+    *,
+    auth_kind: str,
+    credential: str,
+    identity: Optional[dict[str, Any]] = None,
+) -> _WSAuthentication:
+    """Project already-verified identity facts into the RPC transport context.
+
+    ``identity`` is returned only by the in-process ticket store.  It never
+    reaches the WebSocket handler or RPC response verbatim: the transport
+    constructor HMAC-projects it before returning a context.
+    """
+    from tui_gateway.auth_context import make_authenticated_ws_context
+
+    principal_identity = None
+    if identity is not None:
+        provider = str(identity.get("provider") or "").strip()
+        user_id = str(identity.get("user_id") or "").strip()
+        if provider and user_id:
+            principal_identity = f"{provider}\0{user_id}"
+
+    return _WSAuthentication(
+        reason=None,
+        credential=credential,
+        auth_context=make_authenticated_ws_context(
+            auth_kind=auth_kind,  # type: ignore[arg-type]
+            gateway_identity=_ws_gateway_identity(),
+            principal_identity=principal_identity,
+        ),
+    )
+
+
+def _ws_authenticate(ws: "WebSocket") -> _WSAuthentication:
+    """Validate one WS-upgrade credential and retain its verified context.
 
     ``reason`` is None when the credential is accepted, else a short
     machine-parseable token explaining the rejection (``no_credential``,
     ``token_mismatch``, ``ticket_invalid``, ``internal_invalid``).
-    ``credential`` names which credential type was presented (``ticket``,
-    ``internal``, ``token``, or ``none``) so the accepted path can log *how*
-    a peer authed, not just that it did.
+    ``credential`` names which credential type was presented.  The single-use
+    ticket is consumed exactly once here; callers that need the context must
+    keep this result instead of validating it again through ``_ws_auth_ok``.
 
     Loopback / ``--insecure``: legacy ``?token=<_SESSION_TOKEN>`` query
     parameter, constant-time compared.
@@ -15775,7 +15830,10 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
         if internal:
             try:
                 consume_internal_credential(internal)
-                return None, "internal"
+                return _authenticated_ws_result(
+                    auth_kind="internal",
+                    credential="internal",
+                )
             except TicketInvalid as exc:
                 audit_log(
                     AuditEvent.WS_TICKET_REJECTED,
@@ -15783,15 +15841,19 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
                     ip=(ws.client.host if ws.client else ""),
                     path=ws.url.path,
                 )
-                return "internal_invalid", "internal"
+                return _WSAuthentication("internal_invalid", "internal", None)
 
         ticket = ws.query_params.get("ticket", "")
         if not ticket:
-            return "no_credential", "none"
+            return _WSAuthentication("no_credential", "none", None)
 
         try:
-            consume_ticket(ticket)
-            return None, "ticket"
+            identity = consume_ticket(ticket)
+            return _authenticated_ws_result(
+                auth_kind="provider_cookie",
+                credential="ticket",
+                identity=identity,
+            )
         except TicketInvalid as exc:
             audit_log(
                 AuditEvent.WS_TICKET_REJECTED,
@@ -15799,14 +15861,28 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
                 ip=(ws.client.host if ws.client else ""),
                 path=ws.url.path,
             )
-            return "ticket_invalid", "ticket"
+            return _WSAuthentication("ticket_invalid", "ticket", None)
 
     token = ws.query_params.get("token", "")
     if not token:
-        return "no_credential", "none"
+        return _WSAuthentication("no_credential", "none", None)
     if hmac.compare_digest(token.encode(), _SESSION_TOKEN.encode()):
-        return None, "token"
-    return "token_mismatch", "token"
+        return _authenticated_ws_result(
+            auth_kind="legacy_token",
+            credential="token",
+        )
+    return _WSAuthentication("token_mismatch", "token", None)
+
+
+def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
+    """Validate WS-upgrade auth; return ``(reason, credential)``.
+
+    Compatibility helper for endpoints that only need a boolean decision.
+    The JSON-RPC route calls :func:`_ws_authenticate` directly so a one-use
+    ticket is consumed once while its verified identity reaches dispatch.
+    """
+    result = _ws_authenticate(ws)
+    return result.reason, result.credential
 
 
 def _ws_auth_ok(ws: "WebSocket") -> bool:
@@ -17050,7 +17126,8 @@ async def pty_ws(ws: WebSocket) -> None:
 
 @app.websocket("/api/ws")
 async def gateway_ws(ws: WebSocket) -> None:
-    if not _ws_auth_ok(ws):
+    auth = _ws_authenticate(ws)
+    if auth.reason is not None:
         await ws.close(code=4401)
         return
 
@@ -17060,7 +17137,7 @@ async def gateway_ws(ws: WebSocket) -> None:
 
     from tui_gateway.ws import handle_ws
 
-    await handle_ws(ws)
+    await handle_ws(ws, auth_context=auth.auth_context)
 
 
 # ---------------------------------------------------------------------------

@@ -71,6 +71,7 @@ fun ChatScreen(
     controller: ChatSessionController,
     title: String,
     onBack: () -> Unit,
+    supportsMethod: (String) -> Boolean,
 ) {
     val messages by controller.messages.collectAsState()
     val statusLine by controller.statusLine.collectAsState()
@@ -80,6 +81,7 @@ fun ChatScreen(
     val pendingPrompt by controller.pendingPrompt.collectAsState()
     val sessionReady by controller.sessionReady.collectAsState()
     val fatalError by controller.fatalError.collectAsState()
+    val backgroundAvailable by controller.backgroundAvailable.collectAsState()
 
     var draft by rememberSaveable { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
@@ -94,7 +96,19 @@ fun ChatScreen(
         }
     }
 
-    if (showCommands) {
+    val commandsAvailable = supportsMethod("commands.catalog") && supportsMethod("slash.exec")
+    val processesAvailable = supportsMethod("process.list")
+    val liveViewAvailable = supportsMethod("computer.screenshot")
+    val steerAvailable = supportsMethod("session.steer")
+    val interruptAvailable = supportsMethod("session.interrupt")
+    val submitAvailable = supportsMethod("prompt.submit")
+    val draftSendAvailable = if (draft.trimStart().startsWith("/")) {
+        supportsMethod("slash.exec")
+    } else {
+        submitAvailable
+    }
+
+    if (showCommands && commandsAvailable) {
         CommandCatalogSheet(
             api = controller.api,
             onSelect = { command ->
@@ -105,15 +119,16 @@ fun ChatScreen(
         )
     }
 
-    if (showProcesses) {
+    if (showProcesses && processesAvailable) {
         ProcessListSheet(
             api = controller.api,
             sessionId = controller.sessionId,
+            canKill = supportsMethod("process.kill"),
             onDismiss = { showProcesses = false },
         )
     }
 
-    if (showLiveView) {
+    if (showLiveView && liveViewAvailable) {
         LiveViewSheet(
             api = controller.api,
             onDismiss = { showLiveView = false },
@@ -136,6 +151,7 @@ fun ChatScreen(
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
                             text = { Text("Commands…") },
+                            enabled = commandsAvailable,
                             onClick = {
                                 menuOpen = false
                                 showCommands = true
@@ -143,16 +159,16 @@ fun ChatScreen(
                         )
                         DropdownMenuItem(
                             text = { Text("Run draft in background") },
-                            enabled = draft.isNotBlank(),
+                            enabled = backgroundAvailable && draft.isNotBlank(),
                             onClick = {
                                 menuOpen = false
                                 val text = draft
-                                draft = ""
-                                controller.sendInBackground(text)
+                                if (controller.sendInBackground(text)) draft = ""
                             },
                         )
                         DropdownMenuItem(
                             text = { Text("Background processes…") },
+                            enabled = processesAvailable,
                             onClick = {
                                 menuOpen = false
                                 showProcesses = true
@@ -160,6 +176,7 @@ fun ChatScreen(
                         )
                         DropdownMenuItem(
                             text = { Text("Live screen view…") },
+                            enabled = liveViewAvailable,
                             onClick = {
                                 menuOpen = false
                                 showLiveView = true
@@ -210,7 +227,7 @@ fun ChatScreen(
             pendingApproval?.let { approval ->
                 ApprovalBanner(
                     approval = approval,
-                    enabled = sessionReady,
+                    enabled = sessionReady && supportsMethod("approval.respond"),
                     onRespond = controller::respondToApproval,
                 )
             }
@@ -218,7 +235,13 @@ fun ChatScreen(
             pendingPrompt?.let { prompt ->
                 PromptBanner(
                     prompt = prompt,
-                    enabled = sessionReady,
+                    enabled = sessionReady && supportsMethod(
+                        when (prompt.kind) {
+                            PendingPrompt.Kind.CLARIFY -> "clarify.respond"
+                            PendingPrompt.Kind.SUDO -> "sudo.respond"
+                            PendingPrompt.Kind.SECRET -> "secret.respond"
+                        },
+                    ),
                     onRespond = controller::respondToPrompt,
                 )
             }
@@ -248,9 +271,16 @@ fun ChatScreen(
                     value = draft,
                     onValueChange = { draft = it },
                     placeholder = {
-                        Text(if (busy) "Steer the running turn…" else "Message Fabric… (/ for commands)")
+                        Text(
+                            when {
+                                busy && !steerAvailable -> "Steering is unavailable on this gateway"
+                                busy -> "Steer the running turn…"
+                                commandsAvailable -> "Message Fabric… (/ for commands)"
+                                else -> "Message Fabric…"
+                            },
+                        )
                     },
-                    enabled = sessionReady,
+                    enabled = sessionReady && if (busy) steerAvailable else submitAvailable,
                     maxLines = 5,
                     modifier = Modifier.weight(1f),
                 )
@@ -262,7 +292,7 @@ fun ChatScreen(
                             draft = ""
                             controller.send(text)
                         },
-                        enabled = sessionReady && draft.isNotBlank(),
+                        enabled = sessionReady && steerAvailable && draft.isNotBlank(),
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.Redo,
@@ -270,7 +300,10 @@ fun ChatScreen(
                             tint = FabricTheme.extras.threadActive,
                         )
                     }
-                    IconButton(onClick = controller::interrupt, enabled = sessionReady) {
+                    IconButton(
+                        onClick = controller::interrupt,
+                        enabled = sessionReady && interruptAvailable,
+                    ) {
                         Icon(Icons.Filled.Stop, contentDescription = "Interrupt")
                     }
                 } else {
@@ -280,7 +313,7 @@ fun ChatScreen(
                             draft = ""
                             controller.send(text)
                         },
-                        enabled = sessionReady && draft.isNotBlank(),
+                        enabled = sessionReady && draftSendAvailable && draft.isNotBlank(),
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
                     }

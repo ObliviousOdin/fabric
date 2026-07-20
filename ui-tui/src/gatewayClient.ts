@@ -45,6 +45,7 @@ const SIDECAR_SESSION_INFO_KEYS = new Set([
 ])
 
 const SIDECAR_EVENT_PAYLOAD_KEYS: Readonly<Record<string, ReadonlySet<string>>> = {
+  'approval.request': new Set(['request_id']),
   'dashboard.new_session_requested': new Set(['reason']),
   error: new Set(['message']),
   'session.info': SIDECAR_SESSION_INFO_KEYS,

@@ -392,21 +392,30 @@ class EventBridge:
             )
 
     def respond_to_approval(self, approval_id: str, decision: str) -> dict:
-        """Resolve a pending approval (best-effort without gateway IPC)."""
+        """Refuse synthetic approval success until a real resolver is wired.
+
+        This bridge has no IPC path to the approval core. Popping its local
+        observation and emitting ``approval_resolved`` previously reported
+        success while the agent's real waiter remained blocked — a dangerous
+        false acknowledgement. FMB-002's durable Attention service becomes the
+        future exact-ID seam; until then this operation is explicitly
+        unsupported and must not mutate local state.
+        """
         with self._lock:
-            approval = self._pending_approvals.pop(approval_id, None)
+            approval = self._pending_approvals.get(approval_id)
 
         if not approval:
-            return {"error": f"Approval not found: {approval_id}"}
+            return {
+                "error": f"Approval not found: {approval_id}",
+                "code": "approval_not_found",
+            }
 
-        self._enqueue(QueueEvent(
-            cursor=0,  # Will be set by _enqueue
-            type="approval_resolved",
-            session_key=approval.get("session_key", ""),
-            data={"approval_id": approval_id, "decision": decision},
-        ))
-
-        return {"resolved": True, "approval_id": approval_id, "decision": decision}
+        return {
+            "error": "Approval resolution is unavailable through this MCP bridge",
+            "code": "approval_resolution_unavailable",
+            "approval_id": approval_id,
+            "resolved": False,
+        }
 
     def _enqueue(self, event: QueueEvent) -> None:
         """Add an event to the queue and wake any waiters."""
@@ -926,7 +935,11 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
         id: str,
         decision: str,
     ) -> str:
-        """Respond to a pending approval request.
+        """Report whether an approval response can be delivered exactly.
+
+        The current MCP bridge can observe local approval-shaped records but
+        cannot signal Fabric's authoritative waiter. It therefore returns
+        ``approval_resolution_unavailable`` without claiming success.
 
         Args:
             id: The approval ID from permissions_list_open

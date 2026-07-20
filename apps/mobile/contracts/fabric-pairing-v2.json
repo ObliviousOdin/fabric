@@ -1,0 +1,63 @@
+{
+  "contract": {
+    "name": "fabric.pairing",
+    "version": 2
+  },
+  "cases": [
+    {
+      "id": "browser-origin",
+      "payload": "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&auth=browser",
+      "valid": true
+    },
+    {
+      "id": "local-origin-with-canonical-slash",
+      "payload": "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test%2F&enrollment=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB&auth=local",
+      "valid": true
+    },
+    {
+      "id": "duplicate-auth",
+      "payload": "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&auth=browser&auth=local",
+      "valid": false
+    },
+    {
+      "id": "outer-path",
+      "payload": "fabric://pair/?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&auth=browser",
+      "valid": false
+    },
+    {
+      "id": "repeated-origin-slashes",
+      "payload": "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test%2F%2F%2F&enrollment=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&auth=browser",
+      "valid": false
+    },
+    {
+      "id": "origin-with-query",
+      "payload": "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test%3Fsource%3Dqr&enrollment=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&auth=browser",
+      "valid": false
+    },
+    {
+      "id": "origin-with-userinfo",
+      "payload": "fabric://pair?v=2&url=https%3A%2F%2Fowner%3Asecret%40agent.example.test&enrollment=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&auth=browser",
+      "valid": false
+    },
+    {
+      "id": "origin-with-encoded-whitespace",
+      "payload": "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test%20&enrollment=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&auth=browser",
+      "valid": false
+    },
+    {
+      "id": "cleartext-origin",
+      "payload": "fabric://pair?v=2&url=http%3A%2F%2Fagent.example.test&enrollment=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&auth=browser",
+      "valid": false
+    },
+    {
+      "id": "short-handle",
+      "payload": "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=short&auth=browser",
+      "valid": false
+    },
+    {
+      "id": "extra-token-field",
+      "payload": "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&auth=browser&token=unexpected",
+      "valid": false
+    }
+  ]
+}

@@ -82,6 +82,7 @@ export interface RemoteSessionRuntimeInfo {
   service_tier?: string;
   usage?: Record<string, unknown>;
   version?: string;
+  work_profile_id?: string;
   yolo?: boolean;
 }
 
@@ -195,6 +196,7 @@ export interface RemoteGatewayEventPayload {
   tool_id?: string;
   usage?: Record<string, unknown>;
   warning?: string;
+  work_profile_id?: string;
   yolo?: boolean;
 }
 
@@ -707,6 +709,7 @@ function runtimeInfoPatch(
     ["personality", "personality"],
     ["reasoning_effort", "reasoning_effort"],
     ["service_tier", "service_tier"],
+    ["work_profile_id", "work_profile_id"],
   ] as const) {
     if (typeof payload[source] === "string") {
       patch[target] = payload[source] as never;
@@ -849,7 +852,7 @@ export function reduceRemoteSessionEvent(
       };
     }
     case "sudo.request": {
-      const requestId = asString(payload.request_id);
+      const requestId = asString(payload.request_id).trim();
       return requestId
         ? {
             ...state,
@@ -862,7 +865,7 @@ export function reduceRemoteSessionEvent(
         : state;
     }
     case "secret.request": {
-      const requestId = asString(payload.request_id);
+      const requestId = asString(payload.request_id).trim();
       return requestId
         ? {
             ...state,

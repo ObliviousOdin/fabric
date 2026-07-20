@@ -1997,6 +1997,7 @@ class FeishuAdapter(BasePlatformAdapter):
 
     async def send_exec_approval(
         self, chat_id: str, command: str, session_key: str,
+        request_id: str,
         description: str = "dangerous command",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
@@ -2008,6 +2009,9 @@ class FeishuAdapter(BasePlatformAdapter):
         """
         if not self._client:
             return SendResult(success=False, error="Not connected")
+        request_id = str(request_id or "").strip()
+        if not request_id:
+            return SendResult(success=False, error="Missing approval request ID")
 
         try:
             approval_id = next(self._approval_counter)
@@ -2018,7 +2022,11 @@ class FeishuAdapter(BasePlatformAdapter):
                     "tag": "button",
                     "text": {"tag": "plain_text", "content": label},
                     "type": btn_type,
-                    "value": {"fabric_action": action_name, "approval_id": approval_id},
+                    "value": {
+                        "fabric_action": action_name,
+                        "approval_id": approval_id,
+                        "request_id": request_id,
+                    },
                 }
 
             card = {
@@ -2057,6 +2065,7 @@ class FeishuAdapter(BasePlatformAdapter):
             if result.success:
                 self._approval_state[approval_id] = {
                     "session_key": session_key,
+                    "request_id": request_id,
                     "message_id": result.message_id or "",
                     "chat_id": chat_id,
                 }
@@ -2653,9 +2662,9 @@ class FeishuAdapter(BasePlatformAdapter):
     def _on_card_action_trigger(self, data: Any) -> Any:
         """Handle card-action callback from the Feishu SDK (synchronous).
 
-        For approval actions: parses the event once, returns the resolved card
-        inline (the only reliable way to sync all clients), and schedules a
-        lightweight async method to actually unblock the agent.
+        Approval actions resolve their exact core request synchronously before
+        returning a resolved card. This keeps the callback response truthful:
+        stale or duplicate buttons never render as successful.
 
         For other card actions: delegates to ``_handle_card_action_event``.
         """
@@ -2717,7 +2726,7 @@ class FeishuAdapter(BasePlatformAdapter):
         return "*" in allowed_ids or normalized in allowed_ids
 
     def _handle_approval_card_action(self, *, event: Any, action_value: Dict[str, Any], loop: Any) -> Any:
-        """Schedule approval resolution and build the synchronous callback response."""
+        """Resolve an exact approval and build its synchronous card response."""
         approval_id = action_value.get("approval_id")
         if approval_id is None:
             logger.debug("[Feishu] Card action missing approval_id, ignoring")
@@ -2726,13 +2735,21 @@ class FeishuAdapter(BasePlatformAdapter):
         if not state:
             logger.debug("[Feishu] Approval %s already resolved or unknown", approval_id)
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
-        choice = _APPROVAL_CHOICE_MAP.get(action_value.get("fabric_action"), "deny")
+        choice = _APPROVAL_CHOICE_MAP.get(action_value.get("fabric_action"))
+        callback_request_id = str(action_value.get("request_id") or "")
+        request_id = str(state.get("request_id") or "")
+        if not choice or not request_id or callback_request_id != request_id:
+            logger.warning("[Feishu] Invalid or stale approval card payload for %s", approval_id)
+            return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
 
         operator = getattr(event, "operator", None)
         open_id = str(getattr(operator, "open_id", "") or "")
         sender_id = SimpleNamespace(open_id=open_id, user_id=str(getattr(operator, "user_id", "") or ""))
         if not self._allow_group_message(sender_id, state.get("chat_id", ""), is_bot=False):
             logger.warning("[Feishu] Unauthorized approval click by %s", open_id or "<unknown>")
+            return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
+        if not self._is_interactive_operator_authorized(open_id):
+            logger.warning("[Feishu] Unauthorized approval operator %s", open_id or "<unknown>")
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
 
         callback_chat_id = str(getattr(getattr(event, "context", None), "open_chat_id", "") or "")
@@ -2748,19 +2765,18 @@ class FeishuAdapter(BasePlatformAdapter):
 
         user_name = self._get_cached_sender_name(open_id) or open_id
 
-        chat_context = getattr(event, "context", None)
-        chat_id = str(getattr(chat_context, "open_chat_id", "") or "")
-        if not self._submit_on_loop(
-            loop,
-            self._resolve_approval(
-                approval_id=approval_id,
-                choice=choice,
-                user_name=user_name,
-                open_id=open_id,
-                chat_id=chat_id,
-            ),
-        ):
+        if not self._resolve_core_approval(state, choice):
+            logger.warning(
+                "[Feishu] Approval card was stale or already resolved "
+                "(approval_id=%s, request_id=%s)",
+                approval_id,
+                request_id,
+            )
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
+
+        # Only consume local state after the exact core request resolved.
+        if self._approval_state.get(approval_id) is state:
+            self._approval_state.pop(approval_id, None)
 
         if P2CardActionTriggerResponse is None:
             return None
@@ -2771,6 +2787,26 @@ class FeishuAdapter(BasePlatformAdapter):
             card.data = self._build_resolved_approval_card(choice=choice, user_name=user_name)
             response.card = card
         return response
+
+    @staticmethod
+    def _resolve_core_approval(state: Dict[str, str], choice: str) -> bool:
+        """Resolve the authoritative core request represented by local state."""
+        request_id = str(state.get("request_id") or "").strip()
+        if not request_id:
+            return False
+        try:
+            from tools.approval import resolve_gateway_approval
+
+            count = resolve_gateway_approval(
+                state["session_key"],
+                choice,
+                resolve_all=False,
+                request_id=request_id,
+            )
+        except Exception as exc:
+            logger.error("Failed to resolve gateway approval from Feishu button: %s", exc)
+            return False
+        return count == 1
 
     def _handle_update_prompt_card_action(self, *, event: Any, action_value: Dict[str, Any], loop: Any) -> Any:
         """Schedule update prompt resolution and build the synchronous callback response."""
@@ -2837,35 +2873,32 @@ class FeishuAdapter(BasePlatformAdapter):
         *,
         open_id: str = "",
         chat_id: str = "",
-    ) -> None:
-        """Pop approval state and unblock the waiting agent thread."""
+    ) -> bool:
+        """Resolve one exact approval, consuming local state only on success."""
         state = self._approval_state.get(approval_id)
         if not state:
             logger.debug("[Feishu] Approval %s already resolved or unknown", approval_id)
-            return
+            return False
         if not self._is_interactive_operator_authorized(open_id):
             logger.warning("[Feishu] Unauthorized approval click by %s for approval %s", open_id or "<unknown>", approval_id)
-            return
+            return False
         expected_chat_id = str(state.get("chat_id", "") or "")
         if expected_chat_id and chat_id and expected_chat_id != chat_id:
             logger.warning(
                 "[Feishu] Approval %s chat mismatch (expected=%s, got=%s)",
                 approval_id, expected_chat_id, chat_id,
             )
-            return
-        state = self._approval_state.pop(approval_id, None)
-        if not state:
-            logger.debug("[Feishu] Approval %s already resolved while validating callback", approval_id)
-            return
-        try:
-            from tools.approval import resolve_gateway_approval
-            count = resolve_gateway_approval(state["session_key"], choice)
+            return False
+        if self._resolve_core_approval(state, choice):
+            if self._approval_state.get(approval_id) is state:
+                self._approval_state.pop(approval_id, None)
             logger.info(
-                "Feishu button resolved %d approval(s) for session %s (choice=%s, user=%s)",
-                count, state["session_key"], choice, user_name,
+                "Feishu button resolved approval for session %s "
+                "(request_id=%s, choice=%s, user=%s)",
+                state["session_key"], state["request_id"], choice, user_name,
             )
-        except Exception as exc:
-            logger.error("Failed to resolve gateway approval from Feishu button: %s", exc)
+            return True
+        return False
 
     async def _resolve_update_prompt(
         self,

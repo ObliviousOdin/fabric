@@ -191,6 +191,122 @@ class TestBlockingGatewayApproval:
         assert second.event.is_set()
         assert _gateway_queues[session_key] == [first]
 
+    @pytest.mark.parametrize(
+        "invalid_choice",
+        [None, "", "   ", "yes", "allow_forever", True, 1, object()],
+    )
+    def test_invalid_choice_never_signals_or_removes_an_entry(self, invalid_choice):
+        """Malformed programmatic choices fail before queue mutation."""
+        from tools.approval import (
+            resolve_gateway_approval,
+            _ApprovalEntry, _gateway_queues,
+        )
+
+        session_key = "test-invalid-choice"
+        first = _ApprovalEntry({"command": "same", "request_id": "approval-1"})
+        second = _ApprovalEntry({"command": "same", "request_id": "approval-2"})
+        _gateway_queues[session_key] = [first, second]
+
+        with pytest.raises(ValueError, match="invalid approval choice"):
+            resolve_gateway_approval(
+                session_key,
+                invalid_choice,
+                request_id="approval-2",
+            )
+
+        assert _gateway_queues[session_key] == [first, second]
+        assert not first.event.is_set()
+        assert not second.event.is_set()
+        assert first.result is None
+        assert second.result is None
+
+        # The exact second request remains independently actionable after the
+        # rejected mutation; FIFO order must not have shifted.
+        assert resolve_gateway_approval(
+            session_key,
+            "approved",
+            request_id="approval-2",
+        ) == 1
+        assert not first.event.is_set()
+        assert second.event.is_set()
+        assert second.result == "once"
+        assert _gateway_queues[session_key] == [first]
+
+    def test_request_id_and_resolve_all_conflict_never_mutates_queue(self):
+        """Exact and all-pending addressing cannot be combined."""
+        from tools.approval import (
+            resolve_gateway_approval,
+            _ApprovalEntry, _gateway_queues,
+        )
+
+        session_key = "test-request-id-all-conflict"
+        first = _ApprovalEntry({"command": "first", "request_id": "approval-1"})
+        second = _ApprovalEntry({"command": "second", "request_id": "approval-2"})
+        _gateway_queues[session_key] = [first, second]
+
+        with pytest.raises(
+            ValueError,
+            match="request_id cannot be combined with resolve_all",
+        ):
+            resolve_gateway_approval(
+                session_key,
+                "once",
+                resolve_all=True,
+                request_id="approval-2",
+            )
+
+        assert _gateway_queues[session_key] == [first, second]
+        assert not first.event.is_set()
+        assert not second.event.is_set()
+
+    @pytest.mark.parametrize("invalid_request_id", ["", "   ", 0, False, object()])
+    def test_explicit_invalid_request_id_never_falls_back_to_fifo(
+        self, invalid_request_id
+    ):
+        """Only an omitted ID enables the legacy FIFO compatibility path."""
+        from tools.approval import (
+            _ApprovalEntry,
+            _gateway_queues,
+            resolve_gateway_approval,
+        )
+
+        session_key = "test-invalid-request-id"
+        first = _ApprovalEntry({"command": "first", "request_id": "approval-1"})
+        second = _ApprovalEntry({"command": "second", "request_id": "approval-2"})
+        _gateway_queues[session_key] = [first, second]
+
+        with pytest.raises(ValueError, match="request_id must be a non-empty string"):
+            resolve_gateway_approval(
+                session_key,
+                "once",
+                request_id=invalid_request_id,
+            )
+
+        assert _gateway_queues[session_key] == [first, second]
+        assert not first.event.is_set()
+        assert not second.event.is_set()
+
+    @pytest.mark.parametrize(
+        ("choice", "expected"),
+        [
+            ("once", "once"),
+            ("session", "session"),
+            ("always", "always"),
+            ("deny", "deny"),
+            ("allow", "once"),
+            ("approve", "once"),
+            ("  APPROVED  ", "once"),
+        ],
+    )
+    def test_gateway_choice_normalizer_accepts_only_canonical_and_aliases(
+        self,
+        choice,
+        expected,
+    ):
+        from tools.approval import normalize_gateway_approval_choice
+
+        assert normalize_gateway_approval_choice(choice) == expected
+
     def test_unregister_signals_all_entries(self):
         """unregister_gateway_notify signals all waiting entries to prevent hangs."""
         from tools.approval import (

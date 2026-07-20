@@ -1,0 +1,17 @@
+{
+  "contract": {
+    "name": "fabric.work",
+    "version": 2,
+    "min_compatible": 2
+  },
+  "ledger_id": "ledger_11111111111111111111111111111111",
+  "work_profile_id": "profile_11111111111111111111111111111111",
+  "mode": "bootstrap",
+  "watermark": 0,
+  "cursor": 0,
+  "has_more": false,
+  "next_page_token": null,
+  "jobs": [],
+  "attention": [],
+  "events": []
+}

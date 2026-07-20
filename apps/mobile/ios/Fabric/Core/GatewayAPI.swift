@@ -115,6 +115,36 @@ struct SessionInflight: Equatable {
     }
 }
 
+/// The opaque Work namespace selected by the gateway for a session. It is a
+/// server identity, not a display-profile name: clients must validate and
+/// retain it from `session.info` before they can bind a Work projection or a
+/// mutation to a profile.
+struct FabricWorkSessionIdentity: Equatable {
+    let profileID: String
+
+    init(sessionInfo: [String: Any]) throws {
+        guard sessionInfo.keys.contains("work_profile_id") else {
+            throw FabricWorkValueParseError.invalid(
+                "session.info is missing work_profile_id."
+            )
+        }
+        profileID = try FabricWorkParser.decodeProfileID(sessionInfo["work_profile_id"] as Any)
+    }
+
+    /// No Work path may infer a profile identity. A legacy or malformed
+    /// session snapshot simply remains unavailable to the Work client.
+    static func from(sessionInfo: [String: Any]) -> FabricWorkSessionIdentity? {
+        try? FabricWorkSessionIdentity(sessionInfo: sessionInfo)
+    }
+
+    func syncScope(gatewayID: String) -> FabricWorkSyncScope? {
+        guard !gatewayID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return FabricWorkSyncScope(gatewayID: gatewayID, profileID: profileID)
+    }
+}
+
 /// Result of `session.create` / `session.resume`.
 struct LiveSession {
     let sessionId: String
@@ -124,6 +154,9 @@ struct LiveSession {
     let inflight: SessionInflight?
     let historyVersion: Int?
     let pendingInteractions: [GatewayEvent]
+    /// Validated from the server's `session.info.work_profile_id`. It is not
+    /// inferred from `profile_name`, a local path, or the durable session key.
+    let workIdentity: FabricWorkSessionIdentity?
 
     init(
         sessionId: String,
@@ -132,7 +165,8 @@ struct LiveSession {
         running: Bool = false,
         inflight: SessionInflight? = nil,
         historyVersion: Int? = nil,
-        pendingInteractions: [GatewayEvent] = []
+        pendingInteractions: [GatewayEvent] = [],
+        workIdentity: FabricWorkSessionIdentity? = nil
     ) {
         self.sessionId = sessionId
         self.storedSessionId = storedSessionId
@@ -141,6 +175,7 @@ struct LiveSession {
         self.inflight = inflight
         self.historyVersion = historyVersion
         self.pendingInteractions = pendingInteractions
+        self.workIdentity = workIdentity
     }
 
     init(resumePayload: [String: Any], storedSessionId: String) {
@@ -155,6 +190,8 @@ struct LiveSession {
         running = resumePayload["running"] as? Bool ?? false
         inflight = (resumePayload["inflight"] as? [String: Any]).flatMap(SessionInflight.init(payload:))
         historyVersion = (resumePayload["history_version"] as? NSNumber)?.intValue
+        workIdentity = (resumePayload["info"] as? [String: Any])
+            .flatMap(FabricWorkSessionIdentity.from(sessionInfo:))
         pendingInteractions = (resumePayload["pending_interactions"] as? [[String: Any]] ?? [])
             .compactMap { interaction in
                 guard let type = interaction["type"] as? String else { return nil }
@@ -238,6 +275,290 @@ struct GatewayStatus {
     let raw: [String: Any]
 }
 
+let gatewayClientContractVersion = 1
+
+/// Methods available in the first shipped mobile client, before capability
+/// negotiation existed. This compatibility surface is enabled only when
+/// `gateway.capabilities` returns JSON-RPC `-32601`.
+let legacyMobileMethods: Set<String> = [
+    "approval.respond",
+    "clarify.respond",
+    "commands.catalog",
+    "computer.screenshot",
+    "process.kill",
+    "process.list",
+    "prompt.background",
+    "prompt.submit",
+    "secret.respond",
+    "session.active_list",
+    "session.close",
+    "session.create",
+    "session.interrupt",
+    "session.list",
+    "session.resume",
+    "session.steer",
+    "slash.exec",
+    "sudo.respond",
+]
+
+// Gateway-host voice RPCs are intentionally absent: they record and play on
+// the gateway machine, not this phone. Phone voice needs its own wire contract.
+private let gatewayFeatureMethods: [String: Set<String>] = [
+    "automation": ["cron.manage"],
+    "background_work": ["session.active_list", "prompt.background", "session.steer"],
+    "baseline_chat": ["session.create", "session.list", "session.resume", "prompt.submit"],
+    "code_session_baseline": ["projects.discover_repos", "session.branch", "session.undo"],
+    "delegation": ["delegation.status", "spawn_tree.list"],
+    "files": ["image.attach_bytes", "pdf.attach", "file.attach"],
+    "handoff": ["handoff.request"],
+    "live_view": ["visual.status", "visual.frame"],
+]
+
+/// `durable_work` remains an optional, server-advertised feature. The client
+/// only recognizes it as usable when the server has published the complete
+/// reviewed RPC surface; its absence is deliberately false, not a legacy
+/// fallback or a reason to probe individual methods.
+let durableWorkGatewayMethods: Set<String> = [
+    "job.create",
+    "job.sync",
+    "job.get",
+    "job.list",
+    "job.events",
+    "job.cancel",
+    "attention.get",
+    "attention.list",
+    "attention.respond",
+]
+
+private let requiredMobileSessionMethods = gatewayFeatureMethods["baseline_chat"] ?? []
+
+struct GatewayCapabilityContract: Equatable {
+    let name: String
+    let version: Int
+    let minimumCompatibleVersion: Int
+}
+
+struct GatewayServerContract: Equatable {
+    let version: String
+    let releaseDate: String
+}
+
+struct GatewayExecutionContract: Equatable {
+    let location: String
+    let toolExecution: String
+    let survivesClientDisconnect: Bool
+    let survivesGatewayRestart: Bool
+    let requiresGatewayHostOnline: Bool
+}
+
+struct GatewayCapabilities: Equatable {
+    let contract: GatewayCapabilityContract
+    let server: GatewayServerContract
+    let execution: GatewayExecutionContract
+    let features: [String: Bool]
+    let methods: Set<String>
+}
+
+/// Result of negotiating the authenticated mobile JSON-RPC contract.
+enum GatewayCapabilityNegotiation: Equatable {
+    case negotiating
+    case verified(GatewayCapabilities)
+    case legacy
+    case incompatible(minimumCompatibleVersion: Int)
+    case invalid(reason: String)
+
+    func supportsGatewayMethod(_ method: String) -> Bool {
+        switch self {
+        case .verified(let capabilities):
+            return capabilities.methods.contains(method)
+        case .legacy:
+            return legacyMobileMethods.contains(method)
+        case .negotiating, .incompatible, .invalid:
+            return false
+        }
+    }
+
+    /// Work has no compatibility fallback. Its optional feature must be
+    /// explicitly true *and* its complete reviewed method set must be present
+    /// on a verified gateway contract.
+    var supportsDurableWork: Bool {
+        guard case .verified(let capabilities) = self else { return false }
+        return capabilities.features["durable_work"] == true
+            && durableWorkGatewayMethods.isSubset(of: capabilities.methods)
+    }
+
+    var allowsBaselineSessionCalls: Bool {
+        switch self {
+        case .verified(let capabilities):
+            return requiredMobileSessionMethods.isSubset(of: capabilities.methods)
+        case .legacy:
+            return true
+        case .negotiating, .incompatible, .invalid:
+            return false
+        }
+    }
+
+    var blockingMessage: String? {
+        switch self {
+        case .incompatible(let minimum):
+            return "Update Fabric Mobile to connect. This gateway requires mobile contract \(minimum) or newer."
+        case .invalid(let reason):
+            return "This gateway returned an invalid capability contract: \(reason)"
+        case .negotiating, .verified, .legacy:
+            return nil
+        }
+    }
+}
+
+/// Strict parser for the versioned process-scoped gateway contract. Unknown
+/// fields and method names are additive; version-1 execution semantics and
+/// known feature-to-method relationships are safety invariants.
+enum GatewayCapabilitiesParser {
+    static func parse(_ raw: Any?) -> GatewayCapabilityNegotiation {
+        guard let payload = raw as? [String: Any] else {
+            return .invalid(reason: "Gateway capabilities must be an object.")
+        }
+        guard let contractPayload = payload["contract"] as? [String: Any] else {
+            return .invalid(reason: "Gateway capabilities are missing a contract object.")
+        }
+        guard contractPayload["name"] as? String == "fabric.gateway" else {
+            return .invalid(reason: "Gateway capability contract name must be fabric.gateway.")
+        }
+        guard let version = positiveInteger(contractPayload["version"]) else {
+            return .invalid(reason: "Gateway capability contract version must be a positive integer.")
+        }
+        guard let minimumCompatible = positiveInteger(contractPayload["min_compatible"]) else {
+            return .invalid(reason: "Gateway minimum compatible version must be a positive integer.")
+        }
+        guard minimumCompatible <= version else {
+            return .invalid(reason: "Gateway minimum compatible version cannot exceed its contract version.")
+        }
+
+        guard
+            let serverPayload = payload["server"] as? [String: Any],
+            let serverVersion = nonemptyString(serverPayload["version"]),
+            let releaseDate = nonemptyString(serverPayload["release_date"])
+        else {
+            return .invalid(reason: "Gateway capabilities contain invalid server metadata.")
+        }
+
+        guard let executionPayload = payload["execution"] as? [String: Any] else {
+            return .invalid(reason: "Gateway capabilities are missing execution semantics.")
+        }
+        guard
+            executionPayload["location"] as? String == "gateway",
+            executionPayload["tool_execution"] as? String == "gateway",
+            strictBoolean(executionPayload["survives_client_disconnect"]) == true,
+            strictBoolean(executionPayload["survives_gateway_restart"]) == false,
+            strictBoolean(executionPayload["requires_gateway_host_online"]) == true
+        else {
+            return .invalid(reason: "Gateway capabilities contradict the version-1 execution contract.")
+        }
+
+        guard let methodPayload = payload["methods"] as? [Any] else {
+            return .invalid(reason: "Gateway capability methods must be an array.")
+        }
+        var methods = Set<String>()
+        for value in methodPayload {
+            guard let method = nonemptyString(value) else {
+                return .invalid(reason: "Gateway capability methods must be non-empty strings.")
+            }
+            guard methods.insert(method).inserted else {
+                return .invalid(reason: "Gateway capability method is duplicated: \(method).")
+            }
+        }
+
+        guard let featurePayload = payload["features"] as? [String: Any] else {
+            return .invalid(reason: "Gateway capabilities are missing feature availability.")
+        }
+        var features: [String: Bool] = [:]
+        for (name, requiredMethods) in gatewayFeatureMethods {
+            guard let advertised = strictBoolean(featurePayload[name]) else {
+                return .invalid(reason: "Gateway feature \(name) must be a boolean.")
+            }
+            guard advertised == requiredMethods.isSubset(of: methods) else {
+                return .invalid(reason: "Gateway feature \(name) contradicts its advertised methods.")
+            }
+            features[name] = advertised
+        }
+        // Unlike the baseline v1 features, durable Work was introduced as an
+        // additive optional key. An omitted key means unavailable; a present
+        // key must still truthfully describe the entire reviewed RPC family.
+        if let durableRaw = featurePayload["durable_work"] {
+            guard let durableAdvertised = strictBoolean(durableRaw) else {
+                return .invalid(reason: "Gateway feature durable_work must be a boolean.")
+            }
+            guard durableAdvertised == durableWorkGatewayMethods.isSubset(of: methods) else {
+                return .invalid(reason: "Gateway feature durable_work contradicts its advertised methods.")
+            }
+            features["durable_work"] = durableAdvertised
+        } else {
+            features["durable_work"] = false
+        }
+
+        if minimumCompatible > gatewayClientContractVersion {
+            return .incompatible(minimumCompatibleVersion: minimumCompatible)
+        }
+
+        return .verified(GatewayCapabilities(
+            contract: GatewayCapabilityContract(
+                name: "fabric.gateway",
+                version: version,
+                minimumCompatibleVersion: minimumCompatible
+            ),
+            server: GatewayServerContract(version: serverVersion, releaseDate: releaseDate),
+            execution: GatewayExecutionContract(
+                location: "gateway",
+                toolExecution: "gateway",
+                survivesClientDisconnect: true,
+                survivesGatewayRestart: false,
+                requiresGatewayHostOnline: true
+            ),
+            features: features,
+            methods: methods
+        ))
+    }
+
+    private static func positiveInteger(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID()
+        else { return nil }
+        let double = number.doubleValue
+        guard double.isFinite,
+              double >= 1,
+              double.rounded(.towardZero) == double,
+              double <= Double(Int.max)
+        else { return nil }
+        return Int(double)
+    }
+
+    private static func strictBoolean(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID()
+        else { return nil }
+        return number.boolValue
+    }
+
+    private static func nonemptyString(_ value: Any?) -> String? {
+        guard let string = value as? String,
+              !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return string
+    }
+}
+
+enum GatewayCapabilityNegotiator {
+    static func negotiate(
+        request: () async throws -> Any?
+    ) async throws -> GatewayCapabilityNegotiation {
+        do {
+            return GatewayCapabilitiesParser.parse(try await request())
+        } catch GatewayClientError.rpc(_, let code, _) where code == -32_601 {
+            return .legacy
+        }
+    }
+}
+
 /// Row from `GET /api/auth/providers` (gated gateways only).
 struct AuthProviderInfo: Identifiable, Hashable {
     let name: String
@@ -246,6 +567,123 @@ struct AuthProviderInfo: Identifiable, Hashable {
     /// Provider requires a TOTP second factor — show a code field.
     let requiresTotp: Bool
     var id: String { name }
+}
+
+/// The two mutually exclusive `job.sync` request shapes. A bootstrap page is
+/// either page one (no token) or a server-issued continuation token; a delta
+/// is always bound to the exact durable ledger and cursor the client applied.
+enum FabricWorkSyncRequest: Equatable {
+    case bootstrap(pageToken: String?, limit: Int)
+    case delta(ledgerID: String, after: Int, limit: Int)
+
+    static var bootstrap: FabricWorkSyncRequest {
+        .bootstrap(pageToken: nil, limit: 500)
+    }
+
+    func parameters(sessionID: String) throws -> [String: Any] {
+        guard !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw FabricWorkGatewayError.invalidRequest("session_id must be non-empty.")
+        }
+        switch self {
+        case .bootstrap(let pageToken, let limit):
+            try Self.validate(limit: limit)
+            if let pageToken,
+               pageToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw FabricWorkGatewayError.invalidRequest("page_token must be non-empty when supplied.")
+            }
+            var params: [String: Any] = ["session_id": sessionID, "limit": limit]
+            if let pageToken { params["page_token"] = pageToken }
+            return params
+        case .delta(let ledgerID, let after, let limit):
+            try Self.validate(limit: limit)
+            do {
+                _ = try FabricWorkParser.decodeLedgerID(ledgerID)
+            } catch {
+                throw FabricWorkGatewayError.invalidRequest("ledger_id must be a valid Work ledger identifier.")
+            }
+            guard (0...FabricWorkLimits.maximumSafeInteger).contains(after) else {
+                throw FabricWorkGatewayError.invalidRequest("after must be a non-negative safe integer.")
+            }
+            return [
+                "session_id": sessionID,
+                "ledger_id": ledgerID,
+                "after": after,
+                "limit": limit,
+            ]
+        }
+    }
+
+    private static func validate(limit: Int) throws {
+        guard (1...500).contains(limit) else {
+            throw FabricWorkGatewayError.invalidRequest("Work sync limit must be between 1 and 500.")
+        }
+    }
+}
+
+enum FabricWorkGatewayResponse: Equatable {
+    case page(FabricWorkSyncPage)
+    case reset(FabricWorkCursorReset)
+}
+
+/// Sanitized public receipt for `job.create` and `job.cancel`. Raw prompts
+/// and any execution-local control data are deliberately absent.
+struct FabricWorkJobMutationReceipt: Equatable {
+    let job: FabricWorkJobSummary
+    let mutationID: String
+    let replayed: Bool
+    let runtimeStarted: Bool?
+    let taskID: String?
+    let newlyCancelled: Bool?
+}
+
+/// Exact-addressed result for `attention.respond`; it contains no submitted
+/// sensitive value, only the authoritative terminal state.
+struct FabricWorkAttentionMutationReceipt: Equatable {
+    let attentionID: String
+    let attentionVersion: Int
+    let delivered: Bool
+    let mutationID: String
+    let replayed: Bool
+    let state: String
+}
+
+struct FabricWorkJobListResponse: Equatable {
+    let workProfileID: String
+    let jobs: [FabricWorkJobSummary]
+    let nextBefore: String?
+}
+
+struct FabricWorkAttentionListResponse: Equatable {
+    let workProfileID: String
+    let attention: [FabricWorkAttention]
+    let nextBefore: String?
+}
+
+struct FabricWorkJobEventsResponse: Equatable {
+    let workProfileID: String
+    let cursor: Int
+    let events: [FabricWorkEvent]
+}
+
+enum FabricWorkGatewayError: LocalizedError, Equatable {
+    case invalidRequest(String)
+    case unavailableOnGateway
+    case invalidContract(String)
+    case incompatibleContract(minimumCompatibleVersion: Int)
+    case invalidCursorReset(String)
+    case invalidResponse(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidRequest(let message), .invalidContract(let message), .invalidCursorReset(let message),
+             .invalidResponse(let message):
+            return message
+        case .unavailableOnGateway:
+            return "Durable Work is unavailable on this gateway."
+        case .incompatibleContract(let minimum):
+            return "Update Fabric Mobile to read Work contract \(minimum) or newer."
+        }
+    }
 }
 
 enum GatewayAPIError: LocalizedError {
@@ -267,6 +705,19 @@ enum GatewayAPIError: LocalizedError {
 /// renderer's call sites (`use-session-actions`, `use-prompt-actions`).
 struct GatewayAPI {
     let client: JsonRpcGatewayClient
+
+    static func requireMatchingInteractionReceipt(
+        _ result: [String: Any],
+        requestId: String,
+        approval: Bool = false
+    ) throws {
+        guard
+            result["request_id"] as? String == requestId,
+            !approval || (result["resolved"] as? Int) == 1
+        else {
+            throw GatewayClientError.rpc(message: "Response did not match the pending request.")
+        }
+    }
 
     /// Process-scoped, non-persistent cookie session for gated login. The
     /// access and refresh cookies never enter URLSession's shared on-disk jar.
@@ -401,6 +852,691 @@ struct GatewayAPI {
         return ticket
     }
 
+    // MARK: - Capability negotiation
+
+    /// Negotiate the authenticated mobile contract immediately after opening
+    /// the socket and before issuing any session RPC. Only method-not-found
+    /// (`-32601`) is a legacy gateway; every other RPC/transport error remains
+    /// a connection failure.
+    func capabilities() async throws -> GatewayCapabilityNegotiation {
+        try await GatewayCapabilityNegotiator.negotiate {
+            try await client.request("gateway.capabilities")
+        }
+    }
+
+    // MARK: - Durable Work (unadvertised until all client and operations gates ship)
+
+    /// Fetch one authoritative Work page. The wrapper itself requires the
+    /// explicitly advertised, complete Durable Work capability; it has no
+    /// legacy fallback and does not alter advertised capability features. A
+    /// `work.changed` event should only trigger this request, never update a
+    /// projection itself.
+    func syncWork(
+        sessionID: String,
+        request: FabricWorkSyncRequest,
+        negotiation: GatewayCapabilityNegotiation
+    ) async throws -> FabricWorkGatewayResponse {
+        // Work is never a legacy fallback. Until the server explicitly
+        // publishes the method in a verified contract, native clients retain
+        // their current session/background behavior.
+        guard negotiation.supportsDurableWork
+        else {
+            throw FabricWorkGatewayError.unavailableOnGateway
+        }
+        return try await Self.decodeWorkSyncTransport {
+            try await client.request(
+                "job.sync",
+                params: try request.parameters(sessionID: sessionID)
+            )
+        }
+    }
+
+    /// Shared transport boundary for `job.sync`. Keeping the error conversion
+    /// here makes it independently testable with the exact
+    /// `GatewayClientError.rpc` shape emitted by the WebSocket client.
+    static func decodeWorkSyncTransport(
+        _ request: () async throws -> Any?
+    ) async throws -> FabricWorkGatewayResponse {
+        do {
+            return try decodeWorkSyncResponse(try await request())
+        } catch let error as GatewayClientError {
+            if let reset = try Self.decodeWorkCursorReset(fromRPCError: error) {
+                return reset
+            }
+            throw error
+        }
+    }
+
+    /// Pure decode seam for fixture tests and for a transport that returns a
+    /// JSON-RPC result object. Invalid or incompatible pages cannot be
+    /// mistaken for an empty Work list.
+    static func decodeWorkSyncResponse(_ raw: Any?) throws -> FabricWorkGatewayResponse {
+        switch FabricWorkParser.parseSyncPage(raw as Any) {
+        case .verified(let page):
+            return .page(page)
+        case .incompatible(let minimum):
+            throw FabricWorkGatewayError.incompatibleContract(minimumCompatibleVersion: minimum)
+        case .invalid(let message):
+            throw FabricWorkGatewayError.invalidContract(message)
+        }
+    }
+
+    /// Decode the one typed Work reset returned in JSON-RPC error data.
+    /// Other errors stay transport/RPC errors so the caller cannot silently
+    /// discard a good projection on an unrelated failure.
+    static func decodeWorkCursorReset(_ raw: Any?) throws -> FabricWorkGatewayResponse {
+        switch FabricWorkParser.parseCursorReset(raw as Any) {
+        case .verified(let reset):
+            return .reset(reset)
+        case .invalid(let message):
+            throw FabricWorkGatewayError.invalidCursorReset(message)
+        }
+    }
+
+    /// `JsonRpcGatewayClient` retains an RPC error's `data` field separately
+    /// from its code/message. Reconstruct the validated error envelope before
+    /// handing it to the canonical Work reset parser; parsing `data` alone
+    /// would silently turn a real cursor-expiry reset into a generic failure.
+    static func decodeWorkCursorReset(
+        fromRPCError error: GatewayClientError
+    ) throws -> FabricWorkGatewayResponse? {
+        guard case .rpc(let message, let code?, let data) = error, code == -32_047 else {
+            return nil
+        }
+        return try decodeWorkCursorReset([
+            "code": code,
+            "message": message,
+            "data": data ?? NSNull(),
+        ])
+    }
+
+    /// Create a durable, creator-bound background Job. This is deliberately
+    /// distinct from `prompt.background`: no error path retries through the
+    /// legacy method, which could otherwise execute a second user intent.
+    func createBackgroundWork(
+        sessionID: String,
+        text: String,
+        title: String? = nil,
+        idempotencyKey: String,
+        negotiation: GatewayCapabilityNegotiation
+    ) async throws -> FabricWorkJobMutationReceipt {
+        try Self.requireDurableWork(negotiation)
+        let runtimeSessionID = try Self.requireWorkSessionID(sessionID)
+        let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty, prompt.unicodeScalars.count <= 200_000 else {
+            throw FabricWorkGatewayError.invalidRequest(
+                "Background work prompt must be 1 to 200000 characters."
+            )
+        }
+        let resolvedTitle = (title ?? "Background work")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedTitle.isEmpty, resolvedTitle.unicodeScalars.count <= 200 else {
+            throw FabricWorkGatewayError.invalidRequest("Background work title must be 1 to 200 characters.")
+        }
+        try Self.requireIdempotencyKey(idempotencyKey)
+
+        let receipt = try Self.decodeWorkJobMutationReceipt(
+            await client.requestObject(
+                "job.create",
+                params: [
+                    "session_id": runtimeSessionID,
+                    "kind": "background_prompt",
+                    "text": prompt,
+                    "title": resolvedTitle,
+                    "idempotency_key": idempotencyKey,
+                ]
+            )
+        )
+        guard receipt.job.kind == "background_prompt", receipt.job.title == resolvedTitle else {
+            throw FabricWorkGatewayError.invalidResponse(
+                "Job creation receipt did not match the submitted durable intent."
+            )
+        }
+        return receipt
+    }
+
+    /// Fetch exactly one current Job after verifying the full optional Work
+    /// capability. The returned subject must match the requested identifier.
+    func getWorkJob(
+        sessionID: String,
+        jobID: String,
+        negotiation: GatewayCapabilityNegotiation
+    ) async throws -> FabricWorkJobSummary {
+        try await getWorkJobDetail(
+            sessionID: sessionID,
+            jobID: jobID,
+            negotiation: negotiation
+        ).job
+    }
+
+    /// `job.get` may include bounded result/error bodies. They are parsed in
+    /// a typed detail object but never mixed into the sync projection.
+    func getWorkJobDetail(
+        sessionID: String,
+        jobID: String,
+        negotiation: GatewayCapabilityNegotiation
+    ) async throws -> FabricWorkJobDetail {
+        try Self.requireDurableWork(negotiation)
+        let requestedID = try Self.requireJobID(jobID)
+        let result = try await client.requestObject(
+            "job.get",
+            params: [
+                "session_id": try Self.requireWorkSessionID(sessionID),
+                "job_id": requestedID,
+            ]
+        )
+        let detail = try Self.decodeWorkJobDetailResponse(result)
+        guard detail.job.jobID == requestedID else {
+            throw FabricWorkGatewayError.invalidResponse("Job response did not match job_id.")
+        }
+        return detail
+    }
+
+    func listWorkJobs(
+        sessionID: String,
+        statuses: [String]? = nil,
+        kinds: [String]? = nil,
+        sourceSessionKey: String? = nil,
+        limit: Int? = nil,
+        before: String? = nil,
+        negotiation: GatewayCapabilityNegotiation
+    ) async throws -> FabricWorkJobListResponse {
+        try Self.requireDurableWork(negotiation)
+        if let limit, !(1...100).contains(limit) {
+            throw FabricWorkGatewayError.invalidRequest("Work job limit must be between 1 and 100.")
+        }
+        var params: [String: Any] = ["session_id": try Self.requireWorkSessionID(sessionID)]
+        if let statuses { params["statuses"] = try Self.requireWorkStringList(statuses, field: "statuses") }
+        if let kinds { params["kinds"] = try Self.requireWorkStringList(kinds, field: "kinds") }
+        if let sourceSessionKey {
+            params["source_session_key"] = try Self.requireOpaqueString(
+                sourceSessionKey,
+                field: "source_session_key",
+                maximum: 512
+            )
+        }
+        if let limit { params["limit"] = limit }
+        if let before {
+            params["before"] = try Self.requireOpaqueString(before, field: "before", maximum: 4_096)
+        }
+        return try Self.decodeWorkJobListResponse(
+            await client.requestObject("job.list", params: params)
+        )
+    }
+
+    func listWorkEvents(
+        sessionID: String,
+        after: Int,
+        jobID: String? = nil,
+        limit: Int? = nil,
+        negotiation: GatewayCapabilityNegotiation
+    ) async throws -> FabricWorkJobEventsResponse {
+        try Self.requireDurableWork(negotiation)
+        guard (0...Self.maximumSafeWorkInteger).contains(after) else {
+            throw FabricWorkGatewayError.invalidRequest("Work event cursor must be a non-negative safe integer.")
+        }
+        if let limit, !(1...FabricWorkLimits.syncPageItems).contains(limit) {
+            throw FabricWorkGatewayError.invalidRequest(
+                "Work event limit must be between 1 and \(FabricWorkLimits.syncPageItems)."
+            )
+        }
+        var params: [String: Any] = [
+            "session_id": try Self.requireWorkSessionID(sessionID),
+            "after": after,
+        ]
+        if let jobID { params["job_id"] = try Self.requireJobID(jobID) }
+        if let limit { params["limit"] = limit }
+        let response = try Self.decodeWorkJobEventsResponse(
+            await client.requestObject("job.events", params: params)
+        )
+        guard response.cursor >= after else {
+            throw FabricWorkGatewayError.invalidResponse("Work event cursor moved backwards.")
+        }
+        var previousID = after
+        for event in response.events {
+            guard event.eventID > previousID, event.eventID <= response.cursor else {
+                throw FabricWorkGatewayError.invalidResponse("Work events are not an ordered cursor range.")
+            }
+            previousID = event.eventID
+        }
+        return response
+    }
+
+    func cancelWorkJob(
+        sessionID: String,
+        jobID: String,
+        expectedVersion: Int,
+        idempotencyKey: String,
+        negotiation: GatewayCapabilityNegotiation
+    ) async throws -> FabricWorkJobMutationReceipt {
+        try Self.requireDurableWork(negotiation)
+        guard (1...Self.maximumSafeWorkInteger).contains(expectedVersion) else {
+            throw FabricWorkGatewayError.invalidRequest("Work Job version must be a positive safe integer.")
+        }
+        let requestedID = try Self.requireJobID(jobID)
+        try Self.requireIdempotencyKey(idempotencyKey)
+        let receipt = try Self.decodeWorkJobMutationReceipt(
+            await client.requestObject(
+                "job.cancel",
+                params: [
+                    "session_id": try Self.requireWorkSessionID(sessionID),
+                    "job_id": requestedID,
+                    "expected_version": expectedVersion,
+                    "idempotency_key": idempotencyKey,
+                ]
+            )
+        )
+        guard receipt.job.jobID == requestedID else {
+            throw FabricWorkGatewayError.invalidResponse("Work cancel receipt did not match job_id.")
+        }
+        return receipt
+    }
+
+    func getWorkAttention(
+        sessionID: String,
+        attentionID: String,
+        negotiation: GatewayCapabilityNegotiation
+    ) async throws -> FabricWorkAttention {
+        try Self.requireDurableWork(negotiation)
+        let requestedID = try Self.requireAttentionID(attentionID)
+        let result = try await client.requestObject(
+            "attention.get",
+            params: [
+                "session_id": try Self.requireWorkSessionID(sessionID),
+                "attention_id": requestedID,
+            ]
+        )
+        let attention = try Self.decodeWorkValue("Attention response") {
+            try FabricWorkParser.decodeAttention(result)
+        }
+        guard attention.attentionID == requestedID else {
+            throw FabricWorkGatewayError.invalidResponse("Attention response did not match attention_id.")
+        }
+        return attention
+    }
+
+    func listWorkAttention(
+        sessionID: String,
+        states: [String]? = nil,
+        kinds: [String]? = nil,
+        jobID: String? = nil,
+        limit: Int? = nil,
+        before: String? = nil,
+        negotiation: GatewayCapabilityNegotiation
+    ) async throws -> FabricWorkAttentionListResponse {
+        try Self.requireDurableWork(negotiation)
+        if let limit, !(1...100).contains(limit) {
+            throw FabricWorkGatewayError.invalidRequest("Work Attention limit must be between 1 and 100.")
+        }
+        var params: [String: Any] = ["session_id": try Self.requireWorkSessionID(sessionID)]
+        if let states { params["states"] = try Self.requireWorkStringList(states, field: "states") }
+        if let kinds { params["kinds"] = try Self.requireWorkStringList(kinds, field: "kinds") }
+        if let jobID { params["job_id"] = try Self.requireJobID(jobID) }
+        if let limit { params["limit"] = limit }
+        if let before {
+            params["before"] = try Self.requireOpaqueString(before, field: "before", maximum: 4_096)
+        }
+        return try Self.decodeWorkAttentionListResponse(
+            await client.requestObject("attention.list", params: params)
+        )
+    }
+
+    /// Resolve one exact, actionable Attention item. `value` is deliberately
+    /// kept in the request envelope only: this wrapper does not log, persist,
+    /// or attach it to the returned receipt.
+    func respondToWorkAttention(
+        sessionID: String,
+        attention: FabricWorkAttention,
+        action: String,
+        idempotencyKey: String,
+        reason: String? = nil,
+        value: String? = nil,
+        negotiation: GatewayCapabilityNegotiation
+    ) async throws -> FabricWorkAttentionMutationReceipt {
+        try Self.requireDurableWork(negotiation)
+        guard attention.actionable, attention.allowedActions.contains(action) else {
+            throw FabricWorkGatewayError.invalidRequest("That Attention action is no longer available.")
+        }
+        try Self.requireIdempotencyKey(idempotencyKey)
+
+        if attention.kind == "approval" {
+            guard value == nil else {
+                throw FabricWorkGatewayError.invalidRequest("Approval responses do not accept a value.")
+            }
+            if let reason {
+                guard action == "deny", reason.unicodeScalars.count <= 1_000 else {
+                    throw FabricWorkGatewayError.invalidRequest(
+                        "An approval reason is accepted only when denying and must be at most 1000 characters."
+                    )
+                }
+            }
+        } else {
+            guard reason == nil else {
+                throw FabricWorkGatewayError.invalidRequest("A reason is accepted only for approval.")
+            }
+            if action == "submit" {
+                guard value != nil else {
+                    throw FabricWorkGatewayError.invalidRequest("This Attention item requires a value to submit.")
+                }
+            } else if value != nil {
+                throw FabricWorkGatewayError.invalidRequest("This Attention action does not accept a value.")
+            }
+        }
+
+        var params: [String: Any] = [
+            "session_id": try Self.requireWorkSessionID(sessionID),
+            "attention_id": try Self.requireAttentionID(attention.attentionID),
+            "expected_version": attention.version,
+            "idempotency_key": idempotencyKey,
+            "action": action,
+        ]
+        if let reason { params["reason"] = reason }
+        if let value { params["value"] = value }
+
+        let receipt = try Self.decodeWorkAttentionMutationReceipt(
+            await client.requestObject("attention.respond", params: params)
+        )
+        let expectedState = action == "deny" || action == "cancel" ? "denied" : "resolved"
+        guard receipt.attentionID == attention.attentionID,
+              receipt.attentionVersion > attention.version,
+              receipt.state == expectedState,
+              receipt.delivered
+        else {
+            throw FabricWorkGatewayError.invalidResponse(
+                "Attention response did not match the pending durable item."
+            )
+        }
+        return receipt
+    }
+
+    // MARK: - Durable Work response decoding
+
+    static func decodeWorkJobMutationReceipt(_ raw: Any?) throws -> FabricWorkJobMutationReceipt {
+        let result = try Self.workObject(raw, label: "Job mutation receipt")
+        let job = try Self.decodeWorkValue("Job mutation receipt") {
+            try FabricWorkParser.decodeJobSummary(
+                try Self.workRequired(result, key: "job", label: "Job mutation receipt")
+            )
+        }
+        let mutationID = try Self.decodeWorkValue("Job mutation receipt") {
+            try FabricWorkParser.decodeMutationID(
+                try Self.workRequiredString(result, key: "mutation_id", label: "Job mutation receipt", maximum: 64)
+            )
+        }
+        return FabricWorkJobMutationReceipt(
+            job: job,
+            mutationID: mutationID,
+            replayed: try Self.workRequiredBoolean(result, key: "replayed", label: "Job mutation receipt"),
+            runtimeStarted: try Self.workOptionalBoolean(result, key: "runtime_started", label: "Job mutation receipt"),
+            taskID: try Self.workOptionalString(result, key: "task_id", label: "Job mutation receipt", maximum: 512),
+            newlyCancelled: try Self.workOptionalBoolean(result, key: "newly_cancelled", label: "Job mutation receipt")
+        )
+    }
+
+    static func decodeWorkJobDetailResponse(_ raw: Any?) throws -> FabricWorkJobDetail {
+        try Self.decodeWorkValue("Job detail response") {
+            try FabricWorkParser.decodeJobDetail(
+                try Self.workObject(raw, label: "Job detail response")
+            )
+        }
+    }
+
+    static func decodeWorkAttentionMutationReceipt(_ raw: Any?) throws -> FabricWorkAttentionMutationReceipt {
+        let result = try Self.workObject(raw, label: "Attention mutation receipt")
+        let attentionID = try Self.decodeWorkValue("Attention mutation receipt") {
+            try FabricWorkParser.decodeAttentionID(
+                try Self.workRequiredString(result, key: "attention_id", label: "Attention mutation receipt", maximum: 64)
+            )
+        }
+        let mutationID = try Self.decodeWorkValue("Attention mutation receipt") {
+            try FabricWorkParser.decodeMutationID(
+                try Self.workRequiredString(result, key: "mutation_id", label: "Attention mutation receipt", maximum: 64)
+            )
+        }
+        return FabricWorkAttentionMutationReceipt(
+            attentionID: attentionID,
+            attentionVersion: try Self.workRequiredSafeInteger(
+                result,
+                key: "attention_version",
+                label: "Attention mutation receipt",
+                minimum: 1
+            ),
+            delivered: try Self.workRequiredBoolean(result, key: "delivered", label: "Attention mutation receipt"),
+            mutationID: mutationID,
+            replayed: try Self.workRequiredBoolean(result, key: "replayed", label: "Attention mutation receipt"),
+            state: try Self.workRequiredString(result, key: "state", label: "Attention mutation receipt", maximum: 32)
+        )
+    }
+
+    static func decodeWorkJobListResponse(_ raw: Any?) throws -> FabricWorkJobListResponse {
+        let result = try Self.workObject(raw, label: "Work job list")
+        let rows = try Self.workRequiredArray(result, key: "jobs", label: "Work job list")
+        let jobs = try rows.enumerated().map { index, row in
+            try Self.decodeWorkValue("Work job list item \(index)") {
+                try FabricWorkParser.decodeJobSummary(row)
+            }
+        }
+        return FabricWorkJobListResponse(
+            workProfileID: try Self.decodeWorkProfileID(result, label: "Work job list"),
+            jobs: jobs,
+            nextBefore: try Self.workOptionalString(result, key: "next_before", label: "Work job list", maximum: 4_096)
+        )
+    }
+
+    static func decodeWorkAttentionListResponse(_ raw: Any?) throws -> FabricWorkAttentionListResponse {
+        let result = try Self.workObject(raw, label: "Work Attention list")
+        let rows = try Self.workRequiredArray(result, key: "attention", label: "Work Attention list")
+        let attention = try rows.enumerated().map { index, row in
+            try Self.decodeWorkValue("Work Attention list item \(index)") {
+                try FabricWorkParser.decodeAttention(row)
+            }
+        }
+        return FabricWorkAttentionListResponse(
+            workProfileID: try Self.decodeWorkProfileID(result, label: "Work Attention list"),
+            attention: attention,
+            nextBefore: try Self.workOptionalString(result, key: "next_before", label: "Work Attention list", maximum: 4_096)
+        )
+    }
+
+    static func decodeWorkJobEventsResponse(_ raw: Any?) throws -> FabricWorkJobEventsResponse {
+        let result = try Self.workObject(raw, label: "Work event list")
+        let rows = try Self.workRequiredArray(result, key: "events", label: "Work event list")
+        let events = try rows.enumerated().map { index, row in
+            try Self.decodeWorkValue("Work event list item \(index)") {
+                try FabricWorkParser.decodeEvent(row)
+            }
+        }
+        return FabricWorkJobEventsResponse(
+            workProfileID: try Self.decodeWorkProfileID(result, label: "Work event list"),
+            cursor: try Self.workRequiredSafeInteger(result, key: "cursor", label: "Work event list"),
+            events: events
+        )
+    }
+
+    // MARK: - Durable Work validation helpers
+
+    private static let maximumSafeWorkInteger = FabricWorkLimits.maximumSafeInteger
+
+    private static func requireDurableWork(_ negotiation: GatewayCapabilityNegotiation) throws {
+        guard negotiation.supportsDurableWork else {
+            throw FabricWorkGatewayError.unavailableOnGateway
+        }
+    }
+
+    private static func requireWorkSessionID(_ sessionID: String) throws -> String {
+        guard !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw FabricWorkGatewayError.invalidRequest("session_id must be non-empty.")
+        }
+        return sessionID
+    }
+
+    private static func requireJobID(_ value: String) throws -> String {
+        do {
+            return try FabricWorkParser.decodeJobID(value)
+        } catch {
+            throw FabricWorkGatewayError.invalidRequest("job_id must be a valid Work Job identifier.")
+        }
+    }
+
+    private static func requireAttentionID(_ value: String) throws -> String {
+        do {
+            return try FabricWorkParser.decodeAttentionID(value)
+        } catch {
+            throw FabricWorkGatewayError.invalidRequest("attention_id must be a valid Work Attention identifier.")
+        }
+    }
+
+    private static func requireIdempotencyKey(_ value: String) throws {
+        let valid = value.range(
+            of: "^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$",
+            options: .regularExpression
+        ) != nil
+        guard valid else {
+            throw FabricWorkGatewayError.invalidRequest(
+                "idempotency_key must contain 16 to 128 safe characters."
+            )
+        }
+    }
+
+    private static func requireWorkStringList(_ values: [String], field: String) throws -> [String] {
+        guard values.count <= 100 else {
+            throw FabricWorkGatewayError.invalidRequest("\(field) must contain at most 100 values.")
+        }
+        return try values.enumerated().map { index, value in
+            try requireOpaqueString(value, field: "\(field)[\(index)]", maximum: 128)
+        }
+    }
+
+    private static func requireOpaqueString(
+        _ value: String,
+        field: String,
+        maximum: Int
+    ) throws -> String {
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              value.unicodeScalars.count <= maximum
+        else {
+            throw FabricWorkGatewayError.invalidRequest("\(field) must be a non-empty string of at most \(maximum) characters.")
+        }
+        return value
+    }
+
+    private static func decodeWorkValue<T>(
+        _ label: String,
+        _ decode: () throws -> T
+    ) throws -> T {
+        do {
+            return try decode()
+        } catch let error as FabricWorkGatewayError {
+            throw error
+        } catch let error as FabricWorkValueParseError {
+            switch error {
+            case .invalid(let message):
+                throw FabricWorkGatewayError.invalidResponse(message)
+            }
+        } catch {
+            throw FabricWorkGatewayError.invalidResponse("\(label) is invalid.")
+        }
+    }
+
+    private static func workObject(_ raw: Any?, label: String) throws -> [String: Any] {
+        guard let result = raw as? [String: Any] else {
+            throw FabricWorkGatewayError.invalidResponse("\(label) must be an object.")
+        }
+        return result
+    }
+
+    private static func workRequired(_ result: [String: Any], key: String, label: String) throws -> Any {
+        guard result.keys.contains(key) else {
+            throw FabricWorkGatewayError.invalidResponse("\(label) is missing \(key).")
+        }
+        return result[key] as Any
+    }
+
+    private static func workRequiredArray(_ result: [String: Any], key: String, label: String) throws -> [Any] {
+        guard let values = try workRequired(result, key: key, label: label) as? [Any] else {
+            throw FabricWorkGatewayError.invalidResponse("\(label) has an invalid \(key).")
+        }
+        return values
+    }
+
+    private static func workRequiredString(
+        _ result: [String: Any],
+        key: String,
+        label: String,
+        maximum: Int
+    ) throws -> String {
+        guard let value = try workRequired(result, key: key, label: label) as? String,
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              value.unicodeScalars.count <= maximum
+        else {
+            throw FabricWorkGatewayError.invalidResponse("\(label) has an invalid \(key).")
+        }
+        return value
+    }
+
+    private static func workOptionalString(
+        _ result: [String: Any],
+        key: String,
+        label: String,
+        maximum: Int
+    ) throws -> String? {
+        guard let raw = result[key], !(raw is NSNull) else { return nil }
+        return try workRequiredString(result, key: key, label: label, maximum: maximum)
+    }
+
+    private static func workRequiredBoolean(
+        _ result: [String: Any],
+        key: String,
+        label: String
+    ) throws -> Bool {
+        guard let number = try workRequired(result, key: key, label: label) as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID()
+        else {
+            throw FabricWorkGatewayError.invalidResponse("\(label) has an invalid \(key).")
+        }
+        return number.boolValue
+    }
+
+    private static func workOptionalBoolean(
+        _ result: [String: Any],
+        key: String,
+        label: String
+    ) throws -> Bool? {
+        guard let raw = result[key], !(raw is NSNull) else { return nil }
+        return try workRequiredBoolean(result, key: key, label: label)
+    }
+
+    private static func workRequiredSafeInteger(
+        _ result: [String: Any],
+        key: String,
+        label: String,
+        minimum: Int = 0
+    ) throws -> Int {
+        guard let number = try workRequired(result, key: key, label: label) as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID()
+        else {
+            throw FabricWorkGatewayError.invalidResponse("\(label) has an invalid \(key).")
+        }
+        let value = number.doubleValue
+        guard value.isFinite,
+              value.rounded(.towardZero) == value,
+              value >= Double(minimum),
+              value <= Double(maximumSafeWorkInteger),
+              value <= Double(Int.max)
+        else {
+            throw FabricWorkGatewayError.invalidResponse("\(label) has an invalid \(key).")
+        }
+        return Int(value)
+    }
+
+    private static func decodeWorkProfileID(_ result: [String: Any], label: String) throws -> String {
+        try decodeWorkValue(label) {
+            try FabricWorkParser.decodeProfileID(
+                try workRequired(result, key: "work_profile_id", label: label)
+            )
+        }
+    }
+
     // MARK: - Sessions
 
     func listSessions(limit: Int = 100) async throws -> [SessionSummary] {
@@ -425,7 +1561,9 @@ struct GatewayAPI {
         let result = try await client.requestObject("session.create", params: params)
         return LiveSession(
             sessionId: result["session_id"] as? String ?? "",
-            storedSessionId: result["stored_session_id"] as? String
+            storedSessionId: result["stored_session_id"] as? String,
+            workIdentity: (result["info"] as? [String: Any])
+                .flatMap(FabricWorkSessionIdentity.from(sessionInfo:))
         )
     }
 
@@ -450,23 +1588,22 @@ struct GatewayAPI {
         _ = try await client.request("session.interrupt", params: ["session_id": sessionId])
     }
 
-    /// `choice` is "allow" or "deny"; `all` resolves every queued approval
-    /// (see `tools/approval.py`, `resolve_gateway_approval`).
+    /// Resolve exactly one authoritative approval request. Programmatic
+    /// clients never use the legacy FIFO/all-pending compatibility path.
     func respondToApproval(
         sessionId: String,
         requestId: String,
-        choice: String,
-        all: Bool = false
+        choice: String
     ) async throws {
-        _ = try await client.request(
+        let result = try await client.requestObject(
             "approval.respond",
             params: [
                 "session_id": sessionId,
                 "request_id": requestId,
                 "choice": choice,
-                "all": all,
             ]
         )
+        try Self.requireMatchingInteractionReceipt(result, requestId: requestId, approval: true)
     }
 
     // MARK: - Remote control / dispatch
@@ -578,24 +1715,27 @@ struct GatewayAPI {
     // These unblock `_block(...)` waits keyed by `request_id`
     // (`_respond` in `tui_gateway/server.py`).
 
-    func respondToClarify(requestId: String, answer: String) async throws {
-        _ = try await client.request(
+    func respondToClarify(sessionId: String, requestId: String, answer: String) async throws {
+        let result = try await client.requestObject(
             "clarify.respond",
-            params: ["request_id": requestId, "answer": answer]
+            params: ["session_id": sessionId, "request_id": requestId, "answer": answer]
         )
+        try Self.requireMatchingInteractionReceipt(result, requestId: requestId)
     }
 
-    func respondToSudo(requestId: String, password: String) async throws {
-        _ = try await client.request(
+    func respondToSudo(sessionId: String, requestId: String, password: String) async throws {
+        let result = try await client.requestObject(
             "sudo.respond",
-            params: ["request_id": requestId, "password": password]
+            params: ["session_id": sessionId, "request_id": requestId, "password": password]
         )
+        try Self.requireMatchingInteractionReceipt(result, requestId: requestId)
     }
 
-    func respondToSecret(requestId: String, value: String) async throws {
-        _ = try await client.request(
+    func respondToSecret(sessionId: String, requestId: String, value: String) async throws {
+        let result = try await client.requestObject(
             "secret.respond",
-            params: ["request_id": requestId, "value": value]
+            params: ["session_id": sessionId, "request_id": requestId, "value": value]
         )
+        try Self.requireMatchingInteractionReceipt(result, requestId: requestId)
     }
 }

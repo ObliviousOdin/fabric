@@ -1,9 +1,16 @@
 package io.github.obliviousodin.fabric.mobile.core
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.io.File
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
@@ -48,9 +55,69 @@ class PairingUriTest {
     }
 
     @Test
+    fun recognizesStrictV2EnrollmentWithoutCreatingALegacyCredential() {
+        val handle = "A".repeat(43)
+
+        val payload = PairingPayload.parse(
+            "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=$handle&auth=browser",
+        )
+
+        assertNotNull(payload)
+        assertNull(payload?.token)
+        assertEquals(false, payload?.gated)
+        assertEquals(handle, payload?.enrollment?.handle)
+        assertEquals(PairingEnrollmentAuth.BROWSER, payload?.enrollment?.auth)
+    }
+
+    @Test
+    fun agreesWithCanonicalV2PairingCorpus() {
+        val cases = pairingV2Fixture()["cases"]?.jsonArray
+            ?: error("Canonical pairing fixture has no cases")
+
+        cases.forEach { element ->
+            val fixtureCase = element.jsonObject
+            val id = fixtureCase.getValue("id").jsonPrimitive.content
+            val raw = fixtureCase.getValue("payload").jsonPrimitive.content
+            val valid = fixtureCase.getValue("valid").jsonPrimitive.boolean
+            val parsed = PairingPayload.parse(raw)
+            if (valid) {
+                assertNotNull(id, parsed?.enrollment)
+                assertNull(id, parsed?.token)
+            } else {
+                assertNull(id, parsed)
+            }
+        }
+    }
+
+    @Test
     fun rejectsUnknownVersionAndCredentialBearingGatewayUrl() {
         assertNull(
             PairingPayload.parse("fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test")
+        )
+        assertNull(
+            PairingPayload.parse(
+                "fabric://pair?v=2&url=http%3A%2F%2Fagent.example.test&enrollment=${"A".repeat(43)}&auth=browser",
+            ),
+        )
+        assertNull(
+            PairingPayload.parse(
+                "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=short&auth=browser",
+            ),
+        )
+        assertNull(
+            PairingPayload.parse(
+                "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=${"A".repeat(43)}&auth=browser&token=unexpected",
+            ),
+        )
+        assertNull(
+            PairingPayload.parse(
+                "fabric://pair/?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=${"A".repeat(43)}&auth=browser",
+            ),
+        )
+        assertNull(
+            PairingPayload.parse(
+                "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test%2F%2F%2F&enrollment=${"A".repeat(43)}&auth=browser",
+            ),
         )
         assertNull(
             PairingPayload.parse(
@@ -108,4 +175,12 @@ class PairingUriTest {
             "machine.tailnet.ts.net", "2001:4860:4860::8888", "256.1.1.1", "",
         ).forEach { assertEquals("$it should be public", false, GatewayBaseUrl.isLocalOrPrivateHost(it)) }
     }
+
+    private fun pairingV2Fixture(): JsonObject = Json.parseToJsonElement(
+        generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
+            .map { root -> File(root, "apps/mobile/contracts/fabric-pairing-v2.json") }
+            .firstOrNull(File::isFile)
+            ?.readText()
+            ?: error("Cannot find canonical mobile pairing fixture"),
+    ).jsonObject
 }

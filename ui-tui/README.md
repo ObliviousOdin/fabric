@@ -285,7 +285,7 @@ Primary event types the client handles today:
 | `tool.progress`            | `{ name, preview }`                                                         |
 | `tool.complete`            | `{ tool_id, name, error?, summary?, duration_s?, inline_diff?, todos? }`    |
 | `clarify.request`          | `{ question, choices?, request_id }`                                        |
-| `approval.request`         | `{ command, description, allow_permanent? }`                                |
+| `approval.request`         | `{ command, description, request_id, allow_permanent? }`                    |
 | `sudo.request`             | `{ request_id }`                                                            |
 | `secret.request`           | `{ prompt, env_var, request_id }`                                           |
 | `background.complete`      | `{ task_id, text }`                                                         |

@@ -1,0 +1,49 @@
+{
+  "contract": {
+    "name": "fabric.work",
+    "version": 2,
+    "min_compatible": 1,
+    "future_contract_field": "safe-to-ignore"
+  },
+  "ledger_id": "ledger_99999999999999999999999999999999",
+  "work_profile_id": "profile_99999999999999999999999999999999",
+  "mode": "bootstrap",
+  "watermark": 900,
+  "cursor": 900,
+  "has_more": false,
+  "next_page_token": null,
+  "jobs": [
+    {
+      "job_id": "job_99999999999999999999999999999999",
+      "version": 1,
+      "kind": "future_workflow",
+      "status": "materializing",
+      "title": "A future job remains visible but cannot be acted on",
+      "summary": null,
+      "source": "future-client",
+      "source_session_key": null,
+      "runtime_session_id": null,
+      "attempt_count": 1,
+      "open_attention_count": 0,
+      "created_at": 1800000000000,
+      "started_at": null,
+      "updated_at": 1800000000000,
+      "finished_at": null,
+      "cancel_requested_at": null,
+      "runtime": {
+        "kind": "future_runtime"
+      },
+      "current_run": null,
+      "result_preview": null,
+      "result_ref": null,
+      "result_omitted_reason": null,
+      "error": null,
+      "future_job_field": {
+        "safe": true
+      }
+    }
+  ],
+  "attention": [],
+  "events": [],
+  "future_page_field": ["safe", "to", "ignore"]
+}

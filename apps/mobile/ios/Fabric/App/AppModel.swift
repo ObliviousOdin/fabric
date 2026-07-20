@@ -22,6 +22,7 @@ final class AppModel {
     private(set) var lastConnectError: String?
     private(set) var pendingSignInGateway: SavedGateway?
     private(set) var connectionGeneration = 0
+    private(set) var capabilityNegotiation: GatewayCapabilityNegotiation?
 
     private let client: JsonRpcGatewayClient
     private var connectionAttempt = 0
@@ -45,6 +46,7 @@ final class AppModel {
                 guard let self else { return }
                 guard self.phase == .connected else { return }
                 if state == .closed || state == .error {
+                    self.capabilityNegotiation = .negotiating
                     self.phase = .reconnecting
                     self.lastConnectError = "Connection lost (\(state.rawValue))."
                     self.permitsAutomaticReconnect = true
@@ -96,9 +98,15 @@ final class AppModel {
 
     /// Accept a native deep link from the browser pairing page. Token-mode
     /// links connect immediately; gated links open the existing sign-in sheet.
+    /// An unimplemented v2 handoff fails closed instead of becoming a password
+    /// sign-in or persisting its opaque enrollment handle.
     func receivePairingURL(_ url: URL) {
         guard let payload = PairingPayload.parse(url.absoluteString) else {
             lastConnectError = "This link is not a valid Fabric pairing link."
+            return
+        }
+        if payload.enrollment != nil {
+            lastConnectError = "This QR requires secure device enrollment. Update Fabric Mobile and the gateway together, then scan a new QR."
             return
         }
         if let token = payload.token {
@@ -196,6 +204,7 @@ final class AppModel {
         let attempt = connectionAttempt
         phase = automaticReconnect ? .reconnecting : .connecting
         connectingGatewayId = gateway.id
+        capabilityNegotiation = .negotiating
         if !automaticReconnect { activeGatewayId = nil }
         lastConnectError = nil
         do {
@@ -205,6 +214,21 @@ final class AppModel {
             try await client.connect(to: url)
             guard connectionAttempt == attempt,
                   phase == (automaticReconnect ? .reconnecting : .connecting) else { return }
+            let negotiation = try await api.capabilities()
+            guard connectionAttempt == attempt,
+                  phase == (automaticReconnect ? .reconnecting : .connecting) else { return }
+            capabilityNegotiation = negotiation
+            guard negotiation.allowsBaselineSessionCalls else {
+                connectingGatewayId = nil
+                activeGatewayId = gateway.id
+                GatewayStore.setLastActive(gateway.id)
+                permitsAutomaticReconnect = false
+                lastConnectError = negotiation.blockingMessage
+                    ?? "This gateway cannot provide the required mobile session controls."
+                phase = .disconnected
+                client.close()
+                return
+            }
             connectingGatewayId = nil
             activeGatewayId = gateway.id
             GatewayStore.setLastActive(gateway.id)
@@ -226,6 +250,7 @@ final class AppModel {
             } else {
                 permitsAutomaticReconnect = false
                 if !automaticReconnect { activeGatewayId = nil }
+                capabilityNegotiation = nil
                 phase = .disconnected
             }
         }
@@ -242,6 +267,7 @@ final class AppModel {
         reconnectTask = nil
         if phase == .connected {
             permitsAutomaticReconnect = true
+            capabilityNegotiation = .negotiating
             phase = .reconnecting
             client.close()
         }
@@ -279,6 +305,7 @@ final class AppModel {
         case .token:
             guard let token = GatewayStore.token(id: gateway.id), !token.isEmpty else {
                 permitsAutomaticReconnect = false
+                capabilityNegotiation = nil
                 phase = .disconnected
                 lastConnectError = "The saved credential is unavailable. Add this server again."
                 return
@@ -306,8 +333,13 @@ final class AppModel {
         reconnectFailures = 0
         connectingGatewayId = nil
         activeGatewayId = nil
+        capabilityNegotiation = nil
         phase = .disconnected
         client.close()
         GatewayAPI.clearAuthSession()
+    }
+
+    func supportsGatewayMethod(_ method: String) -> Bool {
+        capabilityNegotiation?.supportsGatewayMethod(method) ?? false
     }
 }

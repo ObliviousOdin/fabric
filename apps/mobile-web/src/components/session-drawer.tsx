@@ -10,6 +10,9 @@ import { useMemo, useState } from "react";
 
 interface SessionDrawerProps {
   activeStoredId: null | string;
+  canCreate: boolean;
+  canRefresh: boolean;
+  canResume: boolean;
   onClose: () => void;
   onDisconnect: () => void;
   onNew: () => void;
@@ -33,6 +36,9 @@ function compactDate(timestamp: number): string {
 
 export function SessionDrawer({
   activeStoredId,
+  canCreate,
+  canRefresh,
+  canResume,
   onClose,
   onDisconnect,
   onNew,
@@ -73,7 +79,13 @@ export function SessionDrawer({
           </button>
         </header>
 
-        <button className="new-session-button" type="button" onClick={onNew}>
+        <button
+          className="new-session-button"
+          type="button"
+          disabled={!canCreate}
+          title={canCreate ? undefined : "New sessions are unavailable on this gateway"}
+          onClick={onNew}
+        >
           <IconMessagePlus size={18} stroke={1.7} />
           New session
         </button>
@@ -90,7 +102,12 @@ export function SessionDrawer({
 
         <div className="session-list-heading">
           <span>Recent</span>
-          <button type="button" aria-label="Refresh sessions" onClick={onRefresh}>
+          <button
+            type="button"
+            aria-label="Refresh sessions"
+            disabled={!canRefresh}
+            onClick={onRefresh}
+          >
             <IconRefresh size={15} />
           </button>
         </div>
@@ -105,6 +122,7 @@ export function SessionDrawer({
                   key={session.id}
                   type="button"
                   aria-current={selected ? "page" : undefined}
+                  disabled={!canResume}
                   onClick={() => onSelect(session.id)}
                 >
                   <span className="session-row-topline">

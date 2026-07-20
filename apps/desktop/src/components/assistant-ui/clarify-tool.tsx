@@ -20,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { Loader2, MessageQuestion } from '@/lib/icons'
+import { ownedPromptResponseParams, promptResponseMatches } from '@/lib/prompt-responses'
 import { cn } from '@/lib/utils'
 import { $clarifyRequest, clearClarifyRequest } from '@/store/clarify'
 import { $gateway } from '@/store/gateway'
@@ -169,10 +170,15 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
       setSubmitting(true)
 
       try {
-        await gateway.request<{ ok?: boolean }>('clarify.respond', {
-          request_id: matchingRequest.requestId,
-          answer
-        })
+        const response = await gateway.request<{ request_id?: string; status?: string }>(
+          'clarify.respond',
+          ownedPromptResponseParams(matchingRequest, { answer })
+        )
+
+        if (!promptResponseMatches(response, matchingRequest.requestId)) {
+          throw new Error(copy.sendFailed)
+        }
+
         triggerHaptic('submit')
         clearClarifyRequest(matchingRequest.requestId, matchingRequest.sessionId)
         // The matching tool.complete will land shortly after, swapping this

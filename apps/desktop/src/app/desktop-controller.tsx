@@ -349,8 +349,8 @@ export function DesktopController() {
 
   // Notification action button (Approve/Reject) — resolve in place, no navigation.
   useEffect(() => {
-    const unsubscribe = window.fabricDesktop?.onNotificationAction?.(({ actionId, sessionId }) => {
-      void respondToApprovalAction(sessionId ?? null, actionId)
+    const unsubscribe = window.fabricDesktop?.onNotificationAction?.(({ actionId, requestId, sessionId }) => {
+      void respondToApprovalAction(sessionId ?? null, requestId, actionId)
     })
 
     return () => unsubscribe?.()

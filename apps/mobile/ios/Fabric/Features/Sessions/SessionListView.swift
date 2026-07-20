@@ -13,11 +13,16 @@ struct SessionListView: View {
     var body: some View {
         List {
             Section {
+                GatewayExecutionCard(negotiation: appModel.capabilityNegotiation)
+            }
+
+            Section {
                 NavigationLink {
                     ChatView(resumeStoredSessionId: nil, title: "New chat")
                 } label: {
                     Label("New chat", systemImage: "plus.bubble")
                 }
+                .disabled(!appModel.supportsGatewayMethod("session.create"))
             }
 
             if !activeSessions.isEmpty {
@@ -31,8 +36,10 @@ struct SessionListView: View {
                         } label: {
                             ActiveSessionRow(session: session)
                         }
+                        .disabled(!appModel.supportsGatewayMethod("session.resume"))
                         .swipeActions {
-                            if session.status == "working" || session.status == "starting" {
+                            if (session.status == "working" || session.status == "starting")
+                                && appModel.supportsGatewayMethod("session.interrupt") {
                                 Button(role: .destructive) {
                                     Task {
                                         try? await appModel.api.interrupt(sessionId: session.id)
@@ -82,6 +89,7 @@ struct SessionListView: View {
                             .foregroundStyle(.secondary)
                         }
                     }
+                    .disabled(!appModel.supportsGatewayMethod("session.resume"))
                 }
             }
         }
@@ -119,12 +127,24 @@ struct SessionListView: View {
     private func reload() async {
         loading = true
         defer { loading = false }
+        guard appModel.supportsGatewayMethod("session.list") else {
+            sessions = []
+            activeSessions = []
+            loadError = appModel.capabilityNegotiation?.blockingMessage
+                ?? "Session listing is unavailable on this gateway."
+            return
+        }
         do {
             // These RPCs are independent. Loading them concurrently avoids
             // making the initial sessions screen pay two network round trips.
             async let recent: [SessionSummary] = appModel.api.listSessions()
-            async let active: [ActiveSession]? = try? appModel.api.activeSessions()
-            let (loadedSessions, loadedActiveSessions) = try await (recent, active)
+            let loadedActiveSessions: [ActiveSession]?
+            if appModel.supportsGatewayMethod("session.active_list") {
+                loadedActiveSessions = try? await appModel.api.activeSessions()
+            } else {
+                loadedActiveSessions = []
+            }
+            let loadedSessions = try await recent
             sessions = loadedSessions
             // Live sessions are best-effort decoration; the historical list
             // is the primary content.
@@ -133,6 +153,82 @@ struct SessionListView: View {
         } catch {
             loadError = error.localizedDescription
         }
+    }
+}
+
+/// Process-scoped execution semantics negotiated for this live socket. This
+/// card is deliberately non-dismissable: mobile is a remote control and must
+/// not imply that tools execute on the phone or survive a gateway restart.
+private struct GatewayExecutionCard: View {
+    let negotiation: GatewayCapabilityNegotiation?
+
+    private var presentation: (title: String, body: String, icon: String, color: Color) {
+        switch negotiation {
+        case .verified(let capabilities):
+            return (
+                "Runs on this gateway",
+                "Work and tools run on the connected gateway. Active work continues if this phone disconnects, but a gateway restart interrupts it. Keep the gateway host online. Server \(capabilities.server.version).",
+                "server.rack",
+                FabricTheme.info
+            )
+        case .legacy:
+            return (
+                "Compatibility mode",
+                "Update Fabric for verified mobile controls. The shipped mobile controls remain available, but this gateway cannot verify execution guarantees.",
+                "exclamationmark.arrow.triangle.2.circlepath",
+                FabricTheme.warning
+            )
+        case .incompatible(let minimum):
+            return (
+                "Mobile update required",
+                "This gateway requires mobile contract \(minimum) or newer; this app supports contract \(gatewayClientContractVersion). Session controls are disabled.",
+                "arrow.down.app",
+                FabricTheme.danger
+            )
+        case .invalid(let reason):
+            return (
+                "Gateway contract invalid",
+                "Session controls are disabled: \(reason)",
+                "exclamationmark.shield",
+                FabricTheme.danger
+            )
+        case .negotiating:
+            return (
+                "Checking gateway capabilities…",
+                "Session controls unlock after the authenticated gateway contract is verified.",
+                "checkmark.shield",
+                FabricTheme.info
+            )
+        case nil:
+            return (
+                "Gateway capabilities unavailable",
+                "Reconnect to verify which mobile controls this gateway supports.",
+                "wifi.exclamationmark",
+                FabricTheme.warning
+            )
+        }
+    }
+
+    var body: some View {
+        let presentation = presentation
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: presentation.icon)
+                .foregroundStyle(presentation.color)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(presentation.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(presentation.color)
+                Text(presentation.body)
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(presentation.title)
+        .accessibilityValue(presentation.body)
     }
 }
 

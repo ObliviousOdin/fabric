@@ -1721,6 +1721,7 @@ class TestSendExecApprovalButtons:
             chat_id="15551234567",
             command="rm -rf /tmp/foo",
             session_key="sess-app-1",
+            request_id="request-app-1",
             description="cleanup script",
         )
 
@@ -1740,7 +1741,10 @@ class TestSendExecApprovalButtons:
         body = payload["interactive"]["body"]["text"]
         assert "rm -rf /tmp/foo" in body
         assert "cleanup script" in body
-        assert adapter._exec_approval_state[approval_id] == "sess-app-1"
+        assert adapter._exec_approval_state[approval_id] == (
+            "sess-app-1",
+            "request-app-1",
+        )
 
     @pytest.mark.asyncio
     async def test_long_command_is_truncated(self):
@@ -1756,10 +1760,29 @@ class TestSendExecApprovalButtons:
             chat_id="15551234567",
             command=huge,
             session_key="sess-x",
+            request_id="request-x",
         )
         assert result.success
         payload = adapter._http_client.post.call_args.kwargs["json"]
         assert len(payload["interactive"]["body"]["text"]) <= 1024
+
+    @pytest.mark.asyncio
+    async def test_blank_request_id_is_rejected_without_sending(self):
+        adapter = _make_adapter()
+        adapter._http_client = MagicMock()
+        adapter._http_client.post = AsyncMock()
+
+        result = await adapter.send_exec_approval(
+            chat_id="15551234567",
+            command="rm -rf /tmp/foo",
+            session_key="sess-x",
+            request_id="  ",
+        )
+
+        assert not result.success
+        assert "request_id" in str(result.error)
+        adapter._http_client.post.assert_not_awaited()
+        assert adapter._exec_approval_state == {}
 
 
 class TestSendSlashConfirmButtons:
@@ -1936,16 +1959,26 @@ class TestDispatchInteractiveReplyApproval:
     @pytest.mark.asyncio
     async def test_approve_tap_calls_resolver_and_confirms(self, monkeypatch):
         adapter = _make_adapter()
-        adapter._exec_approval_state["app1"] = "sess-app-1"
+        adapter._exec_approval_state["app1"] = ("sess-app-1", "request-app-1")
         adapter._http_client = MagicMock()
         adapter._http_client.post = AsyncMock(
             return_value=_mock_httpx_response(200, {"messages": [{"id": "x"}]})
         )
 
         calls = []
+
+        def fake_resolve(
+            session_key,
+            choice,
+            resolve_all=False,
+            request_id=None,
+        ):
+            calls.append((session_key, choice, resolve_all, request_id))
+            return 1
+
         monkeypatch.setattr(
             "tools.approval.resolve_gateway_approval",
-            lambda session_key, choice: calls.append((session_key, choice)) or 1,
+            fake_resolve,
         )
 
         raw = {
@@ -1959,7 +1992,7 @@ class TestDispatchInteractiveReplyApproval:
         handled = await adapter._dispatch_interactive_reply(raw, {})
 
         assert handled is True
-        assert calls == [("sess-app-1", "approve")]
+        assert calls == [("sess-app-1", "once", False, "request-app-1")]
         assert "app1" not in adapter._exec_approval_state
         confirm_payload = adapter._http_client.post.call_args.kwargs["json"]
         assert confirm_payload["type"] == "text"
@@ -1968,16 +2001,26 @@ class TestDispatchInteractiveReplyApproval:
     @pytest.mark.asyncio
     async def test_deny_tap_passes_deny_choice(self, monkeypatch):
         adapter = _make_adapter()
-        adapter._exec_approval_state["app2"] = "sess-app-2"
+        adapter._exec_approval_state["app2"] = ("sess-app-2", "request-app-2")
         adapter._http_client = MagicMock()
         adapter._http_client.post = AsyncMock(
             return_value=_mock_httpx_response(200, {"messages": [{"id": "x"}]})
         )
 
-        choices_seen = []
+        calls = []
+
+        def fake_resolve(
+            session_key,
+            choice,
+            resolve_all=False,
+            request_id=None,
+        ):
+            calls.append((session_key, choice, resolve_all, request_id))
+            return 1
+
         monkeypatch.setattr(
             "tools.approval.resolve_gateway_approval",
-            lambda session_key, choice: choices_seen.append(choice) or 1,
+            fake_resolve,
         )
 
         raw = {
@@ -1990,9 +2033,129 @@ class TestDispatchInteractiveReplyApproval:
         }
         await adapter._dispatch_interactive_reply(raw, {})
 
-        assert choices_seen == ["deny"]
+        assert calls == [("sess-app-2", "deny", False, "request-app-2")]
         confirm_payload = adapter._http_client.post.call_args.kwargs["json"]
         assert "Denied" in confirm_payload["text"]["body"]
+
+    @pytest.mark.asyncio
+    async def test_same_session_buttons_resolve_only_their_exact_request(
+        self,
+        monkeypatch,
+    ):
+        adapter = _make_adapter()
+        adapter._exec_approval_state["local-a"] = ("same-session", "request-a")
+        adapter._exec_approval_state["local-b"] = ("same-session", "request-b")
+        adapter._http_client = MagicMock()
+        adapter._http_client.post = AsyncMock(
+            return_value=_mock_httpx_response(200, {"messages": [{"id": "x"}]})
+        )
+
+        calls = []
+
+        def fake_resolve(
+            session_key,
+            choice,
+            resolve_all=False,
+            request_id=None,
+        ):
+            calls.append((session_key, choice, resolve_all, request_id))
+            return 1
+
+        monkeypatch.setattr(
+            "tools.approval.resolve_gateway_approval",
+            fake_resolve,
+        )
+
+        handled = await adapter._dispatch_interactive_reply(
+            {
+                "from": "15551234567",
+                "type": "interactive",
+                "interactive": {
+                    "type": "button_reply",
+                    "button_reply": {
+                        "id": "appr:local-b:approve",
+                        "title": "Approve",
+                    },
+                },
+            },
+            {},
+        )
+
+        assert handled is True
+        assert calls == [("same-session", "once", False, "request-b")]
+        assert adapter._exec_approval_state == {
+            "local-a": ("same-session", "request-a")
+        }
+
+    @pytest.mark.asyncio
+    async def test_zero_resolution_keeps_state_and_sends_no_confirmation(
+        self,
+        monkeypatch,
+    ):
+        adapter = _make_adapter()
+        adapter._exec_approval_state["local-stale"] = (
+            "same-session",
+            "stale-request",
+        )
+        adapter.send = AsyncMock()
+        monkeypatch.setattr(
+            "tools.approval.resolve_gateway_approval",
+            lambda *args, **kwargs: 0,
+        )
+
+        handled = await adapter._dispatch_interactive_reply(
+            {
+                "from": "15551234567",
+                "type": "interactive",
+                "interactive": {
+                    "type": "button_reply",
+                    "button_reply": {
+                        "id": "appr:local-stale:approve",
+                        "title": "Approve",
+                    },
+                },
+            },
+            {},
+        )
+
+        assert handled is True
+        assert adapter._exec_approval_state["local-stale"] == (
+            "same-session",
+            "stale-request",
+        )
+        adapter.send.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_successful_tap_is_dropped(self, monkeypatch):
+        adapter = _make_adapter()
+        adapter._exec_approval_state["local-once"] = (
+            "same-session",
+            "request-once",
+        )
+        adapter._http_client = MagicMock()
+        adapter._http_client.post = AsyncMock(
+            return_value=_mock_httpx_response(200, {"messages": [{"id": "x"}]})
+        )
+        resolver = MagicMock(return_value=1)
+        monkeypatch.setattr(
+            "tools.approval.resolve_gateway_approval",
+            resolver,
+        )
+        raw = {
+            "from": "15551234567",
+            "type": "interactive",
+            "interactive": {
+                "type": "button_reply",
+                "button_reply": {
+                    "id": "appr:local-once:approve",
+                    "title": "Approve",
+                },
+            },
+        }
+
+        assert await adapter._dispatch_interactive_reply(raw, {}) is True
+        assert await adapter._dispatch_interactive_reply(raw, {}) is True
+        assert resolver.call_count == 1
 
 
 class TestDispatchInteractiveReplySlashConfirm:

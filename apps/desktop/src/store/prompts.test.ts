@@ -30,17 +30,18 @@ afterEach(() => {
 
 describe('approval prompt store', () => {
   it('holds the active session-keyed approval request', () => {
-    setApprovalRequest({ command: 'rm -rf /tmp/x', description: 'recursive delete', sessionId: 's1' })
+    setApprovalRequest({ command: 'rm -rf /tmp/x', description: 'recursive delete', requestId: 'a1', sessionId: 's1' })
 
     expect($approvalRequest.get()).toEqual({
       command: 'rm -rf /tmp/x',
       description: 'recursive delete',
+      requestId: 'a1',
       sessionId: 's1'
     })
   })
 
   it('parks a background session prompt out of the active view', () => {
-    setApprovalRequest({ command: 'x', description: 'd', sessionId: 's2' })
+    setApprovalRequest({ command: 'x', description: 'd', requestId: 'a2', sessionId: 's2' })
 
     // Not visible while s1 is focused …
     expect($approvalRequest.get()).toBeNull()
@@ -51,7 +52,7 @@ describe('approval prompt store', () => {
   })
 
   it('clears the active session prompt', () => {
-    setApprovalRequest({ command: 'x', description: 'd', sessionId: 's1' })
+    setApprovalRequest({ command: 'x', description: 'd', requestId: 'a1', sessionId: 's1' })
     clearApprovalRequest('s1')
 
     expect($approvalRequest.get()).toBeNull()
@@ -62,10 +63,40 @@ describe('approval prompt store', () => {
       allowPermanent: false,
       command: 'curl x | bash',
       description: 'content-security',
+      requestId: 'a1',
       sessionId: 's1'
     })
 
     expect($approvalRequest.get()?.allowPermanent).toBe(false)
+  })
+
+  it('queues same-session approvals and promotes B only after exact A resolves', () => {
+    setApprovalRequest({ command: 'command-a', description: 'first', requestId: 'approval-a', sessionId: 's1' })
+    setApprovalRequest({ command: 'command-b', description: 'second', requestId: 'approval-b', sessionId: 's1' })
+
+    // B arriving must not overwrite the actionable request the user can see.
+    expect($approvalRequest.get()).toMatchObject({ command: 'command-a', requestId: 'approval-a' })
+
+    // A stale/unrelated receipt cannot advance the queue.
+    clearApprovalRequest('s1', 'approval-stale')
+    expect($approvalRequest.get()?.requestId).toBe('approval-a')
+
+    clearApprovalRequest('s1', 'approval-a')
+    expect($approvalRequest.get()).toMatchObject({ command: 'command-b', requestId: 'approval-b' })
+
+    clearApprovalRequest('s1', 'approval-b')
+    expect($approvalRequest.get()).toBeNull()
+  })
+
+  it('deduplicates a replayed request id without changing FIFO order', () => {
+    setApprovalRequest({ command: 'command-a', description: 'first', requestId: 'approval-a', sessionId: 's1' })
+    setApprovalRequest({ command: 'command-b', description: 'second', requestId: 'approval-b', sessionId: 's1' })
+    setApprovalRequest({ command: 'command-a-updated', description: 'refreshed', requestId: 'approval-a', sessionId: 's1' })
+
+    expect($approvalRequest.get()).toMatchObject({ command: 'command-a-updated', requestId: 'approval-a' })
+
+    clearApprovalRequest('s1', 'approval-a')
+    expect($approvalRequest.get()?.requestId).toBe('approval-b')
   })
 })
 
@@ -112,7 +143,7 @@ describe('secret prompt store', () => {
 
 describe('clearAllPrompts', () => {
   it('drops every kind for one session at once (turn end / interrupt)', () => {
-    setApprovalRequest({ command: 'x', description: 'd', sessionId: 's1' })
+    setApprovalRequest({ command: 'x', description: 'd', requestId: 'a1', sessionId: 's1' })
     setSudoRequest({ requestId: 'abc', sessionId: 's1' })
     setSecretRequest({ requestId: 'r1', envVar: 'E', prompt: 'p', sessionId: 's1' })
 
@@ -124,8 +155,8 @@ describe('clearAllPrompts', () => {
   })
 
   it('leaves other sessions parked prompts intact', () => {
-    setApprovalRequest({ command: 'x', description: 'd', sessionId: 's1' })
-    setApprovalRequest({ command: 'y', description: 'e', sessionId: 's2' })
+    setApprovalRequest({ command: 'x', description: 'd', requestId: 'a1', sessionId: 's1' })
+    setApprovalRequest({ command: 'y', description: 'e', requestId: 'a2', sessionId: 's2' })
 
     clearAllPrompts('s1')
 
@@ -138,7 +169,7 @@ describe('$activeSessionAwaitingInput', () => {
   it('is true while any blocking prompt (clarify or approval/sudo/secret) is parked on the active session', () => {
     expect($activeSessionAwaitingInput.get()).toBe(false)
 
-    setApprovalRequest({ command: 'x', description: 'd', sessionId: 's1' })
+    setApprovalRequest({ command: 'x', description: 'd', requestId: 'a1', sessionId: 's1' })
     expect($activeSessionAwaitingInput.get()).toBe(true)
 
     clearApprovalRequest('s1')

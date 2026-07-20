@@ -94,6 +94,8 @@ export interface ApprovalReq {
   allowPermanent?: boolean
   command: string
   description: string
+  requestId: string
+  sessionId?: string
 }
 
 export interface ConfirmReq {
@@ -109,6 +111,7 @@ export interface ClarifyReq {
   choices: string[] | null
   question: string
   requestId: string
+  sessionId?: string
 }
 
 export interface Msg {
@@ -184,12 +187,14 @@ export interface Usage {
 
 export interface SudoReq {
   requestId: string
+  sessionId?: string
 }
 
 export interface SecretReq {
   envVar: string
   prompt: string
   requestId: string
+  sessionId?: string
 }
 
 export interface PanelData {

@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.obliviousodin.fabric.mobile.core.supportsGatewayMethod
 import io.github.obliviousodin.fabric.mobile.ui.ChatScreen
 import io.github.obliviousodin.fabric.mobile.ui.GatewayListScreen
 import io.github.obliviousodin.fabric.mobile.ui.SessionsScreen
@@ -71,6 +72,7 @@ private fun FabricRoot(viewModel: AppViewModel) {
     val screen by viewModel.screen.collectAsState()
     val activeGatewayId by viewModel.activeGatewayId.collectAsState()
     val connectError by viewModel.connectError.collectAsState()
+    val capabilityNegotiation by viewModel.capabilityNegotiation.collectAsState()
 
     if (activeGatewayId == null) {
         GatewayListScreen(viewModel)
@@ -107,11 +109,15 @@ private fun FabricRoot(viewModel: AppViewModel) {
             is Screen.Sessions -> SessionsScreen(
                 viewModel = viewModel,
                 enabled = phase == ConnectionPhase.Connected,
+                capabilityNegotiation = capabilityNegotiation,
             )
             is Screen.Chat -> ChatScreen(
                 controller = current.controller,
                 title = current.title,
                 onBack = viewModel::backToSessions,
+                supportsMethod = { method ->
+                    capabilityNegotiation.supportsGatewayMethod(method)
+                },
             )
         }
     }

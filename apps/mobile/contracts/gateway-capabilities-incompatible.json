@@ -1,0 +1,60 @@
+{
+  "contract": {
+    "name": "fabric.gateway",
+    "version": 2,
+    "min_compatible": 2
+  },
+  "server": {
+    "version": "1.0.0",
+    "release_date": "2027.1.1"
+  },
+  "execution": {
+    "location": "gateway",
+    "tool_execution": "gateway",
+    "survives_client_disconnect": true,
+    "survives_gateway_restart": false,
+    "requires_gateway_host_online": true
+  },
+  "features": {
+    "baseline_chat": true,
+    "background_work": true,
+    "delegation": true,
+    "code_session_baseline": true,
+    "files": true,
+    "live_view": true,
+    "handoff": true,
+    "automation": true
+  },
+  "methods": [
+    "approval.respond",
+    "clarify.respond",
+    "commands.catalog",
+    "computer.screenshot",
+    "cron.manage",
+    "delegation.status",
+    "file.attach",
+    "handoff.request",
+    "image.attach_bytes",
+    "pdf.attach",
+    "process.kill",
+    "process.list",
+    "projects.discover_repos",
+    "prompt.background",
+    "prompt.submit",
+    "secret.respond",
+    "session.active_list",
+    "session.branch",
+    "session.close",
+    "session.create",
+    "session.interrupt",
+    "session.list",
+    "session.resume",
+    "session.steer",
+    "session.undo",
+    "slash.exec",
+    "spawn_tree.list",
+    "sudo.respond",
+    "visual.frame",
+    "visual.status"
+  ]
+}

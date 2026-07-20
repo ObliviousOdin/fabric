@@ -12,6 +12,7 @@ import { attachedImageNotice, imageTokenMeta } from '../domain/messages.js'
 import { composeTabTitle, fmtCwdBranch, shortCwd } from '../domain/paths.js'
 import { type GatewayClient } from '../gatewayClient.js'
 import type {
+  ApprovalRespondResponse,
   ClarifyRespondResponse,
   ClipboardPasteResponse,
   ConfigSetResponse,
@@ -25,6 +26,11 @@ import { useVirtualHistory } from '../hooks/useVirtualHistory.js'
 import { composerPromptWidth } from '../lib/inputMetrics.js'
 import { appendTranscriptMessage } from '../lib/messages.js'
 import { DEFAULT_VOICE_RECORD_KEY, isMac, type ParsedVoiceRecordKey } from '../lib/platform.js'
+import {
+  approvalResponseResolved,
+  ownedPromptResponseParams,
+  promptResponseMatches
+} from '../lib/promptResponses.js'
 import { createResizeCoalescer } from '../lib/resizeCoalescer.js'
 import { asRpcResult, rpcErrorMessage } from '../lib/rpc.js'
 import { terminalParityHints } from '../lib/terminalParity.js'
@@ -37,7 +43,7 @@ import { createSlashHandler } from './createSlashHandler.js'
 import { planGatewayRecovery } from './gatewayRecovery.js'
 import { getInputSelection } from './inputSelectionStore.js'
 import { type GatewayRpc, type TranscriptRow } from './interfaces.js'
-import { $overlayState, patchOverlayState } from './overlayStore.js'
+import { $overlayState, completeApproval, getOverlayState, patchOverlayState } from './overlayStore.js'
 import { scrollWithSelectionBy } from './scroll.js'
 import { turnController } from './turnController.js'
 import { patchTurnState, useTurnSelector } from './turnStore.js'
@@ -627,15 +633,18 @@ export function useMainApp(gw: GatewayClient) {
         return
       }
 
-      const label = toolTrailLabel('clarify')
-
-      turnController.turnTools = turnController.turnTools.filter(line => !sameToolTrailGroup(label, line))
-      patchTurnState({ turnTrail: turnController.turnTools })
-
-      rpc<ClarifyRespondResponse>('clarify.respond', { answer, request_id: clarify.requestId }).then(r => {
-        if (!r) {
+      rpc<ClarifyRespondResponse>('clarify.respond', ownedPromptResponseParams(clarify, { answer })).then(r => {
+        if (
+          !promptResponseMatches(r, clarify.requestId) ||
+          getOverlayState().clarify?.requestId !== clarify.requestId
+        ) {
           return
         }
+
+        const label = toolTrailLabel('clarify')
+
+        turnController.turnTools = turnController.turnTools.filter(line => !sameToolTrailGroup(label, line))
+        patchTurnState({ turnTrail: turnController.turnTools })
 
         if (answer) {
           turnController.persistedToolLabels.add(label)
@@ -897,18 +906,36 @@ export function useMainApp(gw: GatewayClient) {
   slashRef.current = slash
 
   const respondWith = useCallback(
-    (method: string, params: Record<string, unknown>, done: () => void) => rpc(method, params).then(r => r && done()),
+    (method: string, requestId: string, params: Record<string, unknown>, done: () => void) =>
+      rpc<{ request_id?: string }>(method, params).then(r => promptResponseMatches(r, requestId) && done()),
     [rpc]
   )
 
   const answerApproval = useCallback(
-    (choice: string) =>
-      respondWith('approval.respond', { choice, session_id: ui.sid }, () => {
-        patchOverlayState({ approval: null })
+    (choice: string) => {
+      const approval = overlay.approval
+
+      if (!approval?.requestId) {
+        return
+      }
+
+      return rpc<ApprovalRespondResponse>(
+        'approval.respond',
+        ownedPromptResponseParams(approval, { choice })
+      ).then(response => {
+        if (
+          !approvalResponseResolved(response, approval.requestId) ||
+          getOverlayState().approval?.requestId !== approval.requestId
+        ) {
+          return
+        }
+
+        completeApproval(approval.requestId)
         patchTurnState({ outcome: choice === 'deny' ? 'denied' : `approved (${choice})` })
-        patchUiState({ status: 'running…' })
-      }),
-    [respondWith, ui.sid]
+        patchUiState({ status: getOverlayState().approval ? 'approval needed' : 'running…' })
+      })
+    },
+    [overlay.approval, rpc]
   )
 
   const answerSudo = useCallback(
@@ -917,9 +944,13 @@ export function useMainApp(gw: GatewayClient) {
         return
       }
 
-      return respondWith('sudo.respond', { password: pw, request_id: overlay.sudo.requestId }, () => {
-        patchOverlayState({ sudo: null })
-        patchUiState({ status: 'running…' })
+      const sudo = overlay.sudo
+
+      return respondWith('sudo.respond', sudo.requestId, ownedPromptResponseParams(sudo, { password: pw }), () => {
+        if (getOverlayState().sudo?.requestId === sudo.requestId) {
+          patchOverlayState({ sudo: null })
+          patchUiState({ status: 'running…' })
+        }
       })
     },
     [overlay.sudo, respondWith]
@@ -931,9 +962,13 @@ export function useMainApp(gw: GatewayClient) {
         return
       }
 
-      return respondWith('secret.respond', { request_id: overlay.secret.requestId, value }, () => {
-        patchOverlayState({ secret: null })
-        patchUiState({ status: 'running…' })
+      const secret = overlay.secret
+
+      return respondWith('secret.respond', secret.requestId, ownedPromptResponseParams(secret, { value }), () => {
+        if (getOverlayState().secret?.requestId === secret.requestId) {
+          patchOverlayState({ secret: null })
+          patchUiState({ status: 'running…' })
+        }
       })
     },
     [overlay.secret, respondWith]

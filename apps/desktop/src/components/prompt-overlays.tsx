@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { KeyRound, Loader2, Lock } from '@/lib/icons'
+import { ownedPromptResponseParams, promptResponseMatches } from '@/lib/prompt-responses'
 import { $gateway } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
 import { $secretRequest, $sudoRequest, clearSecretRequest, clearSudoRequest } from '@/store/prompts'
@@ -62,10 +63,15 @@ function SudoDialog() {
       setSubmitting(true)
 
       try {
-        await gateway.request<{ status?: string }>('sudo.respond', {
-          password: value,
-          request_id: request.requestId
-        })
+        const response = await gateway.request<{ request_id?: string; status?: string }>(
+          'sudo.respond',
+          ownedPromptResponseParams(request, { password: value })
+        )
+
+        if (!promptResponseMatches(response, request.requestId)) {
+          throw new Error(copy.sudoSendFailed)
+        }
+
         triggerHaptic('submit')
         clearSudoRequest(request.sessionId, request.requestId)
       } catch (error) {
@@ -158,10 +164,15 @@ function SecretDialog() {
       setSubmitting(true)
 
       try {
-        await gateway.request<{ status?: string }>('secret.respond', {
-          request_id: request.requestId,
-          value: secret
-        })
+        const response = await gateway.request<{ request_id?: string; status?: string }>(
+          'secret.respond',
+          ownedPromptResponseParams(request, { value: secret })
+        )
+
+        if (!promptResponseMatches(response, request.requestId)) {
+          throw new Error(copy.secretSendFailed)
+        }
+
         triggerHaptic('submit')
         clearSecretRequest(request.sessionId, request.requestId)
       } catch (error) {

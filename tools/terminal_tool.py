@@ -243,6 +243,19 @@ def _set_cached_sudo_password(password: str) -> None:
             _sudo_password_cache.pop(scope, None)
 
 
+def clear_cached_sudo_password(session_key: str) -> bool:
+    """Clear only *session_key*'s interactive sudo password cache entry.
+
+    Session teardown must not flush another live session's password.  Returning
+    whether an entry existed lets teardown paths remain idempotent without
+    exposing the cached value.
+    """
+    if not isinstance(session_key, str) or not session_key:
+        return False
+    with _sudo_password_cache_lock:
+        return _sudo_password_cache.pop(f"session:{session_key}", None) is not None
+
+
 def _reset_cached_sudo_passwords() -> None:
     """Clear all cached sudo passwords.
 

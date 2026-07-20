@@ -4,6 +4,7 @@ import SwiftUI
 /// Tapping a command hands it back to the composer for arguments.
 struct CommandCatalogSheet: View {
     let api: GatewayAPI
+    let supportsMethod: (String) -> Bool
     let onSelect: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -63,6 +64,10 @@ struct CommandCatalogSheet: View {
                 }
             }
             .task {
+                guard supportsMethod("commands.catalog") else {
+                    loadError = "Commands are unavailable on this gateway."
+                    return
+                }
                 do {
                     categories = try await api.commandCatalog()
                 } catch {
@@ -78,6 +83,7 @@ struct CommandCatalogSheet: View {
 struct ProcessListSheet: View {
     let api: GatewayAPI
     let sessionId: String?
+    let supportsMethod: (String) -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var processes: [BackgroundProcess] = []
@@ -112,6 +118,7 @@ struct ProcessListSheet: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .disabled(!supportsMethod("process.kill"))
                             }
                         }
                         Text("pid \(process.pid) · up \(process.uptimeSeconds)s · \(process.status)")
@@ -147,6 +154,11 @@ struct ProcessListSheet: View {
     }
 
     private func reload() async {
+        guard supportsMethod("process.list") else {
+            loadError = "Process controls are unavailable on this gateway."
+            loading = false
+            return
+        }
         guard let sessionId else {
             loadError = "No live session."
             loading = false
@@ -163,6 +175,10 @@ struct ProcessListSheet: View {
     }
 
     private func kill(_ process: BackgroundProcess) async {
+        guard supportsMethod("process.kill") else {
+            loadError = "Stopping processes is unavailable on this gateway."
+            return
+        }
         guard let sessionId else { return }
         do {
             try await api.killProcess(sessionId: sessionId, processId: process.id)

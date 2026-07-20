@@ -1000,14 +1000,15 @@ class TeamsAdapter(BasePlatformAdapter):
         self, ctx: "ActivityContext[AdaptiveCardInvokeActivity]"
     ) -> "InvokeResponse[AdaptiveCardActionMessageResponse]":
         """Handle an Adaptive Card Action.Execute button click."""
-        from tools.approval import resolve_gateway_approval, has_blocking_approval
+        from tools.approval import resolve_gateway_approval
 
         action = ctx.activity.value.action
         data = action.data or {}
         fabric_action = data.get("fabric_action", "")
         session_key = data.get("session_key", "")
+        request_id = str(data.get("request_id") or "").strip()
 
-        if not fabric_action or not session_key:
+        if not fabric_action or not session_key or not request_id:
             return InvokeResponse(
                 status=200,
                 body=AdaptiveCardActionMessageResponse(value="Unknown action."),
@@ -1056,7 +1057,18 @@ class TeamsAdapter(BasePlatformAdapter):
                 body=AdaptiveCardActionMessageResponse(value="Unknown action."),
             )
 
-        if not has_blocking_approval(session_key):
+        try:
+            resolved = resolve_gateway_approval(
+                session_key,
+                choice,
+                resolve_all=False,
+                request_id=request_id,
+            )
+        except Exception as exc:
+            logger.error("[teams] Failed to resolve approval card action: %s", exc)
+            resolved = 0
+
+        if resolved != 1:
             return InvokeResponse(
                 status=200,
                 body=AdaptiveCardActionCardResponse(
@@ -1065,8 +1077,6 @@ class TeamsAdapter(BasePlatformAdapter):
                     .with_body([TextBlock(text="⚠️ Approval already resolved or expired.", wrap=True)])
                 ),
             )
-
-        resolve_gateway_approval(session_key, choice)
 
         label_map = {
             "once": "✅ Allowed (once)",
@@ -1096,17 +1106,22 @@ class TeamsAdapter(BasePlatformAdapter):
         chat_id: str,
         command: str,
         session_key: str,
+        request_id: str,
         description: str = "dangerous command",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
         """Send an Adaptive Card approval prompt with Allow/Deny buttons."""
         if not self._app:
             return SendResult(success=False, error="Teams app not initialized")
+        request_id = str(request_id or "").strip()
+        if not request_id:
+            return SendResult(success=False, error="Missing approval request ID")
 
         cmd_preview = command[:2000] + "..." if len(command) > 2000 else command
         # Truncated for button data payload — just enough to reconstruct the card body.
         btn_data_base = {
             "session_key": session_key,
+            "request_id": request_id,
             "cmd": command[:200] + "..." if len(command) > 200 else command,
             "desc": description,
         }

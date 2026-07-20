@@ -41,6 +41,11 @@ from fabric_cli.provider_account_privacy import (
     is_private_backup_archive,
     register_private_backup,
 )
+from fabric_cli.work_backup import (
+    WorkStoreSnapshotError,
+    is_work_store_private_basename,
+    snapshot_work_db_to_disk,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +154,13 @@ _IMPORT_SKIP_NAMES = {
 }
 
 # zipfile.open() drops Unix mode bits on extract; restore tightens these to 0600.
-_SECRET_FILE_NAMES = {".env", "auth.json", "state.db", "provider-accounts.json"}
+_SECRET_FILE_NAMES = {
+    ".env",
+    "auth.json",
+    "state.db",
+    "work.db",
+    "provider-accounts.json",
+}
 
 _PROVIDER_ACCOUNT_STATE_FILE = "provider-accounts.json"
 _PROVIDER_ACCOUNT_REPAIR_DIR = ".provider-account-repair"
@@ -262,6 +273,14 @@ def _should_exclude(rel_path: Path) -> bool:
     name = rel_path.name
 
     if name in _EXCLUDED_NAMES:
+        return True
+
+    # The consistent main Work snapshot is handled specially at archive time;
+    # live WAL/SHM/journal and lifecycle coordination files never ship.
+    if (
+        name.casefold() != "work.db"
+        and _is_canonical_work_store_artifact_relative(rel_path)
+    ):
         return True
 
     if name.startswith(_PROVIDER_ACCOUNT_TEMP_FILE_PREFIX):
@@ -526,6 +545,35 @@ def _private_db_staging_path(parent: Path) -> Path:
     return parent / f".fabric-private-db-{os.getpid()}-{uuid.uuid4().hex}.db"
 
 
+@contextmanager
+def _private_work_db_staging_path(parent: Path) -> Iterator[Path]:
+    """Yield a UUID-scoped 0700 directory containing one Work snapshot path."""
+    directory = parent / f".fabric-private-work-{uuid.uuid4().hex}"
+    created: os.stat_result | None = None
+    try:
+        try:
+            directory.mkdir(mode=0o700)
+            created = directory.stat(follow_symlinks=False)
+            _ensure_private_directory(directory)
+        except (OSError, PermissionError) as exc:
+            raise WorkStoreSnapshotError(
+                "staging_unavailable",
+                "Work snapshot staging directory is not private",
+            ) from exc
+        yield directory / "work.db"
+    finally:
+        try:
+            current = directory.stat(follow_symlinks=False)
+        except OSError:
+            current = None
+        if created is not None and current is not None and (
+            current.st_dev,
+            current.st_ino,
+        ) == (created.st_dev, created.st_ino):
+            with contextlib.suppress(OSError):
+                directory.rmdir()
+
+
 def _private_destination_matches(descriptor: int, path: Path) -> bool:
     try:
         opened = os.fstat(descriptor)
@@ -784,6 +832,51 @@ def _write_backup_path(
             arcname,
             fabric_root=fabric_root,
         )
+    if _is_canonical_work_store_relative(arcname):
+        with _private_work_db_staging_path(staging_parent) as temporary:
+            if snapshot_work_db_to_disk(path, temporary) is None:
+                raise WorkStoreSnapshotError(
+                    "source_disappeared",
+                    "Work store disappeared after backup enumeration",
+                )
+            try:
+                snapshot_metadata = temporary.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise WorkStoreSnapshotError(
+                    "destination_changed",
+                    "closed Work snapshot disappeared before archive streaming",
+                ) from exc
+            if (
+                not stat.S_ISREG(snapshot_metadata.st_mode)
+                or getattr(snapshot_metadata, "st_nlink", 1) != 1
+            ):
+                raise WorkStoreSnapshotError(
+                    "destination_changed",
+                    "closed Work snapshot changed before archive streaming",
+                )
+            snapshot_identity = (
+                snapshot_metadata.st_dev,
+                snapshot_metadata.st_ino,
+            )
+            try:
+                return _write_pinned_backup_source(
+                    transaction,
+                    temporary,
+                    arcname,
+                    fabric_root=fabric_root,
+                )
+            finally:
+                try:
+                    current = temporary.stat(follow_symlinks=False)
+                except OSError:
+                    current = None
+                if current is not None and (
+                    current.st_dev,
+                    current.st_ino,
+                ) == snapshot_identity:
+                    with contextlib.suppress(OSError):
+                        temporary.unlink()
+
     temporary = _private_db_staging_path(staging_parent)
     try:
         if not _safe_copy_db(path, temporary):
@@ -796,6 +889,25 @@ def _write_backup_path(
         )
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _is_canonical_work_store_relative(relative: str | Path) -> bool:
+    """Match only a profile-root Work store, never an unrelated nested DB."""
+    parts = Path(str(relative).replace("\\", "/")).parts
+    return _is_canonical_work_store_artifact_relative(relative) and (
+        parts[-1].casefold() == "work.db"
+    )
+
+
+def _is_canonical_work_store_artifact_relative(relative: str | Path) -> bool:
+    """Match Work main/sidecar/guard files at canonical profile roots."""
+    parts = Path(str(relative).replace("\\", "/")).parts
+    return (len(parts) == 1 and is_work_store_private_basename(parts[0])) or (
+        len(parts) == 3
+        and parts[0] == "profiles"
+        and parts[1] not in {"", ".", ".."}
+        and is_work_store_private_basename(parts[2])
+    )
 
 
 @dataclass(frozen=True)
@@ -1728,6 +1840,11 @@ def run_backup(args) -> None:
                     total_bytes += written
             except BackupSourceChanged:
                 raise
+            except WorkStoreSnapshotError:
+                # Work history is all-or-nothing: skipping a failed ledger
+                # snapshot would publish an archive that looks successful but
+                # silently lost the user's mobile Job/Attention history.
+                raise
             except (PermissionError, OSError, ValueError) as exc:
                 errors.append(f"  {rel_path}: {exc}")
                 continue
@@ -1751,6 +1868,8 @@ def run_backup(args) -> None:
                 if written is not None:
                     total_bytes += written
             except BackupSourceChanged:
+                raise
+            except WorkStoreSnapshotError:
                 raise
             except (PermissionError, OSError, ValueError) as exc:
                 errors.append(f"  {arcname}: {exc}")
@@ -1963,6 +2082,7 @@ def run_import(args) -> None:
             if (
                 Path(rel).name in _IMPORT_SKIP_NAMES
                 or Path(rel).name.startswith(_PROVIDER_ACCOUNT_TEMP_FILE_PREFIX)
+                or _is_canonical_work_store_artifact_relative(rel)
             ):
                 skipped_runtime.append(rel)
                 continue
@@ -2104,6 +2224,7 @@ def run_import(args) -> None:
 # are recoverable if anything goes wrong (issue #15733).
 _QUICK_STATE_FILES = (
     "state.db",
+    "work.db",
     "config.yaml",
     ".env",
     "auth.json",
@@ -2242,6 +2363,25 @@ class _QuickSnapshotWriter:
         return self.file_size(relative, target=target)
 
     def copy_database(self, source: Path, relative: str | Path) -> int | None:
+        if _is_canonical_work_store_relative(relative):
+            try:
+                target, descriptor = self.create_file(relative)
+            except (OSError, PermissionError) as exc:
+                raise WorkStoreSnapshotError(
+                    "destination_unavailable",
+                    f"cannot create quick Work snapshot destination: {exc}",
+                ) from exc
+            if snapshot_work_db_to_disk(
+                source,
+                target,
+                _destination_fd=descriptor,
+            ) is None:
+                raise WorkStoreSnapshotError(
+                    "source_disappeared",
+                    "Work store disappeared after quick-backup enumeration",
+                )
+            return self.file_size(relative, target=target)
+
         target, descriptor = self.create_file(relative)
         if not _safe_copy_db(source, target, _destination_fd=descriptor):
             return None
@@ -2412,6 +2552,8 @@ def create_quick_snapshot(
                         else:
                             size = writer.copy_file(sub, sub_rel)
                         manifest[sub_rel] = size
+                    except WorkStoreSnapshotError:
+                        raise
                     except (OSError, PermissionError) as exc:
                         logger.warning("Could not snapshot %s: %s", sub_rel, exc)
                 continue
@@ -2427,6 +2569,8 @@ def create_quick_snapshot(
                 else:
                     size = writer.copy_file(src, rel)
                 manifest[rel] = size
+            except WorkStoreSnapshotError:
+                raise
             except (OSError, PermissionError) as exc:
                 logger.warning("Could not snapshot %s: %s", rel, exc)
 
@@ -2525,6 +2669,16 @@ def restore_quick_snapshot(
     restored = 0
     account_state_restored = False
     for rel in meta.get("files", {}):
+        # Work-store replacement requires the cross-process lifecycle guard
+        # specified by FMB-002.  Until that guard exists, quick restore is
+        # intentionally backup-only for work.db and cannot replace a live
+        # ledger behind WorkService's open connections.
+        if _is_canonical_work_store_artifact_relative(rel):
+            logger.warning(
+                "Skipping %s: live Work-store restore requires lifecycle guard",
+                rel,
+            )
+            continue
         # Security: reject absolute paths and traversals in manifest entries
         src = snap_dir / rel
         try:
@@ -2768,9 +2922,13 @@ def _write_full_zip_backup(out_path: Path, fabric_root: Path) -> Optional[Path]:
                     )
                 except BackupSourceChanged:
                     raise
+                except WorkStoreSnapshotError:
+                    raise
                 except (PermissionError, OSError, ValueError) as exc:
                     logger.debug("Skipping %s in zip backup: %s", rel_path, exc)
                     continue
+    except WorkStoreSnapshotError:
+        raise
     except OSError as exc:
         logger.warning("Full-zip backup: zip write failed: %s", exc)
         # _private_backup_zip removes its private staging file and never

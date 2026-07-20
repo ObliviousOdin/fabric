@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -42,7 +43,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.obliviousodin.fabric.mobile.AppViewModel
 import io.github.obliviousodin.fabric.mobile.core.ActiveSession
+import io.github.obliviousodin.fabric.mobile.core.GatewayCapabilityNegotiation
 import io.github.obliviousodin.fabric.mobile.core.SessionSummary
+import io.github.obliviousodin.fabric.mobile.core.supportsGatewayMethod
 import io.github.obliviousodin.fabric.mobile.ui.theme.FabricTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -55,7 +58,11 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SessionsScreen(viewModel: AppViewModel, enabled: Boolean) {
+fun SessionsScreen(
+    viewModel: AppViewModel,
+    enabled: Boolean,
+    capabilityNegotiation: GatewayCapabilityNegotiation?,
+) {
     var sessions by remember { mutableStateOf<List<SessionSummary>>(emptyList()) }
     var activeSessions by remember { mutableStateOf<List<ActiveSession>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -73,6 +80,9 @@ fun SessionsScreen(viewModel: AppViewModel, enabled: Boolean) {
             coroutineScope {
                 val recent = async { viewModel.api.listSessions() }
                 val active = async {
+                    if (!capabilityNegotiation.supportsGatewayMethod("session.active_list")) {
+                        return@async emptyList()
+                    }
                     try {
                         viewModel.api.activeSessions()
                     } catch (e: CancellationException) {
@@ -116,12 +126,15 @@ fun SessionsScreen(viewModel: AppViewModel, enabled: Boolean) {
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { if (enabled) viewModel.openNewChat() }) {
-                Icon(Icons.Filled.Add, contentDescription = "New chat")
+            if (enabled) {
+                FloatingActionButton(onClick = viewModel::openNewChat) {
+                    Icon(Icons.Filled.Add, contentDescription = "New chat")
+                }
             }
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            ExecutionTruthCard(capabilityNegotiation)
             when {
                 loading && sessions.isEmpty() && activeSessions.isEmpty() -> {
                     Row(
@@ -164,6 +177,8 @@ fun SessionsScreen(viewModel: AppViewModel, enabled: Boolean) {
                                 ActiveSessionRow(
                                     session = session,
                                     enabled = enabled,
+                                    canInterrupt = capabilityNegotiation
+                                        .supportsGatewayMethod("session.interrupt"),
                                     onClick = {
                                         viewModel.openSession(
                                             session.sessionKey,
@@ -203,6 +218,85 @@ fun SessionsScreen(viewModel: AppViewModel, enabled: Boolean) {
     }
 }
 
+@Composable
+private fun ExecutionTruthCard(negotiation: GatewayCapabilityNegotiation?) {
+    val (title, body, accent) = when (negotiation) {
+        is GatewayCapabilityNegotiation.Verified -> {
+            val execution = negotiation.capabilities.execution
+            val disconnect = if (execution.survivesClientDisconnect) {
+                "Work continues if this phone disconnects."
+            } else {
+                "Work stops if this phone disconnects."
+            }
+            val restart = if (execution.survivesGatewayRestart) {
+                "It survives a gateway restart."
+            } else {
+                "It does not survive a gateway restart."
+            }
+            val host = if (execution.requiresGatewayHostOnline) {
+                "The gateway host must remain online."
+            } else {
+                "The gateway host may go offline."
+            }
+            Triple(
+                if (execution.location == "gateway") {
+                    "Runs on this gateway"
+                } else {
+                    "Execution: ${execution.location}"
+                },
+                "Gateway ${negotiation.capabilities.serverVersion} · " +
+                    "$disconnect $restart $host",
+                FabricTheme.extras.info,
+            )
+        }
+        GatewayCapabilityNegotiation.Legacy -> Triple(
+            "Compatibility mode",
+            "This gateway predates capability verification. Existing mobile controls remain " +
+                "available, but execution guarantees are unverified.",
+            FabricTheme.extras.warning,
+        )
+        is GatewayCapabilityNegotiation.Incompatible -> Triple(
+            "Mobile update required",
+            "This gateway requires mobile contract ${negotiation.minimumCompatibleVersion} " +
+                "or newer. Session controls are disabled.",
+            MaterialTheme.colorScheme.error,
+        )
+        is GatewayCapabilityNegotiation.Invalid -> Triple(
+            "Gateway contract invalid",
+            "Session controls are disabled: ${negotiation.reason}",
+            MaterialTheme.colorScheme.error,
+        )
+        GatewayCapabilityNegotiation.Negotiating -> Triple(
+            "Checking gateway capabilities…",
+            "Session controls will unlock after the authenticated contract is verified.",
+            FabricTheme.extras.info,
+        )
+        null -> Triple(
+            "Gateway capabilities unavailable",
+            "Reconnect to verify which mobile controls this gateway supports.",
+            FabricTheme.extras.warning,
+        )
+    }
+
+    Surface(
+        color = accent.copy(alpha = 0.1f),
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = accent)
+            Text(
+                body,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 /**
  * A live gateway session that can be reopened by tapping the row. Running
  * sessions retain a separate interrupt control.
@@ -211,6 +305,7 @@ fun SessionsScreen(viewModel: AppViewModel, enabled: Boolean) {
 private fun ActiveSessionRow(
     session: ActiveSession,
     enabled: Boolean,
+    canInterrupt: Boolean,
     onClick: () -> Unit,
     onInterrupt: () -> Unit,
 ) {
@@ -264,7 +359,7 @@ private fun ActiveSessionRow(
         }
 
         if (session.status == "working" || session.status == "starting") {
-            IconButton(onClick = onInterrupt, enabled = enabled) {
+            IconButton(onClick = onInterrupt, enabled = enabled && canInterrupt) {
                 Icon(Icons.Filled.StopCircle, contentDescription = "Interrupt")
             }
         }

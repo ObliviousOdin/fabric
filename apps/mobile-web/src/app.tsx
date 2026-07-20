@@ -11,9 +11,14 @@ import { useMemo, useState } from "react";
 import { BlockingPrompt } from "./components/blocking-prompt";
 import { Composer } from "./components/composer";
 import { ConnectView } from "./components/connect-view";
-import { PairingLanding } from "./components/pairing-landing";
+import { ExecutionNotice } from "./components/execution-notice";
+import {
+  EnrollmentBrowserNotice,
+  PairingLanding,
+} from "./components/pairing-landing";
 import { SessionDrawer } from "./components/session-drawer";
 import { Transcript } from "./components/transcript";
+import { WorkStatus } from "./components/work-status";
 import { useMobileGateway } from "./gateway/use-mobile-gateway";
 import { createCookieAutoConnectClaim } from "./gateway/probe-auth";
 import { takePairingPayload } from "./pairing";
@@ -45,10 +50,15 @@ export function App() {
   if (pairing && showPairingLanding) {
     return (
       <PairingLanding
+        enrollmentRequired={pairing.kind === "enrollment"}
         pairingUri={pairing.pairingUri}
         onContinue={() => setShowPairingLanding(false)}
       />
     );
+  }
+
+  if (pairing?.kind === "enrollment") {
+    return <EnrollmentBrowserNotice pairingUri={pairing.pairingUri} />;
   }
 
   if (showConnect) {
@@ -92,11 +102,52 @@ export function App() {
   ]
     .filter(Boolean)
     .join(" · ");
+  const canCreate = gateway.supportsMethod("session.create");
+  const canList = gateway.supportsMethod("session.list");
+  const canResume = gateway.supportsMethod("session.resume");
+  const canSend = gateway.supportsMethod("prompt.submit");
+  const canInterrupt = gateway.supportsMethod("session.interrupt");
+  const canRunInBackground =
+    (gateway.supportsMethod("job.create") ||
+      gateway.supportsMethod("prompt.background")) &&
+    !["submitting", "retryable", "failed"].includes(
+      gateway.backgroundSubmission.status,
+    );
+  const pendingPrompt = gateway.activeSession.pendingInteractions[0];
+  const promptResponseMethod =
+    pendingPrompt?.type === "approval"
+      ? "approval.respond"
+      : pendingPrompt?.type === "clarify"
+        ? "clarify.respond"
+        : pendingPrompt?.type === "sudo"
+          ? "sudo.respond"
+          : pendingPrompt?.type === "secret"
+            ? "secret.respond"
+            : null;
+  const canRespondToPrompt = Boolean(
+    promptResponseMethod && gateway.supportsMethod(promptResponseMethod),
+  );
+  const composerDisabled =
+    !connected ||
+    !canSend ||
+    (!gateway.activeSession.runtimeSessionId && !canCreate);
+  const composerDisabledPlaceholder = !connected
+    ? "Reconnect to continue"
+    : gateway.capabilityState?.kind === "negotiating"
+      ? "Checking gateway compatibility"
+      : "Update Fabric to continue";
+  const gatewayReady = connected && canList;
+  const activeRequestIds = new Set(
+    gateway.activeSession.pendingInteractions.map((prompt) => prompt.requestId),
+  );
 
   return (
     <div className="mobile-app">
       <SessionDrawer
         activeStoredId={gateway.activeSession.storedSessionId}
+        canCreate={canCreate}
+        canRefresh={canList}
+        canResume={canResume}
         onClose={() => setDrawerOpen(false)}
         onDisconnect={gateway.disconnect}
         onNew={() => void createNew()}
@@ -120,8 +171,8 @@ export function App() {
             <div className="chat-title-line">
               <h1>{title}</h1>
               <span
-                className={`connection-dot ${connected ? "online" : "offline"}`}
-                aria-label={connected ? "Connected" : "Offline"}
+                className={`connection-dot ${gatewayReady ? "online" : "offline"}`}
+                aria-label={gatewayReady ? "Gateway ready" : "Gateway not ready"}
               />
             </div>
             <p>
@@ -132,6 +183,7 @@ export function App() {
             className="icon-button header-new"
             type="button"
             aria-label="New session"
+            disabled={!canCreate}
             onClick={() => void createNew()}
           >
             <IconMessagePlus size={21} />
@@ -165,6 +217,22 @@ export function App() {
           </div>
         )}
 
+        <ExecutionNotice
+          state={gateway.capabilityState}
+          onRetry={() => void gateway.reconnect()}
+        />
+
+        <WorkStatus
+          activeRequestIds={activeRequestIds}
+          background={gateway.backgroundSubmission}
+          onAbandonBackground={gateway.abandonBackgroundRetry}
+          onRespond={gateway.respondToWorkAttention}
+          onRetryBackground={gateway.retryBackground}
+          projection={gateway.workProjection}
+          showAttention={!pendingPrompt}
+          status={gateway.workStatus}
+        />
+
         {gateway.activeSession.persistenceWarning && (
           <div className="error-banner persistence-banner" role="alert">
             <IconAlertCircle size={17} />
@@ -173,14 +241,16 @@ export function App() {
         )}
 
         <Transcript
+          connected={connected}
           messages={gateway.activeSession.messages}
           onSuggestion={setComposerText}
           running={gateway.activeSession.running}
         />
 
-        {gateway.activeSession.pendingInteractions[0] && (
+        {pendingPrompt && (
           <BlockingPrompt
-            prompt={gateway.activeSession.pendingInteractions[0]}
+            disabled={!canRespondToPrompt}
+            prompt={pendingPrompt}
             onRespond={gateway.respondToPrompt}
           />
         )}
@@ -195,9 +265,13 @@ export function App() {
 
         <Composer
           branch={gateway.activeSession.info.branch}
-          disabled={!connected}
+          canInterrupt={canInterrupt}
+          canRunInBackground={canRunInBackground}
+          disabled={composerDisabled}
+          disabledPlaceholder={composerDisabledPlaceholder}
           model={gateway.activeSession.info.model}
           onInterrupt={gateway.interrupt}
+          onRunInBackground={gateway.runInBackground}
           onSend={gateway.send}
           onTextChange={setComposerText}
           running={gateway.activeSession.running}

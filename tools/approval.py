@@ -1431,6 +1431,31 @@ _permanent_approved: set = set()
 # its own threading.Event.  /approve resolves the oldest, /approve all
 # resolves every pending approval in the session.
 
+_GATEWAY_APPROVAL_CHOICES = frozenset({"once", "session", "always", "deny"})
+_GATEWAY_APPROVAL_ALIASES = {
+    "allow": "once",
+    "approve": "once",
+    "approved": "once",
+}
+
+
+def normalize_gateway_approval_choice(value: object) -> str:
+    """Return one canonical gateway approval choice or fail closed.
+
+    Programmatic clients historically used a few documented words for an
+    allow-once action.  Accept only those aliases and the four canonical
+    choices; arbitrary values must never reach a waiter because downstream
+    guards treat every non-deny result as approval.
+    """
+    if not isinstance(value, str):
+        raise ValueError("invalid approval choice")
+
+    choice = value.strip().lower()
+    choice = _GATEWAY_APPROVAL_ALIASES.get(choice, choice)
+    if choice not in _GATEWAY_APPROVAL_CHOICES:
+        raise ValueError("invalid approval choice")
+    return choice
+
 
 class _ApprovalEntry:
     """One pending dangerous-command approval inside a gateway session."""
@@ -1485,15 +1510,31 @@ def resolve_gateway_approval(session_key: str, choice: str,
     waiting agent thread(s).
 
     When *resolve_all* is True every pending approval in the session is
-    resolved at once (``/approve all``).  Otherwise only the oldest one
-    is resolved (FIFO).
+    resolved at once (``/approve all``).  Otherwise *request_id* selects one
+    exact approval, with FIFO retained only when no ID is supplied.  Exact and
+    all-pending selection are mutually exclusive.
 
     *reason* is an optional free-text explanation attached to an explicit
     deny (``/deny <reason>``).  It is relayed back to the agent in the
     BLOCKED message so it can adapt instead of only hearing "denied".
 
     Returns the number of approvals resolved (0 means nothing was pending).
+
+    Raises:
+        ValueError: if *choice* is not canonical/a documented alias, an
+            explicitly supplied *request_id* is not a non-empty string, or
+            exact and all-pending selection are requested together. Validation
+            is completed before the pending queue is inspected or changed.
     """
+    normalized_choice = normalize_gateway_approval_choice(choice)
+    normalized_request_id = None
+    if request_id is not None:
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise ValueError("request_id must be a non-empty string when provided")
+        normalized_request_id = request_id.strip()
+    if resolve_all and request_id is not None:
+        raise ValueError("request_id cannot be combined with resolve_all")
+
     with _lock:
         queue = _gateway_queues.get(session_key)
         if not queue:
@@ -1501,9 +1542,9 @@ def resolve_gateway_approval(session_key: str, choice: str,
         if resolve_all:
             targets = list(queue)
             queue.clear()
-        elif request_id:
+        elif normalized_request_id is not None:
             match = next(
-                (entry for entry in queue if entry.request_id == request_id),
+                (entry for entry in queue if entry.request_id == normalized_request_id),
                 None,
             )
             if match is None:
@@ -1516,7 +1557,7 @@ def resolve_gateway_approval(session_key: str, choice: str,
             _gateway_queues.pop(session_key, None)
 
     for entry in targets:
-        entry.result = choice
+        entry.result = normalized_choice
         if reason:
             entry.reason = reason
         entry.event.set()

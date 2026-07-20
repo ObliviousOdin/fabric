@@ -19081,6 +19081,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
 
                 cmd = approval_data.get("command", "")
                 desc = approval_data.get("description", "dangerous command")
+                approval_request_id = str(approval_data.get("request_id") or "").strip()
 
                 # Redact credentials from the command before displaying it in
                 # the approval prompt — Tirith's findings are already redacted,
@@ -19093,13 +19094,17 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 # Prefer button-based approval when the adapter supports it.
                 # Check the *class* for the method, not the instance — avoids
                 # false positives from MagicMock auto-attribute creation in tests.
-                if getattr(type(_status_adapter), "send_exec_approval", None) is not None:
+                if (
+                    approval_request_id
+                    and getattr(type(_status_adapter), "send_exec_approval", None) is not None
+                ):
                     try:
                         _approval_fut = safe_schedule_threadsafe(
                             _status_adapter.send_exec_approval(
                                 chat_id=_status_chat_id,
                                 command=cmd,
                                 session_key=_approval_session_key,
+                                request_id=approval_request_id,
                                 description=desc,
                                 metadata=_status_thread_metadata,
                             ),
@@ -19120,6 +19125,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                         logger.warning(
                             "Button-based approval failed, falling back to text: %s", _e
                         )
+                elif not approval_request_id:
+                    logger.warning(
+                        "Approval request had no authoritative request_id; "
+                        "skipping programmatic buttons and using legacy typed controls"
+                    )
 
                 # Fallback: plain text approval prompt.  Use the adapter's
                 # typed prefix so Slack/Matrix users are told the form they

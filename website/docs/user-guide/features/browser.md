@@ -64,6 +64,13 @@ Both surfaces follow the same conversation and browser session. Popping the
 view out, pausing it, or docking it does not restart the browser, the agent, or
 the current turn.
 
+Clients that negotiate the authenticated `gateway.capabilities` contract see
+`features.live_view: true` only when both `visual.status` and `visual.frame` are
+registered. That connection-scoped flag reports protocol availability, not
+whether the current browser provider can produce a frame. The client must still
+honor the per-session status response and retain the timeline-only fallback for
+providers without a compatible CDP stream.
+
 For compatible CDP-backed sessions on a **local Fabric backend**, Desktop
 requests one bounded viewport frame through a dedicated authenticated visual
 connection only while the docked view or picture-in-picture window is visible

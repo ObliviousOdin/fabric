@@ -5,6 +5,21 @@ deliver it to **TestFlight** — the install path the website links to — witho
 putting any signing credential, team identifier, or private identity in this
 repository.
 
+## Values at a glance
+
+| Field | Value | Who sets it |
+| --- | --- | --- |
+| **Bundle ID** | `io.github.obliviousodin.fabric.mobile` | ✅ Already committed in `project.yml` — nothing to do. |
+| **Scheme** | `Fabric` | ✅ Defined in `project.yml`. |
+| **App name** | your choice (e.g. `Fabric`) | You — when creating the App Store Connect record (Step 2). |
+| **Apple Team ID** | your 10-char team (from developer.apple.com → Membership) | Xcode Cloud pulls this from your Apple account automatically. Only needed by hand for local builds (`Signing.xcconfig`). |
+| **Start-condition branch** | `claude/ios-mobile-fabric-merge-urgeht` (or `main` later) | You — in the Xcode Cloud workflow (Step 4). |
+| **TestFlight public link** | appears after the first build | You — paste into `website/src/pages/ios.tsx` (Step 6). |
+
+You are using the canonical `io.github.obliviousodin.*` identity, so the bundle
+ID is already correct in the repo — you do **not** need the `FABRIC_IOS_BUNDLE_ID`
+override described at the end.
+
 ## Why the setup looks the way it does
 
 - **The app is a thin remote client.** It connects to a `fabric serve` gateway;
@@ -44,11 +59,14 @@ discover it.
 ## Step 2 — Create the app record in App Store Connect
 
 1. App Store Connect → **Apps → ＋ → New App**.
-2. Platform **iOS**. Bundle ID: `io.github.obliviousodin.fabric.mobile` (the
-   committed default) — or one you own; see **Using your own bundle ID** below.
-   - If the ID isn't in the dropdown, register it first under
-     **Certificates, Identifiers & Profiles → Identifiers**.
-3. Give the app a name and create it.
+2. Platform **iOS**. Bundle ID: **`io.github.obliviousodin.fabric.mobile`** —
+   this is the exact ID the build produces, so it must match here.
+   - If the ID isn't in the dropdown yet, register it first under
+     **Certificates, Identifiers & Profiles → Identifiers → ＋**, choose
+     **App IDs → App**, and enter `io.github.obliviousodin.fabric.mobile`. Then
+     return to **New App** and pick it.
+3. Fill in **Name** (your choice — e.g. `Fabric`), primary language, and SKU
+   (any unique string, e.g. `fabric-ios`), then create it.
 
 ## Step 3 — Connect Xcode Cloud
 
@@ -93,10 +111,11 @@ const TESTFLIGHT_URL = "https://testflight.apple.com/join/XXXXXXXX";
 Commit it; the existing Pages workflow republishes the `/ios` page with a live
 **Join the TestFlight beta** button in place of the "coming soon" state.
 
-## Using your own bundle ID (optional — keeps the repo clean)
+## Using your own bundle ID (optional — not needed for this setup)
 
-The committed default is `io.github.obliviousodin.fabric.mobile`. To ship under
-a bundle ID you own **without committing it**:
+You are shipping under `io.github.obliviousodin.fabric.mobile`, so you can skip
+this section. It is here only if someone later wants to ship under a different
+bundle ID **without committing it**:
 
 - **In Xcode Cloud** — Edit Workflow → **Environment → Environment Variables** →
   add `FABRIC_IOS_BUNDLE_ID` set to your value (for example

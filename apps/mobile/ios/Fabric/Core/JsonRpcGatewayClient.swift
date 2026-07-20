@@ -71,7 +71,7 @@ final class JsonRpcGatewayClient: NSObject {
     var onEvent: ((GatewayEvent) -> Void)?
     var onStateChange: ((GatewayConnectionState) -> Void)?
 
-    private let stateQueue = DispatchQueue(label: "us.rabot.fabric.gateway-client")
+    private let stateQueue = DispatchQueue(label: "io.github.obliviousodin.fabric.gateway-client")
     private lazy var urlSession = URLSession(
         configuration: .default,
         delegate: self,

@@ -36,5 +36,18 @@ tar -xzf "$archive" -C "$src" --strip-components=1
 swift build --package-path "$src" --disable-sandbox --configuration release
 
 cd "$ios_dir"
+
+# Optional: ship under a bundle identifier you own without committing it. Set
+# FABRIC_IOS_BUNDLE_ID as an Xcode Cloud environment variable (or export it
+# before running this script). It is applied to the generated project at build
+# time only; the committed default identifier is never changed in git.
+if [ -n "${FABRIC_IOS_BUNDLE_ID:-}" ]; then
+  echo "Applying FABRIC_IOS_BUNDLE_ID override to the generated project"
+  tmp="$(mktemp)"
+  sed "s#io\\.github\\.obliviousodin\\.fabric\\.mobile#${FABRIC_IOS_BUNDLE_ID}#g" \
+    project.yml > "$tmp"
+  mv "$tmp" project.yml
+fi
+
 "$src/.build/release/xcodegen" generate
 echo "XcodeGen generated FabricMobile.xcodeproj in $ios_dir"

@@ -68,6 +68,40 @@ discover it.
 3. Fill in **Name** (your choice — e.g. `Fabric`), primary language, and SKU
    (any unique string, e.g. `fabric-ios`), then create it.
 
+## App ID capabilities & certificates (what to enable)
+
+When you register the identifier `io.github.obliviousodin.fabric.mobile` under
+**Certificates, Identifiers & Profiles → Identifiers**, use an **Explicit** App
+ID and **leave every capability unchecked**. Fabric needs none of them:
+
+| What the app uses | How it's declared | App ID capability needed? |
+| --- | --- | --- |
+| Camera (scan the pairing QR) | `NSCameraUsageDescription` in Info.plist | No — Info.plist only |
+| Local network (reach the gateway) | `NSLocalNetworkUsageDescription` + ATS local exception | No |
+| `fabric://` pairing links | `CFBundleURLTypes` custom URL scheme | No |
+| Token storage | Keychain, this app only (no access group) | No — that is *Keychain Sharing*, and it is unused |
+| Push notifications | not implemented (a later roadmap item) | **Do not enable** |
+
+So when registering the identifier: **Description** = `Fabric` (any label),
+**Bundle ID** = *Explicit* = `io.github.obliviousodin.fabric.mobile`,
+**Capabilities** and **App Services** = all left at their defaults, nothing
+checked. Then **Register**.
+
+If Push is added to the app later, come back and tick **Push Notifications**
+then — not now, since an enabled-but-unused capability only adds provisioning
+friction.
+
+### Certificates and provisioning profiles — you do not create these by hand
+
+- **Xcode Cloud** issues and manages the distribution certificate and
+  provisioning profile for you. Do **not** manually create a distribution
+  certificate.
+- **Local builds** (running on your own device from Xcode) use *Automatically
+  manage signing*, which creates a development certificate and profile the first
+  time.
+- The only manual portal step is registering the App ID above. You can skip the
+  **Certificates** and **Profiles** sections entirely.
+
 ## Step 3 — Connect Xcode Cloud
 
 1. In Xcode: **Product → Xcode Cloud → Create Workflow** (or the **Integrate**

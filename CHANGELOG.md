@@ -23,6 +23,7 @@ All notable changes to Fabric are documented in this file.
 
 ### Fixed
 
+- The public identity audit now closes every `git cat-file --batch` subprocess stream after full or early generator teardown, eliminating the repeated unclosed-file `ResourceWarning` noise from release-audit test runs.
 - The docs-site Skills Hub no longer falls back to a broken, near-empty legacy snapshot when the unified index is missing: the committed fallback caches were refreshed (OpenAI tap 0 → 44 skills after its `skills/.curated/` move) and the new `venture-studio` and `web-development` categories now render with proper labels and icons.
 
 ## [0.21.0] - 2026-07-16

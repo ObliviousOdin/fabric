@@ -180,9 +180,13 @@ def iter_index_blobs(
                 continue
             yield entry, payload, None
     finally:
-        process.stdin.close()
-        stderr = process.stderr.read().decode("utf-8", errors="replace").strip()
-        returncode = process.wait(timeout=60)
+        try:
+            process.stdin.close()
+            stderr = process.stderr.read().decode("utf-8", errors="replace").strip()
+            returncode = process.wait(timeout=60)
+        finally:
+            process.stdout.close()
+            process.stderr.close()
     if returncode != 0:
         detail = stderr or f"git cat-file exited with status {returncode}"
         sentinel = IndexEntry(mode=b"", oid=b"", path=b".git/index")

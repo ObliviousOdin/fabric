@@ -82,8 +82,8 @@ struct FabricGoalSnapshot: Identifiable, Equatable {
 
 /// Shared collection model for conversation-first home, mission control, and
 /// Dispatch inbox directions. A Job appears in exactly one section, while
-/// Attention items without a currently projected Job remain visible instead
-/// of being silently discarded.
+/// open Attention not represented by a needs-attention Job remains visible
+/// separately instead of being silently discarded.
 struct FabricGoalPortfolio: Equatable {
     let syncPhase: FabricWorkProjectionPhase
     let needsAttention: [FabricGoalSnapshot]
@@ -116,6 +116,7 @@ struct FabricGoalPortfolio: Equatable {
         let jobs = projection.jobs.values.map { job in
             Self.makeGoal(job, attention: attentionByJob[job.jobID] ?? [])
         }
+        let goalsByID = Dictionary(uniqueKeysWithValues: jobs.map { ($0.id, $0) })
 
         needsAttention = jobs
             .filter { $0.stage == .needsAttention }
@@ -131,7 +132,8 @@ struct FabricGoalPortfolio: Equatable {
             .sorted(by: Self.goalComesFirst)
         unboundAttention = openAttention.filter { item in
             guard let jobID = item.jobID else { return true }
-            return projection.jobs[jobID] == nil
+            guard let goal = goalsByID[jobID] else { return true }
+            return goal.stage != .needsAttention
         }
     }
 
@@ -168,7 +170,7 @@ struct FabricGoalPortfolio: Equatable {
             rawStatus: job.status,
             source: job.source,
             stage: stage,
-            attention: attention,
+            attention: stage == .needsAttention ? attention : [],
             openAttentionCount: job.openAttentionCount,
             attemptCount: job.attemptCount,
             createdAt: job.createdAt,

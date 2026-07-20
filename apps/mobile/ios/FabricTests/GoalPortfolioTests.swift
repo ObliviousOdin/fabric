@@ -39,6 +39,42 @@ final class GoalPortfolioTests: XCTestCase {
         XCTAssertEqual(portfolio.needsAttention.first?.attention.map(\.id), [attention.attentionID])
     }
 
+    func testEveryKnownJobStatusMapsToOneFailClosedStage() {
+        let cases: [(status: String, stage: FabricGoalStage, canCancel: Bool)] = [
+            ("queued", .queued, true),
+            ("claimed", .queued, true),
+            ("running", .running, true),
+            ("waiting_attention", .needsAttention, true),
+            ("cancel_requested", .running, false),
+            ("succeeded", .succeeded, false),
+            ("failed", .failed, false),
+            ("cancelled", .cancelled, false),
+            ("interrupted", .interrupted, false),
+        ]
+
+        for (index, item) in cases.enumerated() {
+            let job = makeJob(
+                id: workID("job", 100 + index),
+                status: item.status,
+                updatedAt: index + 1,
+                finishedAt: item.stage.isOutcome ? index + 1 : nil
+            )
+            let portfolio = FabricGoalPortfolio(projection: makeProjection(jobs: [job]))
+            let goals = portfolio.needsAttention
+                + portfolio.active
+                + portfolio.outcomes
+                + portfolio.unsupported
+
+            XCTAssertEqual(goals.count, 1, "\(item.status) must appear exactly once")
+            XCTAssertEqual(goals.first?.stage, item.stage, "unexpected stage for \(item.status)")
+            XCTAssertEqual(
+                goals.first?.canCancel,
+                item.canCancel,
+                "unexpected cancellation capability for \(item.status)"
+            )
+        }
+    }
+
     func testFutureJobEnumFailsClosedIntoUnsupportedSection() {
         let future = makeJob(
             id: workID("job", 4),
@@ -88,6 +124,75 @@ final class GoalPortfolioTests: XCTestCase {
         XCTAssertEqual(projected.title, "Credential requested")
         XCTAssertTrue(projected.sensitive)
         XCTAssertTrue(projected.actionable)
+    }
+
+    func testOpenAttentionLinkedToOutcomeRemainsStandalone() {
+        let completed = makeJob(
+            id: workID("job", 12),
+            status: "succeeded",
+            updatedAt: 62,
+            finishedAt: 62,
+            openAttentionCount: 1
+        )
+        let attention = makeAttention(
+            id: workID("attn", 12),
+            jobID: completed.jobID,
+            updatedAt: 63
+        )
+
+        let portfolio = FabricGoalPortfolio(projection: makeProjection(
+            jobs: [completed],
+            attention: [attention]
+        ))
+
+        XCTAssertEqual(portfolio.outcomes.map(\.id), [completed.jobID])
+        XCTAssertTrue(try! XCTUnwrap(portfolio.outcomes.first).attention.isEmpty)
+        XCTAssertEqual(portfolio.unboundAttention.map(\.id), [attention.attentionID])
+    }
+
+    func testResolvingAttentionRemainsVisibleButCannotBeActedOnTwice() {
+        let waiting = makeJob(
+            id: workID("job", 13),
+            status: "waiting_attention",
+            updatedAt: 64,
+            openAttentionCount: 1
+        )
+        let resolving = makeAttention(
+            id: workID("attn", 13),
+            jobID: waiting.jobID,
+            state: "resolving",
+            updatedAt: 65,
+            actionable: false
+        )
+
+        let portfolio = FabricGoalPortfolio(projection: makeProjection(
+            jobs: [waiting],
+            attention: [resolving]
+        ))
+
+        let projected = try! XCTUnwrap(portfolio.needsAttention.first?.attention.first)
+        XCTAssertEqual(projected.state, "resolving")
+        XCTAssertTrue(projected.allowedActions.isEmpty)
+        XCTAssertFalse(projected.actionable)
+    }
+
+    func testTerminalAttentionIsExcludedFromGoalAndStandaloneSections() {
+        let running = makeJob(id: workID("job", 14), status: "running", updatedAt: 66)
+        let resolved = makeAttention(
+            id: workID("attn", 14),
+            jobID: running.jobID,
+            state: "resolved",
+            updatedAt: 67,
+            actionable: false
+        )
+
+        let portfolio = FabricGoalPortfolio(projection: makeProjection(
+            jobs: [running],
+            attention: [resolved]
+        ))
+
+        XCTAssertTrue(try! XCTUnwrap(portfolio.active.first).attention.isEmpty)
+        XCTAssertTrue(portfolio.unboundAttention.isEmpty)
     }
 
     func testAuthoritativeOpenAttentionCountPreventsActiveMisclassification() {
@@ -224,9 +329,11 @@ final class GoalPortfolioTests: XCTestCase {
         id: String,
         jobID: String?,
         kind: String = "approval",
+        state: String = "pending",
         title: String = "Approval required",
         sensitive: Bool = false,
-        updatedAt: Int
+        updatedAt: Int,
+        actionable: Bool = true
     ) -> FabricWorkAttention {
         FabricWorkAttention(
             attentionID: id,
@@ -237,18 +344,20 @@ final class GoalPortfolioTests: XCTestCase {
             runtimeSessionID: "runtime-session",
             requestID: "request-1",
             kind: kind,
-            state: "pending",
+            state: state,
             blocking: true,
             sensitive: sensitive,
             title: title,
             publicPayload: ["redacted": .string("value")],
-            allowedActions: kind == "approval" ? ["once", "deny"] : ["submit", "cancel"],
+            allowedActions: state == "pending"
+                ? (kind == "approval" ? ["once", "deny"] : ["submit", "cancel"])
+                : [],
             createdAt: 1,
             updatedAt: updatedAt,
             expiresAt: nil,
             resolvedAt: nil,
             terminalReason: nil,
-            actionable: true,
+            actionable: actionable,
             unknownEnums: []
         )
     }

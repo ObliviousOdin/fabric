@@ -241,13 +241,14 @@ the same chat screen:
 
 The iOS durable Work client also validates and reconciles the versioned
 `fabric.work` Job/Attention ledger. `FabricGoalPortfolio` is the shared native
-product projection over that ledger: each known Job appears exactly once under
-needs attention, active work, or outcomes; compatible future kinds and statuses
-remain visible but non-actionable; and unbound Attention is never silently
-dropped. Result and error bodies are not copied into list state — detail views
-must fetch the bounded `job.get` payload deliberately. This model is shared by
-all three FMB-P1 visual directions; the selected direction will determine its
-rendering, not its lifecycle semantics.
+product projection over that ledger: each fully understood Job appears exactly
+once under needs attention, active work, or outcomes; compatible future kinds
+and statuses remain visible but non-actionable; and open Attention not
+represented by a needs-attention Job remains visible separately instead of
+being silently dropped. Result and error bodies are not copied into list state
+— detail views must fetch the bounded `job.get` payload deliberately. This
+model is shared by all three FMB-P1 visual directions; the selected direction
+will determine its rendering, not its lifecycle semantics.
 
 ## Pairing (QR) and connecting over Tailscale
 

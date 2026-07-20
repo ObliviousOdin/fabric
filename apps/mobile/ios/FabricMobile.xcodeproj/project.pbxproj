@@ -16,6 +16,7 @@
 		1F96B393FF3EE32C3E36F02B /* PairingURI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89D2601B6230C9D2249D80E9 /* PairingURI.swift */; };
 		235C95E12197DE57E2E10426 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6295AC1FB76C35B031EBEF24 /* SessionListView.swift */; };
 		281E9F3C240B42B32A80A195 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 114E502998A8CE6CA1C1BC89 /* Assets.xcassets */; };
+		2C2940D3C0550EE4588B5929 /* FabricGoalPortfolio.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA7446C8E083BBFBD1A3EC29 /* FabricGoalPortfolio.swift */; };
 		33B4E2B72D53190870B70C80 /* GatewayStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E788461E2DF03CA0F6128F9 /* GatewayStore.swift */; };
 		396A2DA544E0B421A74711BF /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 0D8B19EA1D35CF975801464B /* manifest.json */; };
 		3D62A0F123FA6CE8034FA163 /* FabricWorkContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF5503C200A9D187123A534 /* FabricWorkContract.swift */; };
@@ -45,6 +46,7 @@
 		B4668491CA6D5572A9F78DDD /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57442E4850DCF4E2DED9304D /* ChatViewModel.swift */; };
 		B66E75ED1E005D0AE02FFEB6 /* GatewayListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EBC35A073721043E19187A5 /* GatewayListView.swift */; };
 		C2A694075BB866A62DBE5290 /* FabricTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1311816760BD7CBE12AD28BC /* FabricTheme.swift */; };
+		C4CCFA6AC80CB1CD02AD925C /* GoalPortfolioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 873D6FDF5E7DB46AA7754215 /* GoalPortfolioTests.swift */; };
 		C8DD6DFE4F69ABC930D40AE2 /* sensitive-attention.json in Resources */ = {isa = PBXBuildFile; fileRef = B498AEFFE50A8D9D969AE335 /* sensitive-attention.json */; };
 		D5AEDD93F518FC0224AD8B33 /* SavedGatewayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D717E0920AEB950A30325E44 /* SavedGatewayTests.swift */; };
 		D7BCBDB0C0A661B997F5FE8B /* cursor-expired.json in Resources */ = {isa = PBXBuildFile; fileRef = 94A8ED8E93E58F02C35EE9E1 /* cursor-expired.json */; };
@@ -88,6 +90,7 @@
 		7FD48E3CADC1A4F2709D5D66 /* gateway-capabilities-incompatible.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-incompatible.json"; sourceTree = "<group>"; };
 		82269ED2BBD6CF3FEBA37C14 /* gateway-capabilities-v1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-v1.json"; sourceTree = "<group>"; };
 		866F3A31E7680B3C401BFD26 /* RemoteControlSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlSheets.swift; sourceTree = "<group>"; };
+		873D6FDF5E7DB46AA7754215 /* GoalPortfolioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalPortfolioTests.swift; sourceTree = "<group>"; };
 		89D2601B6230C9D2249D80E9 /* PairingURI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingURI.swift; sourceTree = "<group>"; };
 		8E788461E2DF03CA0F6128F9 /* GatewayStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayStore.swift; sourceTree = "<group>"; };
 		8EC16A8344D8694E0445ED56 /* AddGatewayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddGatewayView.swift; sourceTree = "<group>"; };
@@ -97,6 +100,7 @@
 		B0C7BFE683A90163E7E3F9FB /* PairingPayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingPayloadTests.swift; sourceTree = "<group>"; };
 		B171F59DCEB617099454272A /* FabricTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FabricTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B498AEFFE50A8D9D969AE335 /* sensitive-attention.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "sensitive-attention.json"; sourceTree = "<group>"; };
+		CA7446C8E083BBFBD1A3EC29 /* FabricGoalPortfolio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricGoalPortfolio.swift; sourceTree = "<group>"; };
 		CB978B8F714B72E27A81EFA6 /* FabricWorkSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricWorkSync.swift; sourceTree = "<group>"; };
 		CF2716EFA82EA83E0668BB81 /* terminal.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = terminal.json; sourceTree = "<group>"; };
 		CFB96B2E1031E6C4519CCB98 /* additive-future.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "additive-future.json"; sourceTree = "<group>"; };
@@ -114,6 +118,7 @@
 			isa = PBXGroup;
 			children = (
 				53A856CAC846194DFE6D0435 /* GatewayCapabilitiesTests.swift */,
+				873D6FDF5E7DB46AA7754215 /* GoalPortfolioTests.swift */,
 				7429FE32EA73F2689A58B7D4 /* InteractionReceiptTests.swift */,
 				B0C7BFE683A90163E7E3F9FB /* PairingPayloadTests.swift */,
 				5052E62B1392922749F8EC7B /* ResumeHistoryTests.swift */,
@@ -229,6 +234,7 @@
 		DFC333FB049B1632A8B75E31 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				CA7446C8E083BBFBD1A3EC29 /* FabricGoalPortfolio.swift */,
 				DAF5503C200A9D187123A534 /* FabricWorkContract.swift */,
 				CB978B8F714B72E27A81EFA6 /* FabricWorkSync.swift */,
 				64177EA0B0A9841984EEDC21 /* GatewayAPI.swift */,
@@ -382,6 +388,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				010D7C7747AE0E123A4145D0 /* GatewayCapabilitiesTests.swift in Sources */,
+				C4CCFA6AC80CB1CD02AD925C /* GoalPortfolioTests.swift in Sources */,
 				A7D097F9C0A4C377F8F62B79 /* InteractionReceiptTests.swift in Sources */,
 				9A3E38E43CCC7553DD744EF4 /* PairingPayloadTests.swift in Sources */,
 				A29B062FC213F81EC60BDE0F /* ResumeHistoryTests.swift in Sources */,
@@ -398,6 +405,7 @@
 				AC09295728E05DBDCE169AA1 /* AppModel.swift in Sources */,
 				0160D0F6BB62086B3E42EFE3 /* ChatView.swift in Sources */,
 				B4668491CA6D5572A9F78DDD /* ChatViewModel.swift in Sources */,
+				2C2940D3C0550EE4588B5929 /* FabricGoalPortfolio.swift in Sources */,
 				144E9F91E4AD4F76C9ECC634 /* FabricMobileApp.swift in Sources */,
 				C2A694075BB866A62DBE5290 /* FabricTheme.swift in Sources */,
 				3D62A0F123FA6CE8034FA163 /* FabricWorkContract.swift in Sources */,

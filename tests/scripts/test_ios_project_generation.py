@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-POST_CLONE = ROOT / "ci_scripts" / "ci_post_clone.sh"
+POST_CLONE = ROOT / "apps" / "mobile" / "ios" / "ci_scripts" / "ci_post_clone.sh"
 PROJECT_SPEC = ROOT / "apps" / "mobile" / "ios" / "project.yml"
 BOOTSTRAP_PROJECT = (
     ROOT / "apps" / "mobile" / "ios" / "FabricMobile.xcodeproj" / "project.pbxproj"
@@ -43,6 +43,8 @@ class IOSProjectGenerationTests(unittest.TestCase):
         self.assertIn("io.github.obliviousodin.fabric.mobile.pairing", info)
         self.assertNotIn("com.example.fabric.mobile", project)
         self.assertNotIn("com.example.fabric.mobile", info)
+        self.assertEqual(POST_CLONE.parent.parent, PROJECT_SPEC.parent)
+        self.assertTrue(os.access(POST_CLONE, os.X_OK))
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()

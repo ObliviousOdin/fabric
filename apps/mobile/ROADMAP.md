@@ -36,8 +36,9 @@ adding more product surface.
 
 Acceptance:
 
-- The Xcode project is generated from a clean checkout without modifying the
-  tracked manifest.
+- Xcode Cloud discovers an executable post-clone hook beside the selected Xcode
+  project, and that hook generates the project from a clean checkout without
+  modifying the tracked manifest.
 - The App Store bundle identifier is supplied explicitly by the protected
   release environment, never by a manual edit to the generated project.
 - Every upload receives a unique positive build number from Xcode Cloud or an

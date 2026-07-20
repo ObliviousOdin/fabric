@@ -1,6 +1,9 @@
 #!/bin/sh
 # Xcode Cloud post-clone step for the Fabric iOS app.
 #
+# Keep this entrypoint in the project-adjacent ci_scripts directory. Xcode
+# Cloud discovers custom scripts beside the selected project/workspace.
+#
 # The generic Xcode project bootstrap is committed because Xcode Cloud validates
 # the project path before custom scripts run. This script regenerates that
 # project from apps/mobile/ios/project.yml after cloning, applying release-only
@@ -16,9 +19,10 @@ set -eu
 XCODEGEN_VERSION="2.46.0"
 XCODEGEN_SHA256="c83c7bd70255b0ddf4116dadce16bdf0e5939165b43a544e124de294ec84aa27"
 
-# Xcode Cloud exports CI_PRIMARY_REPOSITORY_PATH; fall back to this script's
-# parent so the script is also runnable by hand from a normal checkout.
-repo_root="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Xcode Cloud exports CI_PRIMARY_REPOSITORY_PATH. The fallback walks from this
+# required project-adjacent ci_scripts directory to the repository root so the
+# same hook is also runnable by hand from a normal checkout.
+repo_root="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$(dirname "$0")/../../../.." && pwd)}"
 ios_dir="$repo_root/apps/mobile/ios"
 
 work="$(mktemp -d)"

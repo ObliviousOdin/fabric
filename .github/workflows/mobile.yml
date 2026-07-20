@@ -20,7 +20,6 @@ on:
       - "tests/fabric_cli/test_dashboard_unified_launch.py"
       - "tests/fabric_cli/test_mobile_*.py"
       - "tests/scripts/test_ios_project_generation.py"
-      - "ci_scripts/**"
       - ".github/workflows/mobile.yml"
   push:
     branches: [main]
@@ -42,7 +41,6 @@ on:
       - "tests/fabric_cli/test_dashboard_unified_launch.py"
       - "tests/fabric_cli/test_mobile_*.py"
       - "tests/scripts/test_ios_project_generation.py"
-      - "ci_scripts/**"
       - ".github/workflows/mobile.yml"
 
 permissions:
@@ -119,7 +117,7 @@ jobs:
           persist-credentials: false
 
       - name: Generate the Xcode project
-        run: ../../../ci_scripts/ci_post_clone.sh
+        run: ci_scripts/ci_post_clone.sh
 
       - name: Verify the committed Xcode Cloud bootstrap is current
         run: git diff --exit-code -- FabricMobile.xcodeproj Fabric/Info.plist

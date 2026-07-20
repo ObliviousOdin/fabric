@@ -30,9 +30,11 @@ edits the tracked `project.yml`.
 - **The manifest is authoritative; the generic project is a committed
   bootstrap.** Xcode Cloud validates `FabricMobile.xcodeproj` before it runs
   custom scripts, so the portable project and generated Info.plist from
-  `project.yml` must be present in the checkout. `ci_scripts/ci_post_clone.sh`
-  then regenerates them on the build machine. Release-only bundle and build
-  values exist only in its temporary spec and regenerated build outputs.
+  `project.yml` must be present in the checkout. The project-adjacent
+  `ci_scripts/ci_post_clone.sh` then regenerates them on the build machine.
+  This placement follows [Apple's custom-build-script discovery contract](https://developer.apple.com/documentation/xcode/writing-custom-build-scripts).
+  Release-only bundle and build values exist only in its temporary spec and
+  regenerated build outputs.
 - **Xcode Cloud owns signing.** Certificates, profiles, and your Apple team are
   held by Xcode Cloud through your Apple account — so no signing material lives
   in git, matching this repo's "no secrets in CI" posture.
@@ -113,8 +115,9 @@ friction.
 3. When prompted, grant Xcode Cloud access to this GitHub repository — it
    installs the Xcode Cloud GitHub app. Approve it for `ObliviousOdin/fabric`.
 4. Xcode Cloud discovers the committed generic project, then detects
-   `ci_scripts/ci_post_clone.sh` and runs it after each clone to regenerate the
-   release project. There is nothing else to enable for the script.
+   `apps/mobile/ios/ci_scripts/ci_post_clone.sh` beside that project and runs it
+   after each clone to regenerate the release project. There is nothing else to
+   enable for the script.
 
 ## Step 4 — Configure the workflow
 
@@ -173,7 +176,7 @@ without committing it:
    FABRIC_XCODEGEN_BIN="$(command -v xcodegen)" \
      FABRIC_IOS_BUNDLE_ID=com.example.fabric.mobile \
      FABRIC_IOS_BUILD_NUMBER=2 \
-     ./ci_scripts/ci_post_clone.sh
+     ./apps/mobile/ios/ci_scripts/ci_post_clone.sh
    ```
 
    > Note: putting `PRODUCT_BUNDLE_IDENTIFIER` in an `xcconfig` does **not**
@@ -209,8 +212,9 @@ The committed `CURRENT_PROJECT_VERSION` is only the development default.
 - **Signing/registration fails on the default bundle ID.** It may already be
   claimed by another Apple team. Set `FABRIC_IOS_BUNDLE_ID` to one you own (see
   above).
-- **`ci_post_clone.sh` didn't run.** Make sure it is executable and located at
-  the repository root under `ci_scripts/`.
+- **`ci_post_clone.sh` didn't run.** Make sure it is executable and located in
+  `apps/mobile/ios/ci_scripts/`, beside `FabricMobile.xcodeproj`, as Xcode Cloud
+  requires.
 
 ## Not using Xcode Cloud?
 

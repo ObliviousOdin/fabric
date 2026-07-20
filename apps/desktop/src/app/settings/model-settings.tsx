@@ -269,6 +269,22 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
 
   const selectedProviderModels = selectedProviderRow?.models ?? []
 
+  // A model id is only meaningful alongside the provider that exposes it.
+  // Keeping the previous provider's model here made the desktop settings page
+  // submit invalid pairs such as `openai-codex` + `anthropic/claude-sonnet-4`.
+  // The backend then correctly routed the request to Codex, which rejected the
+  // Anthropic-only model. Keep a model only when the newly selected provider
+  // also offers it; otherwise move to that provider's curated first choice.
+  const selectMainProvider = useCallback(
+    (provider: string) => {
+      const nextModels = providers.find(row => row.slug === provider)?.models ?? []
+
+      setSelectedProvider(provider)
+      setSelectedModel(current => (nextModels.includes(current) ? current : (nextModels[0] ?? '')))
+    },
+    [providers]
+  )
+
   // An unconfigured provider was picked: no credentials yet, so there are no
   // models to choose. `api_key` providers can be activated inline (paste key);
   // OAuth / external flows hand off to the onboarding sign-in.
@@ -600,7 +616,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
       <section>
         <p className="mb-3 text-xs text-muted-foreground">{m.appliesDesc}</p>
         <div className="flex flex-wrap items-center gap-2">
-          <Select onValueChange={setSelectedProvider} value={selectedProvider}>
+          <Select onValueChange={selectMainProvider} value={selectedProvider}>
             <SelectTrigger className={cn('min-w-40', CONTROL_TEXT)}>
               <SelectValue placeholder={m.provider} />
             </SelectTrigger>

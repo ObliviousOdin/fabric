@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Radix Select calls scrollIntoView on its items when the content opens; jsdom
@@ -27,6 +28,7 @@ vi.mock('@/fabric', () => ({
   getGlobalModelOptions: () => getGlobalModelOptions(),
   getAuxiliaryModels: () => getAuxiliaryModels(),
   getMoaModels: () => getMoaModels(),
+  setApiRequestProfile: vi.fn(),
   setModelAssignment: (body: unknown) => setModelAssignment(body),
   getRecommendedDefaultModel: (slug: string) => getRecommendedDefaultModel(slug),
   saveMoaModels: (body: unknown) => saveMoaModels(body),
@@ -71,8 +73,13 @@ afterEach(() => {
 
 async function renderModelSettings() {
   const { ModelSettings } = await import('./model-settings')
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
-  return render(<ModelSettings />)
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ModelSettings />
+    </QueryClientProvider>
+  )
 }
 
 describe('ModelSettings', () => {
@@ -144,6 +151,50 @@ describe('ModelSettings', () => {
         provider: 'nous',
         scope: 'auxiliary',
         task: 'vision'
+      })
+    )
+  })
+
+  it.each([
+    ['ChatGPT subscription', 'openai-codex', 'gpt-5.5'],
+    ['Grok subscription', 'xai-oauth', 'grok-4.5']
+  ])('replaces an incompatible model when switching the main provider to %s', async (_label, provider, model) => {
+    getGlobalModelOptions.mockResolvedValueOnce({
+      providers: [
+        {
+          name: 'Nous',
+          slug: 'nous',
+          models: ['model-alpha'],
+          authenticated: true
+        },
+        {
+          name: 'ChatGPT subscription',
+          slug: 'openai-codex',
+          models: ['gpt-5.5'],
+          authenticated: true
+        },
+        {
+          name: 'Grok subscription',
+          slug: 'xai-oauth',
+          models: ['grok-4.5'],
+          authenticated: true
+        }
+      ]
+    })
+    setModelAssignment.mockResolvedValueOnce({ provider, model, gateway_tools: [] })
+
+    await renderModelSettings()
+
+    const [providerSelect] = await screen.findAllByRole('combobox')
+    fireEvent.click(providerSelect)
+    fireEvent.click(await screen.findByRole('option', { name: _label }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply' }))
+
+    await waitFor(() =>
+      expect(setModelAssignment).toHaveBeenCalledWith({
+        model,
+        provider,
+        scope: 'main'
       })
     )
   })

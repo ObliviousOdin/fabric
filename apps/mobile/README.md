@@ -337,6 +337,14 @@ open FabricMobile.xcodeproj
 Run the `Fabric` scheme on an iOS 17+ simulator or device. No third-party
 dependencies — Foundation `URLSessionWebSocketTask` + SwiftUI only.
 
+To build signed TestFlight releases from CI, see
+[`ios/XCODE_CLOUD.md`](ios/XCODE_CLOUD.md).
+
+The goal-driven parity program and per-build beta notes live in
+[`ROADMAP.md`](ROADMAP.md) and [`IOS_RELEASES.md`](IOS_RELEASES.md). A phase is
+not shipped until the release log records its merged SHA, automated and device
+checks, archive/upload result, and internal tester result.
+
 CI-equivalent simulator verification:
 
 ```bash

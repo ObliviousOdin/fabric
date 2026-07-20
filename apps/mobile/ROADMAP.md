@@ -148,8 +148,8 @@ No phase is complete because a simulator build launches. Every release needs:
 
 | Phase | State | Evidence / next gate |
 | --- | --- | --- |
-| FMB-P0 | In progress | Immutable generation and build-number contract implemented locally; PR/CI/merged-SHA archive remain. |
-| FMB-P1 | Direction selection | Three visual directions generated; implementation starts after one is selected. |
+| FMB-P0 | Ready to land | PR #66 passes native/mobile/web/release CI; its public-history audit is blocked only by a stale remote branch. Branch cleanup, merge, Xcode Cloud release settings, merged-SHA archive, and physical-iPhone smoke remain. |
+| FMB-P1 | Core in progress | A fail-closed native goal portfolio now derives needs-attention, active, outcome, unsupported, and unbound-Attention state from durable Work. Three visual directions are ready; screen implementation still starts only after one is selected. |
 | FMB-P2 | Planned | Requires the P1 product shell and push/attachment contracts. |
 | FMB-P3 | Planned | Durable Work must be advertised only after its full client/server contract is verified. |
 | FMB-P4 | Planned | Begins after parity evidence, not feature-count claims. |

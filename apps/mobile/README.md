@@ -239,6 +239,16 @@ the same chat screen:
 - **Process control** — per-session background processes (`process.list`)
   with output tails and kill (`process.kill`).
 
+The iOS durable Work client also validates and reconciles the versioned
+`fabric.work` Job/Attention ledger. `FabricGoalPortfolio` is the shared native
+product projection over that ledger: each known Job appears exactly once under
+needs attention, active work, or outcomes; compatible future kinds and statuses
+remain visible but non-actionable; and unbound Attention is never silently
+dropped. Result and error bodies are not copied into list state — detail views
+must fetch the bounded `job.get` payload deliberately. This model is shared by
+all three FMB-P1 visual directions; the selected direction will determine its
+rendering, not its lifecycle semantics.
+
 ## Pairing (QR) and connecting over Tailscale
 
 `fabric mobile` prints a normal browser URL whose `/mobile/pair` fragment

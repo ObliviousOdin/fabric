@@ -149,6 +149,13 @@ final class ChatViewModel {
     /// validated bootstrap/delta pages, never by an event hint.
     private(set) var durableWorkProjection: FabricWorkProjection?
 
+    /// Product-facing Work state shared by every future home/mission-control
+    /// direction. It remains a pure projection; rendering stays out of this
+    /// view model until the visual direction is selected.
+    var goalPortfolio: FabricGoalPortfolio? {
+        durableWorkProjection.map(FabricGoalPortfolio.init(projection:))
+    }
+
     let api: GatewayAPI
     private(set) var storedSessionId: String?
     private(set) var sessionId: String?

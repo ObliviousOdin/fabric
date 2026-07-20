@@ -174,8 +174,12 @@ jobs:
         run: |
           app="build/DerivedData/Build/Products/Release-iphonesimulator/Fabric.app"
           plist="$app/Info.plist"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" = "0.1.0"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" = "1"
+          # Derive expected version/build from the manifest so a routine bump
+          # (e.g. for a TestFlight upload) never requires editing this audit.
+          expected_short="$(sed -n 's/.*MARKETING_VERSION: "\(.*\)".*/\1/p' project.yml | head -1)"
+          expected_build="$(sed -n 's/.*CURRENT_PROJECT_VERSION: "\(.*\)".*/\1/p' project.yml | head -1)"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" = "$expected_short"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" = "$expected_build"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UISupportedInterfaceOrientations:0' "$plist")" = "UIInterfaceOrientationPortrait"
           test "$(/usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' "$plist")" = "false"
           privacy="$app/PrivacyInfo.xcprivacy"

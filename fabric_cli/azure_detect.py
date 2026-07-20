@@ -21,8 +21,9 @@ up its context length from the catalog.
 
 Authentication modes:
   - ``api_key`` (default): the wizard passes an ``api_key`` string; the
-    probe sends both ``api-key:`` and ``Authorization: Bearer`` headers
-    so we hit any Azure deployment regardless of which header it expects.
+    OpenAI-style probe sends both ``api-key:`` and ``Authorization: Bearer``
+    for broad compatibility. The modern Anthropic-style probe follows the
+    Foundry contract and sends only ``x-api-key:``.
   - ``entra_id``: the wizard passes a ``token_provider`` callable from
     :mod:`agent.azure_identity_adapter`. The probe mints exactly one
     bearer JWT, sends **only** ``Authorization: Bearer <jwt>`` (never
@@ -56,11 +57,6 @@ _AZURE_OPENAI_PROBE_API_VERSIONS = (
     "2025-04-01-preview",
     "2024-10-21",  # oldest GA that supports /models
 )
-
-# Default Azure Anthropic ``api-version``.  Matches the value used by
-# ``agent/anthropic_adapter.py`` when building the Anthropic client.
-_AZURE_ANTHROPIC_API_VERSION = "2025-04-15"
-
 
 @dataclass
 class DetectionResult:
@@ -99,9 +95,9 @@ def _resolve_credential(api_key: Any,
         returned token is a freshly minted bearer JWT, sent ONLY in
         ``Authorization: Bearer``.
       - ``"api_key"`` when a string key was supplied — the returned token
-        is the raw API key, sent in BOTH ``api-key:`` and
-        ``Authorization: Bearer`` headers (preserves the original
-        broad-compat probe behaviour).
+        is the raw API key. Each probe applies the authentication contract for
+        its wire format: broad-compatible dual headers for OpenAI discovery,
+        or ``x-api-key`` for modern Anthropic Messages routes.
       - ``("", "api_key")`` when neither yields a value.
 
     Bearer minting failures degrade to ``("", "entra_id")`` so the caller
@@ -131,7 +127,7 @@ def _resolve_credential(api_key: Any,
 def _apply_auth_headers(req: urllib_request.Request,
                         token: Optional[str],
                         mode: str) -> None:
-    """Attach the right auth headers to ``req`` based on credential mode."""
+    """Attach auth headers for the OpenAI-style discovery probe."""
     if not token:
         return
     if mode == "entra_id":
@@ -255,8 +251,14 @@ def _probe_anthropic_messages(base_url: str,
     ``invalid_request`` with an Anthropic error shape).  Never completes
     a real chat.
     """
+    from agent.anthropic_adapter import (
+        _anthropic_api_key_shape_allowed,
+        _anthropic_static_auth_headers,
+        _with_anthropic_api_version,
+    )
+
     base = _strip_trailing_v1(base_url)
-    url = f"{base}/v1/messages?api-version={_AZURE_ANTHROPIC_API_VERSION}"
+    url = _with_anthropic_api_version(f"{base}/v1/messages", base_url)
     payload = json.dumps({
         "model": "probe",
         "max_tokens": 1,
@@ -264,8 +266,15 @@ def _probe_anthropic_messages(base_url: str,
     }).encode("utf-8")
     req = urllib_request.Request(url, method="POST", data=payload)
     token, mode = _resolve_credential(api_key, token_provider)
-    _apply_auth_headers(req, token, mode)
-    req.add_header("anthropic-version", "2023-06-01")
+
+    if not _anthropic_api_key_shape_allowed(token, base_url):
+        return False
+    if mode == "entra_id":
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("anthropic-version", "2023-06-01")
+    else:
+        for header, value in _anthropic_static_auth_headers(token, base_url).items():
+            req.add_header(header, value)
     req.add_header("content-type", "application/json")
     req.add_header("User-Agent", "fabric-agent/azure-detect")
     try:
@@ -306,9 +315,11 @@ def detect(base_url: str,
     :class:`DetectionResult` as *advisory* — if ``api_mode`` is None,
     fall back to asking the user.
 
-    ``api_key`` may be a string (legacy API-key auth — sends both
-    ``api-key:`` and ``Authorization: Bearer``) or a callable returning
+    ``api_key`` may be a string (static API-key auth) or a callable returning
     a bearer JWT (Entra ID auth — sends ONLY ``Authorization: Bearer``).
+    Static-key headers follow the probed wire format: OpenAI discovery uses
+    its broad-compatible dual-header behavior, while modern Anthropic Messages
+    routes use only ``x-api-key``.
     ``token_provider`` is an alternative explicit name for the callable
     form; if both are supplied the callable wins.
     """

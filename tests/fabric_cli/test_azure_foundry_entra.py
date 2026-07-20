@@ -210,6 +210,43 @@ class TestResolveAzureFoundryRuntimeEntra:
         assert callable(runtime["api_key"])
         assert not isinstance(runtime["api_key"], str)
 
+    def test_private_azure_anthropic_route_builds_with_explicit_entra_intent(
+        self, fake_azure_identity, monkeypatch
+    ):
+        from agent import anthropic_adapter
+        from fabric_cli.runtime_provider import _resolve_azure_foundry_runtime
+
+        private_route = (
+            "https://resource.services.ai.azure.private/anthropic"
+        )
+        runtime = _resolve_azure_foundry_runtime(
+            requested_provider="azure-foundry",
+            model_cfg={
+                "provider": "azure-foundry",
+                "base_url": private_route,
+                "api_mode": "anthropic_messages",
+                "auth_mode": "entra_id",
+                "default": "claude-sonnet-4-5",
+            },
+        )
+        captured = {}
+        monkeypatch.setattr(
+            anthropic_adapter,
+            "_build_anthropic_client_with_bearer_hook",
+            lambda provider, base_url, timeout, **kwargs: captured.update({
+                "provider": provider,
+                "base_url": base_url,
+            }) or object(),
+        )
+
+        anthropic_adapter.build_anthropic_client(
+            runtime["api_key"],
+            runtime["base_url"],
+        )
+
+        assert captured["base_url"] == private_route
+        assert captured["provider"]().startswith("jwt-for-")
+
     def test_entra_with_explicit_api_key_uses_string_escape_hatch(self, fake_azure_identity):
         """Passing --api-key on the CLI overrides the entra path so a
         user can debug a single request with a static key without

@@ -78,6 +78,422 @@ def test_profile_with_zero_entries_falls_back_to_global(profile_env):
     assert entries[0]["access_token"] == "sk-or-global"
 
 
+def test_anthropic_status_marks_global_pool_fallback(profile_env, monkeypatch):
+    """Accounts must not tell a profile user to remove a global key locally."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _write(profile_env["global"] / "auth.json", _make_auth_store(pool={
+        "anthropic": [{
+            "id": "glob-ant",
+            "label": "global-key",
+            "auth_type": "api_key",
+            "priority": 0,
+            "source": "manual",
+            "access_token": "sk-ant-api03-global",
+        }],
+    }))
+    _write(profile_env["profile"] / "auth.json", _make_auth_store(pool={}))
+
+    from fabric_cli.web_server import (
+        _anthropic_key_status,
+        _oauth_provider_disconnect_hint,
+    )
+
+    status = _anthropic_key_status()
+    assert status["source"] == "credential_pool_global"
+    assert status["source_label"] == "default profile · fabric auth: global-key"
+    hint = _oauth_provider_disconnect_hint({"id": "anthropic"}, status)
+    assert "inherited from the default profile" in hint
+
+
+def test_anthropic_prune_uses_global_fallback_on_first_load(profile_env, monkeypatch):
+    """Pruning the last local OAuth row must expose the global key immediately."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _write(profile_env["global"] / "auth.json", _make_auth_store(pool={
+        "anthropic": [{
+            "id": "glob-ant",
+            "label": "global-key",
+            "auth_type": "api_key",
+            "priority": 0,
+            "source": "manual",
+            "access_token": "sk-ant-api03-global",
+        }],
+    }))
+    _write(profile_env["profile"] / "auth.json", _make_auth_store(pool={
+        "anthropic": [{
+            "id": "legacy-local",
+            "label": "old subscription",
+            "auth_type": "oauth",
+            "priority": 0,
+            "source": "manual:anthropic_pkce",
+            "access_token": "sk-ant-oat01-old",
+        }],
+    }))
+
+    from agent.credential_pool import load_pool
+    from fabric_cli.auth import _resolve_anthropic_api_key
+    from fabric_cli.web_server import _anthropic_key_status
+
+    assert _resolve_anthropic_api_key() == (
+        "sk-ant-api03-global",
+        "credential_pool_global:global-key",
+    )
+    assert _anthropic_key_status()["source"] == "credential_pool_global"
+
+    entries = load_pool("anthropic").entries()
+    assert [(entry.id, entry.access_token) for entry in entries] == [
+        ("glob-ant", "sk-ant-api03-global")
+    ]
+    profile_store = json.loads(
+        (profile_env["profile"] / "auth.json").read_text(encoding="utf-8")
+    )
+    global_store = json.loads(
+        (profile_env["global"] / "auth.json").read_text(encoding="utf-8")
+    )
+    assert profile_store["credential_pool"]["anthropic"] == []
+    assert [
+        entry["id"]
+        for entry in global_store["credential_pool"]["anthropic"]
+    ] == ["glob-ant"]
+
+
+def test_anthropic_global_fallback_normalization_never_clones_secret(
+    profile_env, monkeypatch
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    global_rows = [
+        {
+            "id": "global-valid",
+            "label": "global native",
+            "auth_type": "api_key",
+            "priority": 0,
+            "source": "manual",
+            "access_token": "sk-ant-api03-global",
+            "base_url": "https://api.anthropic.com",
+        },
+        {
+            "id": "global-legacy",
+            "label": "old subscription",
+            "auth_type": "oauth",
+            "priority": 1,
+            "source": "manual:anthropic_pkce",
+            "access_token": "sk-ant-oat01-global-old",
+        },
+    ]
+    global_payload = _make_auth_store(pool={"anthropic": global_rows})
+    profile_payload = _make_auth_store(pool={})
+    _write(profile_env["global"] / "auth.json", global_payload)
+    _write(profile_env["profile"] / "auth.json", profile_payload)
+
+    from agent.credential_pool import load_pool
+
+    entries = load_pool("anthropic").entries()
+
+    assert [(entry.id, entry.access_token) for entry in entries] == [
+        ("global-valid", "sk-ant-api03-global")
+    ]
+    assert json.loads(
+        (profile_env["profile"] / "auth.json").read_text(encoding="utf-8")
+    ) == profile_payload
+    assert json.loads(
+        (profile_env["global"] / "auth.json").read_text(encoding="utf-8")
+    ) == global_payload
+
+
+def test_anthropic_global_missing_native_base_is_in_memory_only(
+    profile_env, monkeypatch
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    global_payload = _make_auth_store(pool={
+        "anthropic": [{
+            "id": "global-native-old",
+            "label": "old native key",
+            "auth_type": "api_key",
+            "priority": 0,
+            "source": "manual",
+            "access_token": "sk-ant-api03-global",
+        }],
+    })
+    profile_payload = _make_auth_store(pool={})
+    _write(profile_env["global"] / "auth.json", global_payload)
+    _write(profile_env["profile"] / "auth.json", profile_payload)
+
+    from agent.credential_pool import load_pool
+
+    for _ in range(2):
+        pool = load_pool("anthropic")
+        assert pool.read_only is True
+        entries = pool.entries()
+        assert len(entries) == 1
+        assert entries[0].runtime_base_url == "https://api.anthropic.com"
+
+    assert json.loads(
+        (profile_env["profile"] / "auth.json").read_text(encoding="utf-8")
+    ) == profile_payload
+    assert json.loads(
+        (profile_env["global"] / "auth.json").read_text(encoding="utf-8")
+    ) == global_payload
+
+
+def test_anthropic_inherited_pool_mutations_remain_read_only(
+    profile_env, monkeypatch
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    (profile_env["profile"] / "config.yaml").write_text(
+        "credential_pool_strategies:\n  anthropic: round_robin\n",
+        encoding="utf-8",
+    )
+    global_payload = _make_auth_store(pool={
+        "anthropic": [
+            {
+                "id": "global-a",
+                "label": "global A",
+                "auth_type": "api_key",
+                "priority": 0,
+                "source": "manual",
+                "access_token": "sk-ant-api03-global-a",
+                "base_url": "https://api.anthropic.com",
+            },
+            {
+                "id": "global-b",
+                "label": "global B",
+                "auth_type": "api_key",
+                "priority": 1,
+                "source": "manual",
+                "access_token": "sk-ant-api03-global-b",
+                "base_url": "https://api.anthropic.com",
+            },
+        ],
+    })
+    profile_payload = _make_auth_store(pool={})
+    _write(profile_env["global"] / "auth.json", global_payload)
+    _write(profile_env["profile"] / "auth.json", profile_payload)
+
+    from agent.credential_pool import load_pool
+    from fabric_cli.runtime_provider import _anthropic_pool_for_endpoint
+
+    inherited = load_pool("anthropic")
+    filtered = _anthropic_pool_for_endpoint(
+        inherited,
+        "https://api.anthropic.com/v1",
+    )
+    assert filtered is not None
+    assert filtered.read_only is True
+    first = filtered.select()
+    assert first is not None
+    assert filtered.mark_exhausted_and_rotate(
+        status_code=429,
+        error_context={"message": "rate limited"},
+        api_key_hint=first.runtime_api_key,
+    ) is not None
+
+    assert json.loads(
+        (profile_env["profile"] / "auth.json").read_text(encoding="utf-8")
+    ) == profile_payload
+    assert json.loads(
+        (profile_env["global"] / "auth.json").read_text(encoding="utf-8")
+    ) == global_payload
+
+
+def test_anthropic_add_to_inherited_pool_creates_local_slice_only(
+    profile_env, monkeypatch
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    global_payload = _make_auth_store(pool={
+        "anthropic": [{
+            "id": "global-manual",
+            "label": "global",
+            "auth_type": "api_key",
+            "priority": 0,
+            "source": "manual",
+            "access_token": "sk-ant-api03-global",
+            "base_url": "https://api.anthropic.com",
+        }],
+    })
+    _write(profile_env["global"] / "auth.json", global_payload)
+    _write(
+        profile_env["profile"] / "auth.json",
+        _make_auth_store(pool={}),
+    )
+
+    from agent.credential_pool import (
+        AUTH_TYPE_API_KEY,
+        SOURCE_MANUAL,
+        PooledCredential,
+        load_pool,
+    )
+
+    pool = load_pool("anthropic")
+    assert pool.read_only is True
+    pool.add_entry(PooledCredential(
+        provider="anthropic",
+        id="profile-new",
+        label="profile",
+        auth_type=AUTH_TYPE_API_KEY,
+        priority=0,
+        source=SOURCE_MANUAL,
+        access_token="sk-ant-api03-profile",
+        base_url="https://api.anthropic.com",
+    ))
+
+    assert pool.read_only is False
+    assert [entry.id for entry in pool.entries()] == ["profile-new"]
+    profile_store = json.loads(
+        (profile_env["profile"] / "auth.json").read_text(encoding="utf-8")
+    )
+    assert [
+        entry["id"]
+        for entry in profile_store["credential_pool"]["anthropic"]
+    ] == ["profile-new"]
+    assert json.loads(
+        (profile_env["global"] / "auth.json").read_text(encoding="utf-8")
+    ) == global_payload
+
+
+def test_anthropic_failed_add_restores_inherited_read_only_view(
+    profile_env, monkeypatch
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    global_payload = _make_auth_store(pool={
+        "anthropic": [{
+            "id": "global-manual",
+            "label": "global",
+            "auth_type": "api_key",
+            "priority": 0,
+            "source": "manual",
+            "access_token": "sk-ant-api03-global",
+            "base_url": "https://api.anthropic.com",
+        }],
+    })
+    profile_payload = _make_auth_store(pool={})
+    _write(profile_env["global"] / "auth.json", global_payload)
+    _write(profile_env["profile"] / "auth.json", profile_payload)
+
+    from agent.credential_pool import (
+        AUTH_TYPE_API_KEY,
+        SOURCE_MANUAL,
+        PooledCredential,
+        load_pool,
+    )
+
+    pool = load_pool("anthropic")
+    assert pool.select().id == "global-manual"
+    monkeypatch.setattr(
+        pool,
+        "_persist",
+        lambda: (_ for _ in ()).throw(OSError("read-only filesystem")),
+    )
+
+    with pytest.raises(OSError, match="read-only filesystem"):
+        pool.add_entry(PooledCredential(
+            provider="anthropic",
+            id="profile-new",
+            label="profile",
+            auth_type=AUTH_TYPE_API_KEY,
+            priority=0,
+            source=SOURCE_MANUAL,
+            access_token="sk-ant-api03-profile",
+            base_url="https://api.anthropic.com",
+        ))
+
+    assert pool.read_only is True
+    assert [entry.id for entry in pool.entries()] == ["global-manual"]
+    assert pool.current().id == "global-manual"
+    assert json.loads(
+        (profile_env["profile"] / "auth.json").read_text(encoding="utf-8")
+    ) == profile_payload
+    assert json.loads(
+        (profile_env["global"] / "auth.json").read_text(encoding="utf-8")
+    ) == global_payload
+
+
+def test_anthropic_profile_env_seed_never_copies_global_manual_rows(
+    profile_env, monkeypatch
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    (profile_env["profile"] / ".env").write_text(
+        "ANTHROPIC_API_KEY=sk-ant-api03-profile\n",
+        encoding="utf-8",
+    )
+    global_payload = _make_auth_store(pool={
+        "anthropic": [{
+            "id": "global-manual",
+            "label": "global key",
+            "auth_type": "api_key",
+            "priority": 0,
+            "source": "manual",
+            "access_token": "sk-ant-api03-global",
+            "base_url": "https://api.anthropic.com",
+        }],
+    })
+    _write(profile_env["global"] / "auth.json", global_payload)
+    _write(
+        profile_env["profile"] / "auth.json",
+        _make_auth_store(pool={}),
+    )
+
+    from agent.credential_pool import load_pool
+
+    entries = load_pool("anthropic").entries()
+
+    assert len(entries) == 1
+    assert entries[0].source == "env:ANTHROPIC_API_KEY"
+    assert entries[0].runtime_api_key == "sk-ant-api03-profile"
+    profile_store = json.loads(
+        (profile_env["profile"] / "auth.json").read_text(encoding="utf-8")
+    )
+    stored_rows = profile_store["credential_pool"]["anthropic"]
+    assert [entry["source"] for entry in stored_rows] == [
+        "env:ANTHROPIC_API_KEY"
+    ]
+    assert all("access_token" not in entry for entry in stored_rows)
+    assert json.loads(
+        (profile_env["global"] / "auth.json").read_text(encoding="utf-8")
+    ) == global_payload
+
+
+def test_anthropic_global_ambiguous_key_is_not_rebound_to_profile_route(
+    profile_env, monkeypatch
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    (profile_env["profile"] / "config.yaml").write_text(
+        "model:\n"
+        "  provider: anthropic\n"
+        "  base_url: https://profile.example/anthropic\n",
+        encoding="utf-8",
+    )
+    global_payload = _make_auth_store(pool={
+        "anthropic": [{
+            "id": "global-ambiguous",
+            "label": "global proxy key without route",
+            "auth_type": "api_key",
+            "priority": 0,
+            "source": "manual",
+            "access_token": "eyJ.global.proxy",
+        }],
+    })
+    profile_payload = _make_auth_store(pool={})
+    _write(profile_env["global"] / "auth.json", global_payload)
+    _write(profile_env["profile"] / "auth.json", profile_payload)
+
+    from agent.credential_pool import load_pool
+    from fabric_cli.auth import _resolve_anthropic_api_key_details
+
+    assert load_pool("anthropic").entries() == []
+    assert _resolve_anthropic_api_key_details() == (
+        "",
+        "",
+        "https://profile.example/anthropic",
+    )
+    assert json.loads(
+        (profile_env["profile"] / "auth.json").read_text(encoding="utf-8")
+    ) == profile_payload
+    assert json.loads(
+        (profile_env["global"] / "auth.json").read_text(encoding="utf-8")
+    ) == global_payload
+
+
 def test_profile_with_entries_fully_shadows_global(profile_env):
     """Once the profile has any entries for a provider, global is ignored."""
     from fabric_cli.auth import read_credential_pool

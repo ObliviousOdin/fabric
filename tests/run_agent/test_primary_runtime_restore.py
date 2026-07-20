@@ -50,6 +50,26 @@ def _make_agent(fallback_model=None, provider="custom", base_url="https://my-llm
         return agent
 
 
+def _make_anthropic_proxy_agent():
+    with (
+        patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch(
+            "agent.anthropic_adapter.build_anthropic_client",
+            return_value=MagicMock(),
+        ),
+    ):
+        return AIAgent(
+            api_key="eyJ.proxy.signature",
+            base_url="https://gateway.example/anthropic",
+            provider="anthropic",
+            api_mode="anthropic_messages",
+            quiet_mode=True,
+            skip_context_files=True,
+            skip_memory=True,
+        )
+
+
 def _mock_resolve(base_url="https://openrouter.ai/api/v1", api_key="fallback-key-1234"):
     """Helper to create a mock client for resolve_provider_client."""
     mock_client = MagicMock()
@@ -120,6 +140,23 @@ class TestRestorePrimaryRuntime:
         agent = _make_agent()
         assert agent._fallback_activated is False
         assert agent._restore_primary_runtime() is False
+
+    def test_restore_does_not_resurrect_stale_anthropic_oauth_snapshot(self):
+        agent = _make_anthropic_proxy_agent()
+        agent._fallback_activated = True
+        agent._primary_runtime["is_anthropic_oauth"] = True
+        agent._is_anthropic_oauth = True
+
+        with (
+            patch(
+                "agent.anthropic_adapter.build_anthropic_client",
+                return_value=MagicMock(),
+            ),
+            patch("agent.credential_pool.load_pool", return_value=None),
+        ):
+            assert agent._restore_primary_runtime() is True
+
+        assert agent._is_anthropic_oauth is False
 
     def test_restores_model_and_provider(self):
         agent = _make_agent(
@@ -295,6 +332,128 @@ class TestRestorePrimaryRuntime:
         assert "deepseek" not in str(agent.base_url)
         agent._swap_credential.assert_not_called()
 
+    def test_restore_anthropic_primary_reloads_endpoint_scoped_pool(self):
+        """Native primary recovery cannot rotate back to an Azure fallback."""
+        from agent.credential_pool import CredentialPool, PooledCredential
+
+        native_url = "https://api.anthropic.com"
+        azure_url = "https://resource-b.services.ai.azure.com/anthropic"
+        native_entry = PooledCredential(
+            provider="anthropic",
+            id="native",
+            label="native",
+            auth_type="api_key",
+            priority=0,
+            source="manual:native",
+            access_token="sk-ant-api03-native",
+            base_url=native_url,
+        )
+        azure_entry = PooledCredential(
+            provider="anthropic",
+            id="azure",
+            label="azure",
+            auth_type="api_key",
+            priority=1,
+            source="manual:azure",
+            access_token="azure-resource-b-key",
+            base_url=azure_url,
+        )
+        persisted_pool = CredentialPool(
+            "anthropic",
+            [native_entry, azure_entry],
+        )
+        native_pool = CredentialPool("anthropic", [native_entry])
+
+        with (
+            patch(
+                "run_agent.get_tool_definitions",
+                return_value=_make_tool_defs("web_search"),
+            ),
+            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("run_agent.OpenAI"),
+            patch(
+                "agent.anthropic_adapter.build_anthropic_client",
+                return_value=MagicMock(),
+            ),
+        ):
+            agent = AIAgent(
+                api_key=native_entry.access_token,
+                base_url=native_url,
+                provider="anthropic",
+                api_mode="anthropic_messages",
+                model="claude-opus-4-20250514",
+                quiet_mode=True,
+                skip_context_files=True,
+                skip_memory=True,
+                credential_pool=native_pool,
+                fallback_model={
+                    "provider": "anthropic",
+                    "model": "claude-sonnet-4-20250514",
+                    "base_url": azure_url,
+                    "api_key": azure_entry.access_token,
+                },
+            )
+
+        fallback_client = _mock_resolve(
+            base_url=azure_url,
+            api_key=azure_entry.access_token,
+        )
+        with (
+            patch(
+                "agent.auxiliary_client.resolve_provider_client",
+                return_value=(fallback_client, None),
+            ),
+            patch(
+                "agent.credential_pool.load_pool",
+                return_value=persisted_pool,
+            ),
+            patch(
+                "agent.anthropic_adapter.build_anthropic_client",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "agent.model_metadata.get_model_context_length",
+                return_value=200_000,
+            ),
+        ):
+            assert agent._try_activate_fallback() is True
+
+        assert agent.base_url == azure_url
+        assert [entry.id for entry in agent._credential_pool.entries()] == [
+            "azure"
+        ]
+
+        with (
+            patch(
+                "agent.credential_pool.load_pool",
+                return_value=persisted_pool,
+            ),
+            patch(
+                "agent.anthropic_adapter.build_anthropic_client",
+                return_value=MagicMock(),
+            ),
+        ):
+            assert agent._restore_primary_runtime() is True
+
+        assert agent.provider == "anthropic"
+        assert agent.base_url == native_url
+        assert agent._anthropic_base_url == native_url
+        assert agent.api_key == native_entry.access_token
+        assert [entry.id for entry in agent._credential_pool.entries()] == [
+            "native"
+        ]
+
+        # Future native recovery must stop when A is exhausted, not rotate
+        # back onto the Azure fallback tuple B.
+        agent._credential_pool._persist = MagicMock()
+        assert (
+            agent._credential_pool.mark_exhausted_and_rotate(status_code=429)
+            is None
+        )
+        assert [entry.id for entry in agent._credential_pool.entries()] == [
+            "native"
+        ]
+
     def test_restore_swaps_matching_custom_pool_entry(self):
         """Custom primary + custom:<name> entry whose base_url resolves to the
         SAME custom key must swap (legitimate same-endpoint rotation)."""
@@ -396,6 +555,27 @@ def _make_transport_error(error_type="ReadTimeout"):
 
 
 class TestTryRecoverPrimaryTransport:
+
+    def test_recovery_does_not_resurrect_stale_anthropic_oauth_snapshot(self):
+        agent = _make_anthropic_proxy_agent()
+        agent._primary_runtime["is_anthropic_oauth"] = True
+        agent._is_anthropic_oauth = True
+        error = _make_transport_error("ReadTimeout")
+
+        with (
+            patch(
+                "agent.anthropic_adapter.build_anthropic_client",
+                return_value=MagicMock(),
+            ),
+            patch("time.sleep"),
+        ):
+            assert agent._try_recover_primary_transport(
+                error,
+                retry_count=3,
+                max_retries=3,
+            ) is True
+
+        assert agent._is_anthropic_oauth is False
 
     def test_recovers_on_read_timeout(self):
         agent = _make_agent(provider="custom")

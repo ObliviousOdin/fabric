@@ -18,6 +18,14 @@ def _extract_base_url_passed_to_build(mock_build):
     return args[1]
 
 
+def _native_credentials():
+    return {
+        "api_key": "sk-ant-api03-test",
+        "base_url": "https://api.anthropic.com",
+        "source": "env:ANTHROPIC_API_KEY",
+    }
+
+
 class TestTryAnthropicBaseUrlHostValidation:
     """Issue #52608: side-channel calls must not be sent to a non-Anthropic host."""
 
@@ -39,8 +47,8 @@ class TestTryAnthropicBaseUrlHostValidation:
                 "agent.auxiliary_client._select_pool_entry", return_value=(False, None)
             ),
             patch(
-                "agent.anthropic_adapter.resolve_anthropic_token",
-                return_value="***",
+                "fabric_cli.auth.resolve_api_key_provider_credentials",
+                return_value=_native_credentials(),
             ),
             patch(
                 "agent.anthropic_adapter.build_anthropic_client"
@@ -74,8 +82,8 @@ class TestTryAnthropicBaseUrlHostValidation:
                 "agent.auxiliary_client._select_pool_entry", return_value=(False, None)
             ),
             patch(
-                "agent.anthropic_adapter.resolve_anthropic_token",
-                return_value="***",
+                "fabric_cli.auth.resolve_api_key_provider_credentials",
+                return_value=_native_credentials(),
             ),
             patch(
                 "agent.anthropic_adapter.build_anthropic_client"
@@ -106,8 +114,8 @@ class TestTryAnthropicBaseUrlHostValidation:
                 "agent.auxiliary_client._select_pool_entry", return_value=(False, None)
             ),
             patch(
-                "agent.anthropic_adapter.resolve_anthropic_token",
-                return_value="***",
+                "fabric_cli.auth.resolve_api_key_provider_credentials",
+                return_value=_native_credentials(),
             ),
             patch(
                 "agent.anthropic_adapter.build_anthropic_client"
@@ -140,8 +148,8 @@ class TestTryAnthropicBaseUrlHostValidation:
                 "agent.auxiliary_client._select_pool_entry", return_value=(False, None)
             ),
             patch(
-                "agent.anthropic_adapter.resolve_anthropic_token",
-                return_value="***",
+                "fabric_cli.auth.resolve_api_key_provider_credentials",
+                return_value=_native_credentials(),
             ),
             patch(
                 "agent.anthropic_adapter.build_anthropic_client"
@@ -154,8 +162,10 @@ class TestTryAnthropicBaseUrlHostValidation:
         actual = _extract_base_url_passed_to_build(mock_build)
         assert actual == "https://api.anthropic.com"
 
-    def test_anthropic_host_with_path_is_preserved(self, tmp_path, monkeypatch):
-        """api.anthropic.com with a path suffix must still pass the host check."""
+    def test_anthropic_v1_suffix_normalizes_to_paired_native_route(
+        self, tmp_path, monkeypatch
+    ):
+        """The SDK-equivalent native /v1 route keeps the native key pair."""
         import yaml
         from agent.auxiliary_client import _try_anthropic
         monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
@@ -163,7 +173,7 @@ class TestTryAnthropicBaseUrlHostValidation:
             "model": {
                 "provider": "anthropic",
                 "model": "claude-haiku-4-5-20251001",
-                "base_url": "https://api.anthropic.com/v1/messages",
+                "base_url": "https://api.anthropic.com/v1",
             }
         }))
 
@@ -172,8 +182,8 @@ class TestTryAnthropicBaseUrlHostValidation:
                 "agent.auxiliary_client._select_pool_entry", return_value=(False, None)
             ),
             patch(
-                "agent.anthropic_adapter.resolve_anthropic_token",
-                return_value="***",
+                "fabric_cli.auth.resolve_api_key_provider_credentials",
+                return_value=_native_credentials(),
             ),
             patch(
                 "agent.anthropic_adapter.build_anthropic_client"
@@ -184,6 +194,6 @@ class TestTryAnthropicBaseUrlHostValidation:
 
         assert client is not None
         actual = _extract_base_url_passed_to_build(mock_build)
-        assert actual == "https://api.anthropic.com/v1/messages", (
-            f"Anthropic host with path must be preserved. Got: {actual!r}"
+        assert actual == "https://api.anthropic.com", (
+            f"Equivalent native /v1 route should use its paired root. Got: {actual!r}"
         )

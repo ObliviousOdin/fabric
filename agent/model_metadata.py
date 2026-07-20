@@ -1751,17 +1751,23 @@ def _query_anthropic_context_length(model: str, base_url: str, api_key: str) -> 
     Only works with regular ANTHROPIC_API_KEY (sk-ant-api*).
     OAuth tokens (sk-ant-oat*) from Claude Code return 401.
     """
-    if not api_key or api_key.startswith("sk-ant-oat"):
-        return None  # OAuth tokens can't access /v1/models
+    from agent.anthropic_adapter import (
+        _anthropic_api_key_shape_allowed,
+        _anthropic_static_auth_headers,
+        _with_anthropic_api_version,
+    )
+
+    if not _anthropic_api_key_shape_allowed(api_key, base_url):
+        return None
     try:
         base = base_url.rstrip("/")
         if base.endswith("/v1"):
             base = base[:-3]
-        url = f"{base}/v1/models?limit=1000"
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        }
+        url = _with_anthropic_api_version(
+            f"{base}/v1/models?limit=1000",
+            base_url,
+        )
+        headers = _anthropic_static_auth_headers(api_key, base_url)
         resp = requests.get(url, headers=headers, timeout=10, verify=_resolve_requests_verify())
         if resp.status_code != 200:
             return None

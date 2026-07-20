@@ -117,6 +117,39 @@ class TestCustomProviderBaseUrlPassthrough:
             server.shutdown()
 
 
+class TestAnthropicProfileBaseUrlPassthrough:
+    def test_proxy_key_is_sent_only_to_paired_endpoint(self):
+        class _Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"data": [{"id": "proxy-claude"}]}'
+
+        from providers import get_provider_profile
+
+        profile = get_provider_profile("anthropic")
+        assert profile is not None
+        with patch(
+            "urllib.request.urlopen",
+            return_value=_Response(),
+        ) as urlopen:
+            result = profile.fetch_models(
+                api_key="eyJ.gateway-a.signature",
+                base_url="https://gateway-a.example/anthropic",
+            )
+
+        assert result == ["proxy-claude"]
+        request = urlopen.call_args.args[0]
+        assert request.full_url == (
+            "https://gateway-a.example/anthropic/v1/models"
+        )
+        assert request.get_header("X-api-key") == "eyJ.gateway-a.signature"
+
+
 class TestModelPickerBaseUrlIntegration:
     """The /model picker path should pass model.base_url to fetch_models."""
 

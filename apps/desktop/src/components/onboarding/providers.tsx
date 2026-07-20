@@ -8,9 +8,7 @@ const PROVIDER_DISPLAY: Record<string, string> = {
   'openai-codex': 'ChatGPT subscription (OpenAI Codex)',
   'minimax-oauth': 'MiniMax',
   'qwen-oauth': 'Qwen Code',
-  'xai-oauth': 'Grok subscription (xAI)',
-  anthropic: 'Anthropic API Key',
-  'claude-code': 'Anthropic OAuth: Required Extra Usage Credits to Use Subscription'
+  'xai-oauth': 'Grok subscription (xAI)'
 }
 
 export const providerTitle = (p: OAuthProvider) => PROVIDER_DISPLAY[p.id] ?? p.name

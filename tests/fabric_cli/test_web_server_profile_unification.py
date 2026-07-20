@@ -248,6 +248,55 @@ class TestProfileScopedEnv:
             assert "test-fal-123" not in default_env_path.read_text()
         assert os.environ["FAL_KEY"] == "launch-fal-value"
 
+    def test_anthropic_oauth_shaped_key_is_rejected_without_writes(
+        self, client, isolated_profiles
+    ):
+        resp = client.put(
+            "/api/env",
+            json={
+                "key": "ANTHROPIC_API_KEY",
+                "value": "sk-ant-oat01-retired",
+                "profile": "worker_beta",
+            },
+        )
+
+        assert resp.status_code == 400
+        worker_env = isolated_profiles["worker_beta"] / ".env"
+        text = worker_env.read_text() if worker_env.exists() else ""
+        assert "ANTHROPIC_API_KEY" not in text
+        assert "ANTHROPIC_TOKEN" not in text
+
+    def test_anthropic_api_key_write_clears_legacy_slot_in_target_profile(
+        self, client, isolated_profiles, monkeypatch
+    ):
+        worker_env = isolated_profiles["worker_beta"] / ".env"
+        worker_env.write_text(
+            "ANTHROPIC_TOKEN=sk-ant-oat01-old\n"
+            "ANTHROPIC_BASE_URL=https://gateway.example/anthropic\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "launch-key-must-survive")
+
+        resp = client.put(
+            "/api/env",
+            json={
+                "key": "ANTHROPIC_API_KEY",
+                "value": "eyJ.worker.proxy",
+                "profile": "worker_beta",
+            },
+        )
+
+        assert resp.status_code == 200
+        text = worker_env.read_text()
+        assert "ANTHROPIC_API_KEY=eyJ.worker.proxy" in text
+        assert "ANTHROPIC_BASE_URL=https://gateway.example/anthropic" in text
+        assert "ANTHROPIC_TOKEN=sk-ant-oat01-old" not in text
+        assert os.environ["ANTHROPIC_API_KEY"] == "launch-key-must-survive"
+
+        default_env = isolated_profiles["default"] / ".env"
+        default_text = default_env.read_text() if default_env.exists() else ""
+        assert "eyJ.worker.proxy" not in default_text
+
     def test_env_list_reads_target_profile(self, client, isolated_profiles):
         (isolated_profiles["worker_beta"] / ".env").write_text(
             "FAL_KEY=worker-only-value\n", encoding="utf-8"

@@ -171,7 +171,7 @@ CATEGORIES: tuple[DiskCategory, ...] = (
         usage_paths=(
             ".env", "auth.json", "auth.lock", "provider-accounts.json",
             "provider-accounts.lock", ".provider-account-repair",
-            ".anthropic_oauth.json", "google_token.json", "slack_tokens.json",
+            "google_token.json", "slack_tokens.json",
             "mcp-tokens", ".op.env",
         ),
         note="API keys and OAuth tokens.",

@@ -202,3 +202,42 @@ def test_successful_switch_still_works_after_rollback_refactor():
     assert agent.provider == "openrouter"
     assert agent.api_key == "or-key-new"
     assert agent.client is new_client
+
+
+def test_switch_to_native_anthropic_never_reuses_previous_provider_secret():
+    agent = _make_agent_openrouter()
+    empty_pool = MagicMock()
+    empty_pool.has_credentials.return_value = False
+
+    with (
+        patch("agent.credential_pool.load_pool", return_value=empty_pool),
+        patch(
+            "fabric_cli.auth.resolve_api_key_provider_credentials",
+            return_value={
+                "api_key": "sk-ant-api03-native",
+                "base_url": "https://api.anthropic.com/v1",
+                "source": "env:ANTHROPIC_API_KEY",
+            },
+        ),
+        patch(
+            "agent.anthropic_adapter.build_anthropic_client",
+            return_value=MagicMock(),
+        ) as build,
+        patch("fabric_cli.timeouts.get_provider_request_timeout", return_value=None),
+    ):
+        agent.switch_model(
+            new_model="claude-sonnet-4-6",
+            new_provider="anthropic",
+            api_key="",
+            base_url="",
+            api_mode="anthropic_messages",
+        )
+
+    assert agent.api_key == "sk-ant-api03-native"
+    assert agent.api_key != "or-key-original"
+    assert agent.base_url == "https://api.anthropic.com"
+    assert agent._anthropic_base_url == "https://api.anthropic.com"
+    assert build.call_args.args[:2] == (
+        "sk-ant-api03-native",
+        "https://api.anthropic.com",
+    )

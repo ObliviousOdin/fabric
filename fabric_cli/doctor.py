@@ -33,7 +33,6 @@ _PROVIDER_ENV_HINTS = (
     "OPENROUTER_API_KEY",
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
-    "ANTHROPIC_TOKEN",
     "OPENAI_BASE_URL",
     "NOUS_API_KEY",
     "GLM_API_KEY",
@@ -2034,47 +2033,33 @@ def run_doctor(args):
             )
 
     def _probe_anthropic() -> _ConnectivityResult:
-        from fabric_cli.auth import get_anthropic_key
-        key = get_anthropic_key()
+        from fabric_cli.auth import resolve_api_key_provider_credentials
+
+        credentials = resolve_api_key_provider_credentials("anthropic")
+        key = str(credentials.get("api_key") or "").strip()
         if not key:
             return _ConnectivityResult("Anthropic API", [], [])
+        base_url = str(
+            credentials.get("base_url") or "https://api.anthropic.com"
+        ).strip().rstrip("/")
+        models_url = (
+            f"{base_url}/models"
+            if base_url.endswith("/v1")
+            else f"{base_url}/v1/models"
+        )
         try:
             import httpx
             from agent.anthropic_adapter import (
-                _is_oauth_token,
-                _COMMON_BETAS,
-                _OAUTH_ONLY_BETAS,
-                _CONTEXT_1M_BETA,
+                _anthropic_static_auth_headers,
+                _with_anthropic_api_version,
             )
-            headers = {"anthropic-version": "2023-06-01"}
-            is_oauth = _is_oauth_token(key)
-            if is_oauth:
-                headers["Authorization"] = f"Bearer {key}"
-                headers["anthropic-beta"] = ",".join(_COMMON_BETAS + _OAUTH_ONLY_BETAS)
-            else:
-                headers["x-api-key"] = key
+
+            headers = _anthropic_static_auth_headers(key, base_url)
+            models_url = _with_anthropic_api_version(models_url, base_url)
             r = httpx.get(
-                "https://api.anthropic.com/v1/models",
+                models_url,
                 headers=headers, timeout=10,
             )
-            # Reactive recovery: OAuth subscriptions without 1M context reject the
-            # request with 400 "long context beta is not yet available for this
-            # subscription". Retry once with that beta stripped so the doctor
-            # check doesn't falsely report Anthropic as unreachable.
-            if (
-                is_oauth
-                and r.status_code == 400
-                and "long context beta" in r.text.lower()
-                and "not yet available" in r.text.lower()
-            ):
-                headers["anthropic-beta"] = ",".join(
-                    [b for b in _COMMON_BETAS if b != _CONTEXT_1M_BETA]
-                    + list(_OAUTH_ONLY_BETAS)
-                )
-                r = httpx.get(
-                    "https://api.anthropic.com/v1/models",
-                    headers=headers, timeout=10,
-                )
             if r.status_code == 200:
                 return _ConnectivityResult(
                     "Anthropic API",

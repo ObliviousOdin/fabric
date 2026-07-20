@@ -1044,7 +1044,7 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [
     ProviderEntry("novita",         "NovitaAI",                 "NovitaAI (Cloud: Model API, Agent Sandbox, GPU Cloud)"),
     ProviderEntry("ollama",         "Ollama (Local)",           "Ollama (Local models through the native /api/chat protocol)"),
     ProviderEntry("lmstudio",       "LM Studio",                "LM Studio (Local desktop app with built-in model server)"),
-    ProviderEntry("anthropic",      "Anthropic",                "Anthropic (Claude models via API key or Claude Code)"),
+    ProviderEntry("anthropic",      "Anthropic",                "Anthropic (Claude models via API key)"),
     ProviderEntry("openai-codex",   "OpenAI Codex",             "OpenAI Codex (Codex CLI via ChatGPT subscription or API key)"),
     ProviderEntry("openai-api",     "OpenAI API",               "OpenAI API (api.openai.com, API key)"),
     ProviderEntry("alibaba",        "Qwen Cloud",               "Qwen Cloud / DashScope (Qwen + multi-provider)"),
@@ -1256,6 +1256,7 @@ _PROVIDER_ALIASES = {
     "minimax-global": "minimax-oauth",
     "minimax_oauth": "minimax-oauth",
     "claude": "anthropic",
+    "claude-oauth": "anthropic",
     "claude-code": "anthropic",
     "deep-seek": "deepseek",
     "opencode": "opencode-zen",
@@ -2740,62 +2741,64 @@ def _fetch_anthropic_models(
 ) -> Optional[list[str]]:
     """Fetch available models from the Anthropic /v1/models endpoint.
 
-    Uses resolve_anthropic_token() to find credentials (env vars or
-    Claude Code auto-discovery) unless api_key is provided explicitly.
-    Returns sorted model IDs or None.
+    Resolves a profile-aware key and endpoint pair unless ``api_key`` is
+    provided explicitly. Returns sorted model IDs or None.
     """
     try:
-        from agent.anthropic_adapter import resolve_anthropic_token, _is_oauth_token
+        from agent.anthropic_adapter import (
+            _anthropic_api_key_shape_allowed,
+            _anthropic_endpoints_match,
+            _anthropic_static_auth_headers,
+            _with_anthropic_api_version,
+        )
     except ImportError:
         return None
 
-    token = (api_key or "").strip() or resolve_anthropic_token()
+    requested_base_url = str(base_url or "").strip().rstrip("/")
+    token = str(api_key or "").strip()
+    effective_base_url = requested_base_url or "https://api.anthropic.com"
+    if not token:
+        try:
+            from fabric_cli.auth import resolve_api_key_provider_credentials
+
+            credentials = resolve_api_key_provider_credentials("anthropic")
+        except Exception:
+            credentials = {}
+        resolved_token = str(credentials.get("api_key") or "").strip()
+        resolved_base_url = str(credentials.get("base_url") or "").strip().rstrip("/")
+        if (
+            resolved_token
+            and requested_base_url
+            and resolved_base_url
+            and not _anthropic_endpoints_match(
+                requested_base_url,
+                resolved_base_url,
+            )
+        ):
+            # The caller selected a different endpoint. Do not detach a pool
+            # or configured key from the URL it was validated for.
+            return None
+        else:
+            effective_base_url = requested_base_url or resolved_base_url or effective_base_url
+        token = resolved_token
     if not token:
         return None
+    if not _anthropic_api_key_shape_allowed(token, effective_base_url):
+        return None
 
-    headers: dict[str, str] = {"anthropic-version": "2023-06-01"}
-    is_oauth = _is_oauth_token(token)
-    if is_oauth:
-        headers["Authorization"] = f"Bearer {token}"
-        from agent.anthropic_adapter import _COMMON_BETAS, _OAUTH_ONLY_BETAS, _CONTEXT_1M_BETA
-        headers["anthropic-beta"] = ",".join(_COMMON_BETAS + _OAUTH_ONLY_BETAS)
-    else:
-        headers["x-api-key"] = token
+    headers = _anthropic_static_auth_headers(token, effective_base_url)
 
     def _do_request(h: dict[str, str]):
-        req = urllib.request.Request(
-            _anthropic_models_url(base_url),
-            headers=h,
+        models_url = _with_anthropic_api_version(
+            _anthropic_models_url(effective_base_url),
+            effective_base_url,
         )
+        req = urllib.request.Request(models_url, headers=h)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
 
     try:
-        try:
-            data = _do_request(headers)
-        except urllib.error.HTTPError as http_err:
-            # Reactive recovery for OAuth subscriptions that reject the 1M
-            # context beta with 400 "long context beta is not yet available
-            # for this subscription". Retry once without the beta; re-raise
-            # anything else so the outer except logs it.
-            if (
-                is_oauth
-                and http_err.code == 400
-            ):
-                try:
-                    body_text = http_err.read().decode(errors="ignore").lower()
-                except Exception:
-                    body_text = ""
-                if "long context beta" in body_text and "not yet available" in body_text:
-                    headers["anthropic-beta"] = ",".join(
-                        [b for b in _COMMON_BETAS if b != _CONTEXT_1M_BETA]
-                        + list(_OAUTH_ONLY_BETAS)
-                    )
-                    data = _do_request(headers)
-                else:
-                    raise
-            else:
-                raise
+        data = _do_request(headers)
         models = [m["id"] for m in data.get("data", []) if m.get("id")]
         # Sort: latest/largest first (opus > sonnet > haiku, higher version first)
         return sorted(models, key=lambda m: (
@@ -3556,10 +3559,9 @@ def probe_api_models(
 ) -> dict[str, Any]:
     """Probe a ``/models`` endpoint with light URL heuristics.
 
-    For ``anthropic_messages`` mode, uses ``x-api-key`` and
-    ``anthropic-version`` headers (Anthropic's native auth) instead of
-    ``Authorization: Bearer``.  The response shape (``data[].id``) is
-    identical, so the same parser works for both.
+    For ``anthropic_messages`` mode, uses the endpoint's native auth scheme
+    (x-api-key or Bearer) plus ``anthropic-version``. The response shape
+    (``data[].id``) is identical, so the same parser works for both.
     """
     normalized = (base_url or "").strip().rstrip("/")
     if not normalized:
@@ -3593,8 +3595,18 @@ def probe_api_models(
     tried: list[str] = []
     headers: dict[str, str] = {"User-Agent": _FABRIC_USER_AGENT}
     if api_key and api_mode == "anthropic_messages":
-        headers["x-api-key"] = api_key
-        headers["anthropic-version"] = "2023-06-01"
+        from agent.anthropic_adapter import _anthropic_static_auth_headers
+
+        try:
+            headers.update(_anthropic_static_auth_headers(api_key, normalized))
+        except ValueError:
+            return {
+                "models": None,
+                "probed_url": None,
+                "resolved_base_url": normalized,
+                "suggested_base_url": None,
+                "used_fallback": False,
+            }
     elif api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     if normalized.startswith(COPILOT_BASE_URL):
@@ -3608,6 +3620,10 @@ def probe_api_models(
 
     for candidate_base, is_fallback in candidates:
         url = candidate_base.rstrip("/") + "/models"
+        if api_mode == "anthropic_messages":
+            from agent.anthropic_adapter import _with_anthropic_api_version
+
+            url = _with_anthropic_api_version(url, normalized)
         tried.append(url)
         req = urllib.request.Request(url, headers=headers)
         try:
@@ -4120,11 +4136,10 @@ def validate_requested_model(
                 ),
             }
 
-    # Native Anthropic provider: /v1/models requires x-api-key (or Bearer for
-    # OAuth) plus anthropic-version headers.  The generic OpenAI-style probe
+    # Native Anthropic provider: /v1/models requires x-api-key plus
+    # anthropic-version headers. The generic OpenAI-style probe
     # below uses plain Bearer auth and 401s against Anthropic, so dispatch to
-    # the native fetcher which handles both API keys and Claude-Code OAuth
-    # tokens.  (The api_mode=="anthropic_messages" branch below handles the
+    # the native API-key fetcher. (The api_mode=="anthropic_messages" branch below handles the
     # Messages-API transport case separately.)
     if normalized == "anthropic":
         anthropic_models = _fetch_anthropic_models(

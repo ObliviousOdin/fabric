@@ -912,13 +912,6 @@ def recover_with_credential_pool(
             and "oauth authentication is currently not allowed for this organization" in _auth_haystack
         ):
             is_entitlement = True
-        if (
-            not is_entitlement
-            and status_code == 403
-            and (agent.provider or "") == "anthropic"
-            and getattr(agent, "api_mode", "") == "anthropic_messages"
-        ):
-            is_entitlement = True
         if not is_entitlement and status_code == 403 and (agent.provider or "") == "xai-oauth":
             _is_xai_auth_failure = (
                 "[wke=unauthenticated:" in _auth_haystack
@@ -1045,7 +1038,9 @@ def try_recover_primary_transport(
                     else {}
                 ),
             )
-            agent._is_anthropic_oauth = rt["is_anthropic_oauth"]
+            # Never resurrect the retired native OAuth mode from a stale
+            # primary-runtime snapshot.
+            agent._is_anthropic_oauth = False
             agent.client = None
         else:
             agent.client = agent._create_openai_client(
@@ -1208,6 +1203,31 @@ def restore_primary_runtime(agent) -> bool:
             agent.api_mode == "anthropic_messages" and agent.provider == "anthropic",
         )
 
+        if str(agent.provider or "").strip().lower() == "anthropic":
+            # A fallback may have replaced the live pool with another
+            # Anthropic endpoint's filtered view. Restore a fresh view scoped
+            # to the primary route before any recovery/re-selection occurs.
+            try:
+                from agent.credential_pool import load_pool
+                from fabric_cli.runtime_provider import (
+                    _anthropic_pool_for_endpoint,
+                )
+
+                restored_pool = load_pool("anthropic")
+                agent._credential_pool = _anthropic_pool_for_endpoint(
+                    restored_pool,
+                    rt.get("anthropic_base_url") or rt.get("base_url") or "",
+                )
+            except Exception as pool_exc:
+                # Fail closed: retaining the fallback endpoint's pool would
+                # let a later 401/429 transplant its key into the primary.
+                agent._credential_pool = None
+                logger.warning(
+                    "Restore could not reload the Anthropic credential pool "
+                    "(%s); continuing without pool rotation",
+                    pool_exc,
+                )
+
         # ── Rebuild client for the primary provider ──
         if agent.api_mode == "anthropic_messages":
             from agent.anthropic_adapter import build_anthropic_client
@@ -1222,7 +1242,7 @@ def restore_primary_runtime(agent) -> bool:
                     else {}
                 ),
             )
-            agent._is_anthropic_oauth = rt["is_anthropic_oauth"]
+            agent._is_anthropic_oauth = False
             agent.client = None
         else:
             agent.client = agent._create_openai_client(
@@ -2040,6 +2060,15 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
     if not api_mode:
         api_mode = determine_api_mode(new_provider, base_url)
 
+    if (
+        (new_provider or "").strip().lower() == "anthropic"
+        and api_mode == "anthropic_messages"
+        and not str(base_url or "").strip()
+    ):
+        # Empty native routes mean Anthropic's public API, never the prior
+        # provider's cached endpoint.
+        base_url = "https://api.anthropic.com"
+
     # Defense-in-depth: ensure OpenCode base_url doesn't carry a trailing
     # /v1 into the anthropic_messages client, which would cause the SDK to
     # hit /v1/v1/messages.  `model_switch.switch_model()` already strips
@@ -2127,11 +2156,32 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
         # logged + swallowed: the switch itself must still complete.
         old_norm = (old_provider or "").strip().lower()
         new_norm = (new_provider or "").strip().lower()
-        if old_norm != new_norm or getattr(agent, "_credential_pool", None) is None:
+        if (
+            old_norm != new_norm
+            or getattr(agent, "_credential_pool", None) is None
+            # Anthropic can hold endpoint-scoped tuples for native, Azure,
+            # and proxies in one persisted pool. Rebuild the live view on
+            # every Anthropic switch so recovery cannot rotate across hosts.
+            or new_norm == "anthropic"
+        ):
             try:
                 from agent.credential_pool import load_pool
-                agent._credential_pool = load_pool(new_provider)
+                new_pool = load_pool(new_provider)
+                if new_norm == "anthropic" and base_url:
+                    from fabric_cli.runtime_provider import (
+                        _anthropic_pool_for_endpoint,
+                    )
+
+                    new_pool = _anthropic_pool_for_endpoint(
+                        new_pool,
+                        base_url,
+                    )
+                agent._credential_pool = new_pool
             except Exception as _pool_exc:  # noqa: BLE001
+                if new_norm == "anthropic":
+                    # Same-provider switches can change endpoint. Never leave
+                    # the prior endpoint's filtered pool attached on failure.
+                    agent._credential_pool = None
                 logger.warning(
                     "switch_model: credential pool reload failed for %s (%s); "
                     "continuing without pool rotation this turn",
@@ -2160,15 +2210,55 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
             agent.client = MoAClient(agent.model or "default")
         elif api_mode == "anthropic_messages":
             from agent.anthropic_adapter import (
+                _anthropic_endpoints_match,
                 build_anthropic_client,
-                resolve_anthropic_token,
-                _is_oauth_token,
             )
-            # Only fall back to ANTHROPIC_TOKEN when the provider is actually Anthropic.
+            # Only resolve the native Anthropic API key for Anthropic itself.
             # Other anthropic_messages providers (MiniMax, Alibaba, etc.) must use their own
             # API key — falling back would send Anthropic credentials to third-party endpoints.
             _is_native_anthropic = new_provider == "anthropic"
-            effective_key = (api_key or agent.api_key or resolve_anthropic_token() or "") if _is_native_anthropic else (api_key or agent.api_key or "")
+            effective_key = api_key or ""
+            if _is_native_anthropic and not effective_key:
+                pool = getattr(agent, "_credential_pool", None)
+                try:
+                    entry = pool.select() if pool and pool.has_credentials() else None
+                except Exception:
+                    entry = None
+                entry_base_url = str(
+                    getattr(entry, "runtime_base_url", None)
+                    or getattr(entry, "base_url", None)
+                    or ""
+                ).strip().rstrip("/")
+                if entry is not None and _anthropic_endpoints_match(
+                    entry_base_url,
+                    base_url,
+                ):
+                    effective_key = str(
+                        getattr(entry, "runtime_api_key", None)
+                        or getattr(entry, "access_token", "")
+                        or ""
+                    ).strip()
+            if _is_native_anthropic and not effective_key:
+                try:
+                    from fabric_cli.auth import (
+                        resolve_api_key_provider_credentials,
+                    )
+
+                    paired = resolve_api_key_provider_credentials("anthropic")
+                except Exception:
+                    paired = {}
+                if _anthropic_endpoints_match(
+                    str(paired.get("base_url") or ""),
+                    base_url,
+                ):
+                    effective_key = str(
+                        paired.get("api_key") or ""
+                    ).strip()
+            elif not _is_native_anthropic and not effective_key:
+                # Reuse only within the same provider. Never carry a prior
+                # provider's secret across a model switch.
+                if old_norm == new_norm:
+                    effective_key = agent.api_key or ""
 
             # MiniMax OAuth: swap static string for a per-request callable token
             # provider so the rebuilt client survives 15-min token expiry. See
@@ -2187,7 +2277,11 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
 
             agent.api_key = effective_key
             agent._anthropic_api_key = effective_key
-            agent._anthropic_base_url = base_url or getattr(agent, "_anthropic_base_url", None)
+            agent._anthropic_base_url = (
+                base_url
+                if _is_native_anthropic
+                else base_url or getattr(agent, "_anthropic_base_url", None)
+            )
             agent._anthropic_client = build_anthropic_client(
                 effective_key, agent._anthropic_base_url,
                 timeout=get_provider_request_timeout(agent.provider, agent.model),
@@ -2197,7 +2291,7 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
                     else {}
                 ),
             )
-            agent._is_anthropic_oauth = _is_oauth_token(effective_key) if (_is_native_anthropic and isinstance(effective_key, str)) else False
+            agent._is_anthropic_oauth = False
             agent.client = None
             agent._client_kwargs = {}
         else:
@@ -2346,7 +2440,7 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
         agent._primary_runtime.update({
             "anthropic_api_key": agent._anthropic_api_key,
             "anthropic_base_url": agent._anthropic_base_url,
-            "is_anthropic_oauth": agent._is_anthropic_oauth,
+            "is_anthropic_oauth": False,
         })
 
     # ── Reset fallback state ──

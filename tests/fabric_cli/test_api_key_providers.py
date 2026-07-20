@@ -60,6 +60,16 @@ class TestProviderRegistry:
         assert pconfig.base_url_env_var == "XAI_BASE_URL"
         assert pconfig.inference_base_url == "https://api.x.ai/v1"
 
+    def test_anthropic_env_vars_are_api_key_only(self):
+        pconfig = PROVIDER_REGISTRY["anthropic"]
+        assert pconfig.api_key_env_vars == ("ANTHROPIC_API_KEY",)
+
+        from fabric_cli.providers import get_provider
+
+        provider_def = get_provider("anthropic")
+        assert provider_def is not None
+        assert provider_def.api_key_env_vars == ("ANTHROPIC_API_KEY",)
+
     def test_nvidia_env_vars(self):
         pconfig = PROVIDER_REGISTRY["nvidia"]
         assert pconfig.api_key_env_vars == ("NVIDIA_API_KEY",)
@@ -136,7 +146,7 @@ class TestProviderRegistry:
 
 PROVIDER_ENV_VARS = (
     "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN",
-    "CLAUDE_CODE_OAUTH_TOKEN",
+    "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
     "LM_API_KEY", "LM_BASE_URL",
     "GLM_API_KEY", "ZAI_API_KEY", "Z_AI_API_KEY",
     "KIMI_API_KEY", "KIMI_BASE_URL", "STEPFUN_API_KEY", "STEPFUN_BASE_URL",
@@ -200,6 +210,20 @@ class TestResolveProvider:
 
     def test_alias_gmi_cloud(self):
         assert resolve_provider("gmi-cloud") == "gmi"
+
+    @pytest.mark.parametrize(
+        "provider_alias",
+        ["claude", "claude-oauth", "claude-code"],
+    )
+    def test_anthropic_aliases_are_consistent(self, provider_alias):
+        from agent.auxiliary_client import _normalize_aux_provider
+        from fabric_cli.models import normalize_provider as normalize_model_provider
+        from fabric_cli.providers import normalize_provider
+
+        assert resolve_provider(provider_alias) == "anthropic"
+        assert normalize_provider(provider_alias) == "anthropic"
+        assert normalize_model_provider(provider_alias) == "anthropic"
+        assert _normalize_aux_provider(provider_alias) == "anthropic"
 
     def test_explicit_kilocode(self):
         assert resolve_provider("kilocode") == "kilocode"
@@ -324,6 +348,206 @@ class TestApiKeyProviderStatus:
         assert status["logged_in"] is True
         assert status["key_source"] == "GLM_API_KEY"
         assert "z.ai" in status["base_url"].lower() or "api.z.ai" in status["base_url"]
+
+    def test_anthropic_third_party_jwt_env_key_is_configured(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "eyJ.proxy.signature")
+        monkeypatch.setenv(
+            "ANTHROPIC_BASE_URL",
+            "https://gateway.example/anthropic",
+        )
+
+        status = get_api_key_provider_status("anthropic")
+
+        assert status["configured"] is True
+        assert status["logged_in"] is True
+        assert status["key_source"] == "env:ANTHROPIC_API_KEY"
+        assert status["base_url"] == "https://gateway.example/anthropic"
+
+    def test_anthropic_third_party_pool_preserves_source_and_base(
+        self, monkeypatch
+    ):
+        store = {
+            "credential_pool": {
+                "anthropic": [
+                    {
+                        "id": "proxy-key",
+                        "label": "work proxy",
+                        "auth_type": "api_key",
+                        "priority": 0,
+                        "source": "manual",
+                        "access_token": "eyJ.proxy.signature",
+                        "base_url": "https://gateway.example/anthropic",
+                    }
+                ]
+            }
+        }
+        monkeypatch.setattr("fabric_cli.auth._load_auth_store", lambda: store)
+        monkeypatch.setattr(
+            "fabric_cli.auth._configured_anthropic_base_url",
+            lambda: "https://api.anthropic.com",
+        )
+
+        status = get_api_key_provider_status("anthropic")
+
+        assert status["configured"] is True
+        assert status["key_source"] == "credential_pool:work proxy"
+        assert status["base_url"] == "https://gateway.example/anthropic"
+
+    @pytest.mark.parametrize(
+        "native_key",
+        ["sk-ant-api03-native", "sk-ant-admin-native"],
+    )
+    def test_endpointless_native_pool_key_is_not_rebound_during_discovery(
+        self, monkeypatch, native_key
+    ):
+        """A later model proxy route is not ownership proof for a native key."""
+        proxy_url = "https://gateway.example/anthropic"
+        store = {
+            "credential_pool": {
+                "anthropic": [
+                    {
+                        "id": "legacy-native",
+                        "label": "legacy native key",
+                        "auth_type": "api_key",
+                        "priority": 0,
+                        "source": "manual",
+                        "access_token": native_key,
+                    }
+                ]
+            }
+        }
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+        monkeypatch.setattr("fabric_cli.auth._load_auth_store", lambda: store)
+        monkeypatch.setattr(
+            "fabric_cli.config.load_config",
+            lambda: {
+                "model": {
+                    "provider": "anthropic",
+                    "base_url": proxy_url,
+                }
+            },
+        )
+
+        status = get_api_key_provider_status("anthropic")
+
+        assert status["configured"] is False
+        assert status["logged_in"] is False
+        assert status["base_url"] == proxy_url
+
+    def test_endpointless_opaque_local_pool_key_requires_explicit_route(
+        self, monkeypatch
+    ):
+        proxy_url = "https://gateway.example/anthropic"
+        store = {
+            "credential_pool": {
+                "anthropic": [
+                    {
+                        "id": "legacy-proxy",
+                        "label": "legacy proxy key",
+                        "auth_type": "api_key",
+                        "priority": 0,
+                        "source": "manual",
+                        "access_token": "eyJ.proxy.signature",
+                    }
+                ]
+            }
+        }
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+        monkeypatch.setattr("fabric_cli.auth._load_auth_store", lambda: store)
+        monkeypatch.setattr(
+            "fabric_cli.config.load_config",
+            lambda: {
+                "model": {
+                    "provider": "anthropic",
+                    "base_url": proxy_url,
+                }
+            },
+        )
+
+        status = get_api_key_provider_status("anthropic")
+
+        assert status["configured"] is True
+        assert status["key_source"] == "credential_pool:legacy proxy key"
+        assert status["base_url"] == proxy_url
+
+    def test_suppressed_anthropic_env_source_is_not_resolved(
+        self, monkeypatch, tmp_path
+    ):
+        auth_store = {}
+
+        def _save_auth_store(updated):
+            snapshot = dict(updated)
+            auth_store.clear()
+            auth_store.update(snapshot)
+            return True
+
+        fabric_home = tmp_path / ".fabric"
+        fabric_home.mkdir()
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-suppressed")
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+        monkeypatch.setattr(
+            "fabric_cli.auth._load_auth_store", lambda: auth_store
+        )
+        monkeypatch.setattr(
+            "fabric_cli.auth._save_auth_store", _save_auth_store
+        )
+
+        from fabric_cli.auth import suppress_credential_source
+
+        suppress_credential_source("anthropic", "env:ANTHROPIC_API_KEY")
+        creds = resolve_api_key_provider_credentials("anthropic")
+
+        assert creds["api_key"] == ""
+        assert creds["source"] == "default"
+
+    def test_model_azure_key_hint_is_not_rebound_to_other_env_endpoint(
+        self, monkeypatch, tmp_path
+    ):
+        fabric_home = tmp_path / ".fabric"
+        fabric_home.mkdir()
+        (fabric_home / "config.yaml").write_text(
+            "model:\n"
+            "  provider: anthropic\n"
+            "  base_url: https://resource-b.services.ai.azure.com/anthropic\n"
+            "  key_env: KEY_FOR_RESOURCE_B\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+        monkeypatch.setenv(
+            "ANTHROPIC_BASE_URL",
+            "https://resource-a.services.ai.azure.com/anthropic",
+        )
+        monkeypatch.setenv("KEY_FOR_RESOURCE_B", "resource-b-key")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("AZURE_ANTHROPIC_KEY", raising=False)
+
+        mismatched = resolve_api_key_provider_credentials("anthropic")
+
+        assert mismatched["base_url"] == (
+            "https://resource-a.services.ai.azure.com/anthropic"
+        )
+        assert mismatched["api_key"] == ""
+
+        monkeypatch.setenv(
+            "ANTHROPIC_BASE_URL",
+            "https://resource-b.services.ai.azure.com/anthropic/v1/",
+        )
+        equivalent = resolve_api_key_provider_credentials("anthropic")
+
+        assert equivalent["api_key"] == "resource-b-key"
+        assert equivalent["source"] == "env:KEY_FOR_RESOURCE_B"
+
+        monkeypatch.delenv("ANTHROPIC_BASE_URL")
+        paired = resolve_api_key_provider_credentials("anthropic")
+
+        assert paired["base_url"] == (
+            "https://resource-b.services.ai.azure.com/anthropic"
+        )
+        assert paired["api_key"] == "resource-b-key"
+        assert paired["source"] == "env:KEY_FOR_RESOURCE_B"
 
     def test_fallback_env_var(self, monkeypatch):
         """ZAI_API_KEY should work when GLM_API_KEY is not set."""
@@ -696,6 +920,63 @@ class TestRuntimeProviderResolution:
 
 class TestHasAnyProviderConfigured:
 
+    def test_oauth_shape_in_anthropic_api_key_slot_does_not_count(
+        self, monkeypatch, tmp_path
+    ):
+        """First-run setup must reject a retired token in the wrong slot."""
+        import yaml
+        from fabric_cli import config as config_module
+        from fabric_cli.auth import PROVIDER_REGISTRY
+
+        fabric_home = tmp_path / ".fabric"
+        fabric_home.mkdir()
+        (fabric_home / "config.yaml").write_text(
+            yaml.dump({"model": {"default": ""}}), encoding="utf-8"
+        )
+        (fabric_home / ".env").write_text(
+            "ANTHROPIC_API_KEY=sk-ant-oat01-wrong-slot\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+        monkeypatch.setattr(config_module, "get_env_path", lambda: fabric_home / ".env")
+        monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
+        all_vars = {"OPENAI_BASE_URL"}
+        for pconfig in PROVIDER_REGISTRY.values():
+            if pconfig.auth_type == "api_key":
+                all_vars.update(pconfig.api_key_env_vars)
+        for name in all_vars:
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-wrong-slot")
+        monkeypatch.setattr(
+            "fabric_cli.copilot_auth.resolve_copilot_token", lambda: ("", "")
+        )
+
+        from fabric_cli.main import _has_any_provider_configured
+
+        assert _has_any_provider_configured() is False
+
+    def test_retired_anthropic_token_alone_does_not_count(self, monkeypatch, tmp_path):
+        """A stale OAuth token must not skip first-run provider setup."""
+        import yaml
+        from fabric_cli import config as config_module
+
+        fabric_home = tmp_path / ".fabric"
+        fabric_home.mkdir()
+        (fabric_home / "config.yaml").write_text(
+            yaml.dump({"model": {"default": ""}}), encoding="utf-8"
+        )
+        (fabric_home / ".env").write_text(
+            "ANTHROPIC_TOKEN=sk-ant-oat01-retired\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+        monkeypatch.setenv("ANTHROPIC_TOKEN", "sk-ant-oat01-retired")
+        monkeypatch.setattr(config_module, "get_env_path", lambda: fabric_home / ".env")
+        monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
+        monkeypatch.setattr("fabric_cli.auth.get_auth_status", lambda _provider: {})
+
+        from fabric_cli.main import _has_any_provider_configured
+
+        assert _has_any_provider_configured() is False
+
     def test_glm_key_counts(self, monkeypatch, tmp_path):
         from fabric_cli import config as config_module
         monkeypatch.setenv("GLM_API_KEY", "test-key")
@@ -725,37 +1006,6 @@ class TestHasAnyProviderConfigured:
         monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
         from fabric_cli.main import _has_any_provider_configured
         assert _has_any_provider_configured() is True
-
-    def test_claude_code_creds_ignored_on_fresh_install(self, monkeypatch, tmp_path):
-        """Claude Code credentials should NOT skip the wizard when Fabric is unconfigured."""
-        from fabric_cli import config as config_module
-        from fabric_cli.auth import PROVIDER_REGISTRY
-        fabric_home = tmp_path / ".fabric"
-        fabric_home.mkdir()
-        monkeypatch.setattr(config_module, "get_env_path", lambda: fabric_home / ".env")
-        monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
-        monkeypatch.setattr("fabric_cli.copilot_auth.resolve_copilot_token", lambda: ("", ""))
-        # Clear all provider env vars so earlier checks don't short-circuit
-        _all_vars = {"OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-                      "ANTHROPIC_TOKEN", "OPENAI_BASE_URL"}
-        for pconfig in PROVIDER_REGISTRY.values():
-            if pconfig.auth_type == "api_key":
-                _all_vars.update(pconfig.api_key_env_vars)
-        for var in _all_vars:
-            monkeypatch.delenv(var, raising=False)
-        # Prevent gh-cli / copilot auth fallback from leaking in
-        monkeypatch.setattr("fabric_cli.auth.get_auth_status", lambda _pid: {})
-        # Simulate valid Claude Code credentials
-        monkeypatch.setattr(
-            "agent.anthropic_adapter.read_claude_code_credentials",
-            lambda: {"accessToken": "sk-ant-test", "refreshToken": "ref-tok"},
-        )
-        monkeypatch.setattr(
-            "agent.anthropic_adapter.is_claude_code_token_valid",
-            lambda creds: True,
-        )
-        from fabric_cli.main import _has_any_provider_configured
-        assert _has_any_provider_configured() is False
 
     def test_config_provider_counts(self, monkeypatch, tmp_path):
         """config.yaml with model.provider set should count as configured."""
@@ -842,33 +1092,79 @@ class TestHasAnyProviderConfigured:
         from fabric_cli.main import _has_any_provider_configured
         assert _has_any_provider_configured() is False
 
-    def test_claude_code_creds_counted_when_fabric_configured(self, monkeypatch, tmp_path):
-        """Claude Code credentials should count when Fabric has been explicitly configured."""
-        import yaml
-        from fabric_cli import config as config_module
+
+class TestModelSectionHasCredentials:
+    def test_anthropic_wrong_slot_oauth_token_does_not_count(
+        self, monkeypatch, tmp_path
+    ):
         fabric_home = tmp_path / ".fabric"
         fabric_home.mkdir()
-        # Write a config with a non-default model to simulate explicit configuration
-        config_file = fabric_home / "config.yaml"
-        config_file.write_text(yaml.dump({"model": {"default": "my-local-model"}}))
-        monkeypatch.setattr(config_module, "get_env_path", lambda: fabric_home / ".env")
-        monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
         monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
-        # Clear all provider env vars
-        for var in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-                     "ANTHROPIC_TOKEN", "OPENAI_BASE_URL"):
-            monkeypatch.delenv(var, raising=False)
-        # Simulate valid Claude Code credentials
-        monkeypatch.setattr(
-            "agent.anthropic_adapter.read_claude_code_credentials",
-            lambda: {"accessToken": "sk-ant-test", "refreshToken": "ref-tok"},
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-wrong-slot")
+
+        from fabric_cli.setup import _model_section_has_credentials
+
+        assert not _model_section_has_credentials(
+            {"model": {"provider": "anthropic"}}
         )
-        monkeypatch.setattr(
-            "agent.anthropic_adapter.is_claude_code_token_valid",
-            lambda creds: True,
+
+    def test_anthropic_manual_api_key_pool_counts(self, monkeypatch, tmp_path):
+        fabric_home = tmp_path / ".fabric"
+        fabric_home.mkdir()
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        from fabric_cli.setup import _model_section_has_credentials
+
+        # This module's autouse fixture isolates auth-store reads. Seed that
+        # isolated store directly so this remains a unit test of setup/status
+        # behavior rather than accidentally reading the developer's profile.
+        store = {
+            "credential_pool": {
+                "anthropic": [{
+                "id": "manual-key",
+                "auth_type": "api_key",
+                "priority": 0,
+                "source": "manual",
+                "access_token": "sk-ant-api03-valid",
+                }],
+            }
+        }
+        monkeypatch.setattr("fabric_cli.auth._load_auth_store", lambda: store)
+
+        assert _model_section_has_credentials(
+            {"model": {"provider": "anthropic"}}
         )
-        from fabric_cli.main import _has_any_provider_configured
-        assert _has_any_provider_configured() is True
+
+    def test_anthropic_azure_key_hint_counts(self, monkeypatch, tmp_path):
+        fabric_home = tmp_path / ".fabric"
+        fabric_home.mkdir()
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("MY_AZURE_ANTHROPIC_KEY", "azure-static-key")
+        model = {
+            "provider": "anthropic",
+            "base_url": (
+                "https://demo.services.ai.azure.com/anthropic"
+            ),
+            "key_env": "MY_AZURE_ANTHROPIC_KEY",
+        }
+        (fabric_home / "config.yaml").write_text(
+            "model:\n"
+            "  provider: anthropic\n"
+            "  base_url: https://demo.services.ai.azure.com/anthropic\n"
+            "  key_env: MY_AZURE_ANTHROPIC_KEY\n"
+        )
+
+        from fabric_cli.auth import get_auth_status
+        from fabric_cli.setup import _model_section_has_credentials
+
+        status = get_auth_status("anthropic")
+        assert status["configured"] is True
+        assert status["logged_in"] is True
+        assert status["key_source"] == "env:MY_AZURE_ANTHROPIC_KEY"
+        assert status["base_url"] == model["base_url"]
+        assert _model_section_has_credentials({"model": model})
 
 
 # =============================================================================

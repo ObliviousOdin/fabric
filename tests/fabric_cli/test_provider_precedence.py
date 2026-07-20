@@ -8,7 +8,12 @@ OPENAI_API_KEY exported (or model.provider set) got routed to Anthropic.
 """
 import pytest
 
-from fabric_cli.auth import resolve_provider, AuthError
+from fabric_cli.auth import (
+    AuthError,
+    get_auth_status,
+    is_provider_explicitly_configured,
+    resolve_provider,
+)
 
 
 def _login(monkeypatch, provider_id):
@@ -30,11 +35,30 @@ def _no_aws(monkeypatch):
 
 def _clear_provider_env(monkeypatch):
     for var in ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "GLM_API_KEY", "ZAI_API_KEY",
-                "KIMI_API_KEY", "MINIMAX_API_KEY"):
+                "KIMI_API_KEY", "MINIMAX_API_KEY", "ANTHROPIC_API_KEY",
+                "XAI_API_KEY"):
         monkeypatch.delenv(var, raising=False)
 
 
 class TestProviderPrecedence:
+    def test_oauth_shape_in_anthropic_key_slot_is_ignored(
+        self, monkeypatch, tmp_path
+    ):
+        """A retired token in the API-key slot must not hijack auto-routing."""
+        home = tmp_path / "fabric"
+        home.mkdir()
+        monkeypatch.setenv("FABRIC_HOME", str(home))
+        _clear_provider_env(monkeypatch)
+        _no_aws(monkeypatch)
+        _config(monkeypatch, {})
+        monkeypatch.setattr("fabric_cli.auth._load_auth_store", lambda: {})
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-wrong-slot")
+        monkeypatch.setenv("XAI_API_KEY", "xai-valid-key")
+
+        assert not is_provider_explicitly_configured("anthropic")
+        assert not get_auth_status("anthropic")["logged_in"]
+        assert resolve_provider("auto") == "xai"
+
     def test_config_provider_beats_stale_oauth(self, monkeypatch):
         """config.yaml model.provider wins over a logged-in OAuth active_provider."""
         _clear_provider_env(monkeypatch)

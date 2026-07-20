@@ -50,6 +50,23 @@ logger = logging.getLogger(__name__)
 # ``model.entra.scope`` in config.yaml.
 SCOPE_AI_AZURE_DEFAULT = "https://ai.azure.com/.default"
 
+
+@dataclass(frozen=True)
+class AzureEntraTokenProvider:
+    """Callable marker for a token provider created by Azure Identity.
+
+    The marker lets transport adapters distinguish an explicitly configured
+    Entra credential from an arbitrary callable that could wrap a native
+    Anthropic subscription token. It preserves the zero-argument callable
+    contract expected by the OpenAI SDK.
+    """
+
+    _provider: Callable[[], str]
+
+    def __call__(self) -> str:
+        return self._provider()
+
+
 # ---------------------------------------------------------------------------
 # Lazy SDK import — only loaded when the Entra path is actually used.
 # ---------------------------------------------------------------------------
@@ -250,7 +267,8 @@ def build_token_provider(scope: Optional[str] = None,
             exclude_interactive_browser=exclude_interactive_browser,
         )
     credential = build_credential(config)
-    return ai.get_bearer_token_provider(credential, config.scope)
+    provider = ai.get_bearer_token_provider(credential, config.scope)
+    return AzureEntraTokenProvider(provider)
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +448,11 @@ def is_token_provider(value: Any) -> bool:
     return callable(value) and not isinstance(value, str)
 
 
+def is_azure_entra_token_provider(value: Any) -> bool:
+    """Return whether *value* was produced by :func:`build_token_provider`."""
+    return isinstance(value, AzureEntraTokenProvider)
+
+
 def materialize_bearer_for_http(value: Any) -> str:
     """Return a fresh Bearer JWT for a manual HTTP request.
 
@@ -541,6 +564,7 @@ def build_bearer_http_client(token_provider: Callable[[], str], **httpx_kwargs: 
 
 
 __all__ = [
+    "AzureEntraTokenProvider",
     "EntraIdentityConfig",
     "SCOPE_AI_AZURE_DEFAULT",
     "build_bearer_http_client",
@@ -550,6 +574,7 @@ __all__ = [
     "has_azure_identity_credentials",
     "has_azure_identity_installed",
     "is_token_provider",
+    "is_azure_entra_token_provider",
     "materialize_bearer_for_http",
     "reset_credential_cache",
 ]

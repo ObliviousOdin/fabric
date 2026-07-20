@@ -1,19 +1,17 @@
-"""Tests for ``_is_anthropic_oauth`` guard against third-party Anthropic-compatible providers.
+"""Tests for the retired native-Anthropic OAuth runtime flag.
 
-The invariant: ``self._is_anthropic_oauth`` must only ever be True when
-``self.provider == 'anthropic'`` (native Anthropic).  Third-party providers
-that speak the Anthropic protocol (MiniMax, Zhipu GLM, Alibaba DashScope,
-Kimi, LiteLLM proxies, etc.) must never trip OAuth code paths — doing so
-injects Claude-Code identity headers and system prompts that cause
-401/403 from those endpoints.
+The invariant: ``self._is_anthropic_oauth`` is always False for every
+supported runtime credential. Native Anthropic OAuth is unsupported, while a
+third-party endpoint may legitimately issue a JWT-shaped API key even when the
+Fabric provider id remains ``anthropic``. Token shape must not reactivate the
+legacy subscription-only 1M-context-beta retry (see NOTICE).
 
-This test class covers all FIVE sites that assign ``_is_anthropic_oauth``:
+The tests cover the live construction and credential-transition paths:
 
-1. ``AIAgent.__init__``                              (line ~1022)
-2. ``AIAgent.switch_model``                          (line ~1832)
-3. ``AIAgent._try_refresh_anthropic_client_credentials`` (line ~5335)
-4. ``AIAgent._swap_credential``                      (line ~5378)
-5. ``AIAgent._try_activate_fallback``                (line ~6536)
+1. ``AIAgent.__init__``
+2. ``AIAgent.switch_model``
+3. ``AIAgent._swap_credential``
+4. ``AIAgent._try_activate_fallback``
 """
 
 from __future__ import annotations
@@ -76,8 +74,7 @@ class TestOAuthFlagOnRefresh:
         # And the flag is untouched regardless.
         assert agent._is_anthropic_oauth is False
 
-    def test_native_anthropic_preserves_existing_oauth_behaviour(self, agent):
-        """Regression: native anthropic with OAuth token still flips flag to True."""
+    def test_native_anthropic_oauth_refresh_path_is_removed(self, agent):
         agent.api_mode = "anthropic_messages"
         agent.provider = "anthropic"
         agent._anthropic_api_key = "***"
@@ -92,8 +89,8 @@ class TestOAuthFlagOnRefresh:
         ):
             result = agent._try_refresh_anthropic_client_credentials()
 
-        assert result is True
-        assert agent._is_anthropic_oauth is True
+        assert result is False
+        assert agent._is_anthropic_oauth is False
 
 
 class TestOAuthFlagOnCredentialSwap:
@@ -115,6 +112,28 @@ class TestOAuthFlagOnCredentialSwap:
                    return_value=MagicMock()):
             agent._swap_credential(entry)
 
+        assert agent._is_anthropic_oauth is False
+
+    def test_proxy_jwt_swap_under_anthropic_provider_stays_non_oauth(self, agent):
+        agent.api_mode = "anthropic_messages"
+        agent.provider = "anthropic"
+        agent.base_url = "https://gateway.example/anthropic"
+        agent._anthropic_api_key = "old-proxy-key"
+        agent._anthropic_base_url = agent.base_url
+        agent._anthropic_client = MagicMock()
+        agent._is_anthropic_oauth = True
+
+        entry = MagicMock()
+        entry.runtime_api_key = "eyJ.proxy.signature"
+        entry.runtime_base_url = agent.base_url
+
+        with patch(
+            "agent.anthropic_adapter.build_anthropic_client",
+            return_value=MagicMock(),
+        ):
+            agent._swap_credential(entry)
+
+        assert agent._anthropic_api_key == "eyJ.proxy.signature"
         assert agent._is_anthropic_oauth is False
 
 
@@ -148,22 +167,86 @@ class TestOAuthFlagOnConstruction:
         assert agent._anthropic_api_key == "minimax-key-1234"
         assert agent._is_anthropic_oauth is False
 
+    def test_anthropic_provider_with_proxy_jwt_does_not_flip_oauth(self):
+        with (
+            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch(
+                "agent.anthropic_adapter.build_anthropic_client",
+                return_value=MagicMock(),
+            ),
+        ):
+            agent = AIAgent(
+                api_key="eyJ.proxy.signature",
+                base_url="https://gateway.example/anthropic",
+                provider="anthropic",
+                api_mode="anthropic_messages",
+                model="claude-sonnet-4-6",
+                quiet_mode=True,
+                skip_context_files=True,
+                skip_memory=True,
+            )
+
+        assert agent._anthropic_api_key == "eyJ.proxy.signature"
+        assert agent._is_anthropic_oauth is False
+
+
+class TestOAuthFlagOnModelSwitch:
+    def test_switch_to_anthropic_proxy_jwt_clears_stale_flag(self, agent):
+        agent._is_anthropic_oauth = True
+        with (
+            patch(
+                "agent.anthropic_adapter.build_anthropic_client",
+                return_value=MagicMock(),
+            ),
+            patch("agent.credential_pool.load_pool", return_value=None),
+            patch(
+                "fabric_cli.timeouts.get_provider_request_timeout",
+                return_value=None,
+            ),
+        ):
+            agent.switch_model(
+                new_model="claude-sonnet-4-6",
+                new_provider="anthropic",
+                api_key="eyJ.proxy.signature",
+                base_url="https://gateway.example/anthropic",
+                api_mode="anthropic_messages",
+            )
+
+        assert agent._anthropic_api_key == "eyJ.proxy.signature"
+        assert agent._is_anthropic_oauth is False
+
 
 class TestOAuthFlagOnFallbackActivation:
-    """Site 5 — _try_activate_fallback targeting a third-party Anthropic endpoint."""
+    """Live fallback activation targeting an Anthropic-format endpoint."""
 
     def test_fallback_to_third_party_does_not_flip_oauth(self, agent):
-        """Directly mimic the post-fallback assignment at line ~6537."""
-        from agent.anthropic_adapter import _is_oauth_token
+        agent._fallback_activated = False
+        agent._fallback_model = {
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+            "base_url": "https://gateway.example/anthropic",
+        }
+        agent._fallback_chain = [agent._fallback_model]
+        agent._fallback_index = 0
+        agent._is_anthropic_oauth = True
 
-        # Emulate the relevant lines of _try_activate_fallback without
-        # running the entire recovery stack (which pulls in streaming,
-        # sessions, etc.).
-        fb_provider = "minimax"
-        effective_key = _OAUTH_LIKE_TOKEN
-        agent._is_anthropic_oauth = (
-            _is_oauth_token(effective_key) if fb_provider == "anthropic" else False
-        )
+        fallback_client = MagicMock()
+        fallback_client.api_key = "eyJ.proxy.signature"
+        fallback_client.base_url = "https://gateway.example/anthropic"
+        with (
+            patch(
+                "agent.auxiliary_client.resolve_provider_client",
+                return_value=(fallback_client, None),
+            ),
+            patch(
+                "agent.anthropic_adapter.build_anthropic_client",
+                return_value=MagicMock(),
+            ),
+        ):
+            assert agent._try_activate_fallback() is True
+
+        assert agent._anthropic_api_key == "eyJ.proxy.signature"
         assert agent._is_anthropic_oauth is False
 
 

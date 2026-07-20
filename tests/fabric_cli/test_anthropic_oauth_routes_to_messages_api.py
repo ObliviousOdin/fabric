@@ -1,10 +1,7 @@
 """Regression coverage for issue #32243.
 
-OAuth Pro/Max credentials must always reach Anthropic via the native
-``/v1/messages`` endpoint, never the OpenAI-compat ``/chat/completions``
-shim — the latter bills against a separate "extra usage" pool that
-Pro/Max subscriptions don't fund, so any request that lands on it 400s
-with "You're out of extra usage" the moment the gateway starts.
+Native Anthropic API keys must always reach the Messages API
+(``/v1/messages``), never the OpenAI-compatible ``/chat/completions`` shim.
 
 The root cause was an inconsistency between two URL→api_mode helpers:
 
@@ -26,6 +23,8 @@ single branch cannot silently revert #32243.
 
 from __future__ import annotations
 
+import pytest
+
 from fabric_cli import runtime_provider as rp
 
 
@@ -44,7 +43,7 @@ class TestExplicitRuntimeForAnthropic:
             provider="anthropic",
             requested_provider="anthropic",
             model_cfg={},
-            explicit_api_key="sk-ant-oat01-foo",
+            explicit_api_key="sk-ant-api03-foo",
             explicit_base_url="https://api.anthropic.com",
         )
         assert result is not None
@@ -62,10 +61,24 @@ class TestExplicitRuntimeForAnthropic:
             provider="anthropic",
             requested_provider="anthropic",
             model_cfg={"provider": "anthropic", "api_mode": "chat_completions"},
-            explicit_api_key="sk-ant-oat01-foo",
+            explicit_api_key="sk-ant-api03-foo",
             explicit_base_url="https://api.anthropic.com",
         )
         assert result is not None
+        assert result["api_mode"] == "anthropic_messages"
+
+    def test_third_party_endpoint_accepts_opaque_jwt_api_key(self):
+        result = rp._resolve_explicit_runtime(
+            provider="anthropic",
+            requested_provider="anthropic",
+            model_cfg={},
+            explicit_api_key="eyJ.proxy.signature",
+            explicit_base_url="https://gateway.example/anthropic",
+        )
+
+        assert result is not None
+        assert result["api_key"] == "eyJ.proxy.signature"
+        assert result["base_url"] == "https://gateway.example/anthropic"
         assert result["api_mode"] == "anthropic_messages"
 
     def test_no_explicit_args_returns_none(self):
@@ -82,21 +95,78 @@ class TestExplicitRuntimeForAnthropic:
             is None
         )
 
+    def test_explicit_base_url_uses_pooled_api_key(self, tmp_path, monkeypatch):
+        """A base-only override must not bypass a manually-added key."""
+        home = tmp_path / "fabric"
+        home.mkdir()
+        monkeypatch.setenv("FABRIC_HOME", str(home))
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        from fabric_cli.auth import write_credential_pool
+
+        write_credential_pool(
+            "anthropic",
+            [{
+                "id": "manual-key",
+                "label": "work key",
+                "auth_type": "api_key",
+                "priority": 0,
+                "source": "manual",
+                "access_token": "sk-ant-api03-pooled",
+            }],
+        )
+
+        result = rp.resolve_runtime_provider(
+            requested="anthropic",
+            explicit_base_url="https://api.anthropic.com",
+        )
+
+        assert result["api_key"] == "sk-ant-api03-pooled"
+        assert result["source"] == "manual"
+        assert result["api_mode"] == "anthropic_messages"
+
+    def test_explicit_base_url_cannot_transplant_proxy_pool_key(
+        self, tmp_path, monkeypatch
+    ):
+        home = tmp_path / "fabric"
+        home.mkdir()
+        monkeypatch.setenv("FABRIC_HOME", str(home))
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        from fabric_cli.auth import write_credential_pool
+
+        write_credential_pool(
+            "anthropic",
+            [{
+                "id": "gateway-a-key",
+                "label": "gateway A",
+                "auth_type": "api_key",
+                "priority": 0,
+                "source": "manual",
+                "access_token": "eyJ.gateway-a.signature",
+                "base_url": "https://gateway-a.example/anthropic",
+            }],
+        )
+
+        with pytest.raises(rp.AuthError, match="No Anthropic API key"):
+            rp.resolve_runtime_provider(
+                requested="anthropic",
+                explicit_base_url="https://gateway-b.example/anthropic",
+            )
+
 
 class TestPoolEntryForAnthropic:
     """``_resolve_runtime_from_pool_entry`` is what runs when a user
-    has added an OAuth credential via ``fabric auth add anthropic
-    --type oauth`` (the exact flow from #32243).  Pin the contract
-    alongside the URL-detector test so all three runtime branches
-    stay aligned and a future refactor of one cannot diverge from
-    the others.
+    has added an API key via ``fabric auth add anthropic --type api-key``.
+    Pin the contract alongside the URL-detector test so all three runtime
+    branches stay aligned and a future refactor cannot diverge.
     """
 
-    def test_oauth_pool_entry_routes_to_messages_api(self):
+    def test_api_key_pool_entry_routes_to_messages_api(self):
         class _Entry:
-            access_token = "sk-ant-oat01-pool"
-            runtime_api_key = "sk-ant-oat01-pool"
-            source = "manual:anthropic_pkce"
+            access_token = "sk-ant-api03-pool"
+            runtime_api_key = "sk-ant-api03-pool"
+            source = "manual"
             base_url = "https://api.anthropic.com"
 
         resolved = rp._resolve_runtime_from_pool_entry(
@@ -115,9 +185,9 @@ class TestPoolEntryForAnthropic:
         # the pool path: a stale persisted chat_completions api_mode
         # must NOT override the provider-pin.
         class _Entry:
-            access_token = "sk-ant-oat01-pool"
-            runtime_api_key = "sk-ant-oat01-pool"
-            source = "manual:anthropic_pkce"
+            access_token = "sk-ant-api03-pool"
+            runtime_api_key = "sk-ant-api03-pool"
+            source = "manual"
             base_url = "https://api.anthropic.com"
 
         resolved = rp._resolve_runtime_from_pool_entry(
@@ -132,6 +202,27 @@ class TestPoolEntryForAnthropic:
 
         assert resolved["api_mode"] == "anthropic_messages"
 
+    def test_proxy_key_stays_paired_with_its_pool_endpoint(self):
+        class _Entry:
+            access_token = "eyJ.gateway-a.signature"
+            runtime_api_key = "eyJ.gateway-a.signature"
+            source = "manual"
+            base_url = "https://gateway-a.example/anthropic"
+            runtime_base_url = "https://gateway-a.example/anthropic"
+
+        resolved = rp._resolve_runtime_from_pool_entry(
+            provider="anthropic",
+            entry=_Entry(),
+            requested_provider="anthropic",
+            model_cfg={
+                "provider": "anthropic",
+                "base_url": "https://api.anthropic.com",
+            },
+        )
+
+        assert resolved["api_key"] == "eyJ.gateway-a.signature"
+        assert resolved["base_url"] == "https://gateway-a.example/anthropic"
+
 
 class TestCustomProviderUrlFallback:
     """The detector fix's actual reachable path: a user-defined
@@ -142,16 +233,16 @@ class TestCustomProviderUrlFallback:
     Pre-fix: this falls through ``_try_resolve_from_custom_pool`` →
     ``_detect_api_mode_for_url("https://api.anthropic.com")`` → None →
     default ``chat_completions`` → request lands on the OpenAI-compat
-    shim → "out of extra usage" 400.
+    shim → an incompatible or separately billed request path.
 
     Post-fix: the detector returns ``anthropic_messages`` so the same
-    config routes to ``/v1/messages`` where Pro/Max OAuth is billed.
+    config routes to the native ``/v1/messages`` endpoint.
     """
 
     def test_url_fallback_picks_messages_api(self, monkeypatch):
         class _Entry:
-            access_token = "sk-ant-oat01-custom-pool"
-            runtime_api_key = "sk-ant-oat01-custom-pool"
+            access_token = "custom-anthropic-compatible-key"
+            runtime_api_key = "custom-anthropic-compatible-key"
             source = "custom-pool"
 
         class _Pool:

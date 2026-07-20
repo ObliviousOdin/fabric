@@ -846,22 +846,8 @@ def _has_any_provider_configured() -> bool:
     from fabric_cli.config import get_env_path, get_fabric_home, load_config
     from fabric_cli.auth import get_auth_status
 
-    # Determine whether Fabric itself has been explicitly configured (model
-    # in config that isn't the hardcoded default). Used below to gate external
-    # tool credentials (Claude Code, Codex CLI) that shouldn't silently skip
-    # the setup wizard on a fresh install.
-    from fabric_cli.config import DEFAULT_CONFIG
-
-    _DEFAULT_MODEL = DEFAULT_CONFIG.get("model", "")
     cfg = load_config()
     model_cfg = cfg.get("model")
-    if isinstance(model_cfg, dict):
-        _model_name = (model_cfg.get("default") or "").strip()
-    elif isinstance(model_cfg, str):
-        _model_name = model_cfg.strip()
-    else:
-        _model_name = ""
-    _has_fabric_config = _model_name and _model_name != _DEFAULT_MODEL
 
     # Check env vars (may be set by .env or shell).
     # OPENAI_BASE_URL alone counts — local models (vLLM, llama.cpp, etc.)
@@ -872,12 +858,14 @@ def _has_any_provider_configured() -> bool:
     provider_env_vars = {
         "OPENROUTER_API_KEY",
         "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_TOKEN",
         "OPENAI_BASE_URL",
     }
-    for pconfig in PROVIDER_REGISTRY.values():
+    for provider_id, pconfig in PROVIDER_REGISTRY.items():
         if pconfig.auth_type == "api_key":
+            # Anthropic has an API-key shape guard and pool-aware resolver.
+            # Its generic status check below is the single source of truth.
+            if provider_id == "anthropic":
+                continue
             provider_env_vars.update(pconfig.api_key_env_vars)
     if any(get_secret(v) for v in provider_env_vars):
         return True
@@ -935,24 +923,6 @@ def _has_any_provider_configured() -> bool:
         cfg_api_key = (model_cfg.get("api_key") or "").strip()
         if cfg_provider or cfg_base_url or cfg_api_key:
             return True
-
-    # Check for Claude Code OAuth credentials (~/.claude/.credentials.json)
-    # Only count these if Fabric has been explicitly configured — Claude Code
-    # being installed doesn't mean the user wants Fabric to use their tokens.
-    if _has_fabric_config:
-        try:
-            from agent.anthropic_adapter import (
-                read_claude_code_credentials,
-                is_claude_code_token_valid,
-            )
-
-            creds = read_claude_code_credentials()
-            if creds and (
-                is_claude_code_token_valid(creds) or creds.get("refreshToken")
-            ):
-                return True
-        except Exception:
-            pass
 
     return False
 
@@ -4221,101 +4191,6 @@ def _stepfun_base_url_for_region(region: str) -> str:
 
 
 
-
-
-
-
-def _run_anthropic_oauth_flow(save_env_value):
-    """Run the Claude OAuth setup-token flow. Returns True if credentials were saved."""
-    from agent.anthropic_adapter import (
-        run_oauth_setup_token,
-        read_claude_code_credentials,
-        is_claude_code_token_valid,
-    )
-    from fabric_cli.config import (
-        save_anthropic_oauth_token,
-        use_anthropic_claude_code_credentials,
-    )
-
-    def _activate_claude_code_credentials_if_available() -> bool:
-        try:
-            creds = read_claude_code_credentials()
-        except Exception:
-            creds = None
-        if creds and (
-            is_claude_code_token_valid(creds) or bool(creds.get("refreshToken"))
-        ):
-            use_anthropic_claude_code_credentials(save_fn=save_env_value)
-            print("  ✓ Claude Code credentials linked.")
-            from fabric_constants import display_fabric_home as _dhh_fn
-
-            print(
-                f"    Fabric will use Claude's credential store directly instead of copying a setup-token into {_dhh_fn()}/.env."
-            )
-            return True
-        return False
-
-    try:
-        print()
-        print("  Running 'claude setup-token' — follow the prompts below.")
-        print("  A browser window will open for you to authorize access.")
-        print()
-        token = run_oauth_setup_token()
-        if token:
-            if _activate_claude_code_credentials_if_available():
-                return True
-            save_anthropic_oauth_token(token, save_fn=save_env_value)
-            print("  ✓ OAuth credentials saved.")
-            return True
-
-        # Subprocess completed but no token auto-detected — ask user to paste
-        print()
-        print("  If the setup-token was displayed above, paste it here:")
-        print()
-        from fabric_cli.secret_prompt import masked_secret_prompt
-
-        try:
-            manual_token = masked_secret_prompt(
-                "  Paste setup-token (or Enter to cancel): "
-            ).strip()
-        except (KeyboardInterrupt, EOFError):
-            print()
-            return False
-        if manual_token:
-            save_anthropic_oauth_token(manual_token, save_fn=save_env_value)
-            print("  ✓ Setup-token saved.")
-            return True
-
-        print("  ⚠ Could not detect saved credentials.")
-        return False
-
-    except FileNotFoundError:
-        # Claude CLI not installed — guide user through manual setup
-        print()
-        print("  The 'claude' CLI is required for OAuth login.")
-        print()
-        print("  To install and authenticate:")
-        print()
-        print("    1. Install Claude Code:  npm install -g @anthropic-ai/claude-code")
-        print("    2. Run:                  claude setup-token")
-        print("    3. Follow the browser prompts to authorize")
-        print("    4. Re-run:               fabric model")
-        print()
-        print("  Or paste an existing setup-token now (sk-ant-oat-...):")
-        print()
-        from fabric_cli.secret_prompt import masked_secret_prompt
-
-        try:
-            token = masked_secret_prompt("  Setup-token (or Enter to cancel): ").strip()
-        except (KeyboardInterrupt, EOFError):
-            print()
-            return False
-        if token:
-            save_anthropic_oauth_token(token, save_fn=save_env_value)
-            print("  ✓ Setup-token saved.")
-            return True
-        print("  Cancelled — install Claude Code and try again.")
-        return False
 
 
 

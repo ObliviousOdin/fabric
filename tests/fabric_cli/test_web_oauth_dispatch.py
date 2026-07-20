@@ -2,22 +2,20 @@
 
 Bug history (2026-05-09): the `_OAUTH_PROVIDER_CATALOG` had two entries
 flagged ``flow: "pkce"`` — anthropic and minimax-oauth — and the
-dispatcher ``start_oauth_login`` hardcoded ``_start_anthropic_pkce()``
-for any pkce-flagged provider. So clicking "Login" next to MiniMax in
-the dashboard's Keys tab silently launched the Anthropic/Claude OAuth
-flow.
+dispatcher ``start_oauth_login`` hardcoded a PKCE-flow starter for any
+pkce-flagged provider. So clicking "Login" next to MiniMax in the
+dashboard's Keys tab silently launched the Anthropic/Claude OAuth flow.
 
 The fix:
   1. Catalog entry for minimax-oauth changed from ``flow: "pkce"`` to
      ``flow: "device_code"`` (the actual UX is verification URI + user
      code + background poll, with PKCE as a security extension).
   2. New MiniMax branch added to ``_start_device_code_flow``.
-  3. Dispatcher tightened: pkce branch now requires
-     ``provider_id == "anthropic"``, so any future PKCE provider added
-     without an explicit branch gets a clean ``400 Unsupported flow``
-     instead of silently launching Anthropic OAuth.
 
-These tests pin the corrected behavior.
+Anthropic itself no longer has an OAuth/PKCE flow at all — Fabric
+authenticates to native Anthropic with an API key only (see NOTICE) — so
+``_OAUTH_PROVIDER_CATALOG`` has no ``flow: "pkce"`` entries left; these
+tests now pin that no dispatcher branch resurrects one.
 """
 
 import asyncio
@@ -1824,27 +1822,6 @@ def test_codex_worker_logs_only_random_trace_and_stable_error(
     )
 
 
-def test_anthropic_pool_failure_log_redacts_raw_exception(
-    caplog,
-    monkeypatch,
-):
-    from agent import credential_pool
-    from fabric_cli import web_server as ws
-
-    sentinel = "raw pool path and token sentinel"
-    monkeypatch.setattr(
-        credential_pool,
-        "load_pool",
-        lambda _provider: (_ for _ in ()).throw(RuntimeError(sentinel)),
-    )
-    caplog.set_level(logging.WARNING, logger=ws.__name__)
-
-    ws._save_anthropic_oauth_creds("access", "refresh", 123456)
-
-    assert sentinel not in caplog.text
-    assert "provider=anthropic code=io_unavailable" in caplog.text
-
-
 def test_codex_dashboard_start_timeout_cancels_hidden_worker_session(monkeypatch):
     from fabric_cli import web_server as ws
 
@@ -2065,138 +2042,6 @@ def test_minimax_worker_cancellation_prevents_profile_or_root_persistence(
     assert sess["_cancel_event"].is_set()
 
 
-def test_anthropic_submit_cancellation_prevents_profile_or_root_persistence(
-    tmp_path,
-    monkeypatch,
-):
-    from fabric_cli import web_server as ws
-
-    _make_profile_home(tmp_path, monkeypatch)
-    sid, sess = ws._new_oauth_session(
-        "anthropic",
-        "pkce",
-        profile="coder",
-    )
-    sess["verifier"] = "verifier"
-    sess["state"] = "state"
-    persisted = []
-
-    class _Response:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def read(self):
-            return json.dumps({
-                "access_token": "anthropic-access",
-                "refresh_token": "anthropic-refresh",
-                "expires_in": 3600,
-            }).encode()
-
-    def cancel_during_exchange(*args, **kwargs):
-        _cancel_oauth_session(sid)
-        return _Response()
-
-    monkeypatch.setattr(ws.urllib.request, "urlopen", cancel_during_exchange)
-    monkeypatch.setattr(
-        ws,
-        "_save_anthropic_oauth_creds",
-        lambda *args, **kwargs: persisted.append((args, kwargs)),
-    )
-
-    result = ws._submit_anthropic_pkce(
-        sid,
-        "authorization-code",
-        profile="coder",
-    )
-
-    assert result == {
-        "ok": False,
-        "status": "cancelled",
-        "message": "OAuth session cancelled",
-    }
-    assert persisted == []
-    assert sess["status"] == "cancelled"
-    assert sess["_cancel_event"].is_set()
-
-
-def test_anthropic_root_session_rejects_conflicting_submit_profile(
-    tmp_path,
-    monkeypatch,
-):
-    from fabric_cli import web_server as ws
-    from fabric_constants import get_fabric_home
-
-    _make_profile_home(tmp_path, monkeypatch)
-    sid, sess = ws._new_oauth_session("anthropic", "pkce")
-    sess["verifier"] = "verifier"
-    sess["state"] = "state"
-    saved_homes = []
-
-    class _Response:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def read(self):
-            return json.dumps({
-                "access_token": "anthropic-access",
-                "refresh_token": "anthropic-refresh",
-                "expires_in": 3600,
-            }).encode()
-
-    monkeypatch.setattr(
-        ws.urllib.request,
-        "urlopen",
-        lambda *args, **kwargs: _Response(),
-    )
-    monkeypatch.setattr(
-        ws,
-        "_save_anthropic_oauth_creds",
-        lambda *args, **kwargs: saved_homes.append(get_fabric_home()),
-    )
-
-    try:
-        with pytest.raises(ws.OAuthFlowError) as caught:
-            ws._submit_anthropic_pkce(
-                sid,
-                "authorization-code",
-                profile="coder",
-            )
-    finally:
-        ws._oauth_sessions.pop(sid, None)
-
-    assert caught.value.code is ws.OAuthFlowErrorCode.NOT_FOUND
-    assert saved_homes == []
-
-
-def test_anthropic_pkce_branch_still_works():
-    """Sanity: the dispatcher tightening doesn't break the legitimate Anthropic PKCE path."""
-    fake_anthropic_response = {
-        "session_id": "stub-session",
-        "flow": "pkce",
-        "auth_url": "https://claude.ai/oauth/authorize?code=true&...",
-        "expires_in": 600,
-    }
-    with patch(
-        "fabric_cli.web_server._start_anthropic_pkce",
-        return_value=fake_anthropic_response,
-    ):
-        resp = client.post(
-            "/api/providers/oauth/anthropic/start",
-            headers=HEADERS,
-        )
-
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["flow"] == "pkce"
-    assert "claude.ai" in body["auth_url"]
-
-
 def test_xai_oauth_listed_as_device_code_flow():
     """xAI Grok OAuth must surface in the catalog as a device-code flow."""
     resp = client.get("/api/providers/oauth", headers=HEADERS)
@@ -2252,14 +2097,9 @@ def test_oauth_catalog_marks_external_providers_not_disconnectable():
     assert "provider's CLI" in providers["qwen-oauth"]["disconnect_hint"]
     assert providers["qwen-oauth"]["disconnect_command"] is None
 
-    # Claude Code: still not API-disconnectable, but we hand the GUI a runnable
-    # command (clears the keychain entry / credentials file) so it can offer a
-    # one-click "run in terminal" disconnect.
-    assert providers["claude-code"]["flow"] == "external"
-    assert providers["claude-code"]["disconnectable"] is False
-    assert providers["claude-code"]["disconnect_hint"]
-    cmd = providers["claude-code"]["disconnect_command"]
-    assert cmd and ".claude/.credentials.json" in cmd
+    # Fabric does not read or reuse Claude Code's own credentials at all (see
+    # NOTICE) — there is no separate "claude-code" catalog entry any more.
+    assert "claude-code" not in providers
 
 
 def test_external_oauth_disconnect_rejected_before_auth_mutation(monkeypatch):
@@ -2320,10 +2160,13 @@ def test_env_sourced_oauth_status_is_not_disconnectable(tmp_path):
     assert "Settings" in delete_resp.text
 
 
-def test_anthropic_status_ignores_oauth_in_api_key_slot(tmp_path):
+def test_anthropic_status_ignores_oauth_shaped_api_key(tmp_path):
+    """An OAuth/setup-token-shaped value in ANTHROPIC_API_KEY is never accepted
+    — Fabric has no other Anthropic credential source to fall back to (no
+    ANTHROPIC_TOKEN, no Claude Code credential reuse — see NOTICE), so status
+    is simply "not logged in"."""
     (tmp_path / ".env").write_text(
-        "ANTHROPIC_API_KEY=sk-ant-oat01-wrong-slot\n"
-        "ANTHROPIC_TOKEN=sk-ant-oat01-canonical-token\n",
+        "ANTHROPIC_API_KEY=sk-ant-oat01-wrong-slot\n",
         encoding="utf-8",
     )
 
@@ -2332,8 +2175,81 @@ def test_anthropic_status_ignores_oauth_in_api_key_slot(tmp_path):
     providers = {p["id"]: p for p in resp.json()["providers"]}
 
     status = providers["anthropic"]["status"]
-    assert status["source"] == "env_var"
-    assert status["source_label"].startswith("ANTHROPIC_TOKEN")
+    assert status["logged_in"] is False
+
+
+def test_anthropic_status_recognizes_api_key_credential_pool(monkeypatch):
+    """The Accounts command writes auth.json, so status must read that pool."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    from fabric_cli.auth import get_anthropic_key, write_credential_pool
+
+    write_credential_pool(
+        "anthropic",
+        [
+            {
+                "id": "legacy-oauth",
+                "label": "old subscription",
+                "auth_type": "oauth",
+                "priority": 0,
+                "source": "manual:anthropic_pkce",
+                "access_token": "sk-ant-oat01-obsolete",
+            },
+            {
+                "id": "api-key",
+                "label": "work key",
+                "auth_type": "api_key",
+                "priority": 1,
+                "source": "manual",
+                "access_token": "sk-ant-api03-pool-secret",
+            },
+        ],
+    )
+
+    # The same resolver feeds setup/model/status paths and must skip the old
+    # OAuth row even when it has higher priority than the API key.
+    assert get_anthropic_key() == "sk-ant-api03-pool-secret"
+
+    resp = client.get("/api/providers/oauth", headers=HEADERS)
+    assert resp.status_code == 200, resp.text
+    provider = {p["id"]: p for p in resp.json()["providers"]}["anthropic"]
+
+    assert provider["status"] == {
+        "logged_in": True,
+        "source": "credential_pool",
+        "source_label": "fabric auth: work key",
+        "token_preview": "…secret",
+        "expires_at": None,
+        "has_refresh_token": False,
+    }
+    assert provider["disconnectable"] is False
+    assert "fabric auth remove anthropic" in provider["disconnect_hint"]
+
+
+def test_anthropic_status_rejects_legacy_oauth_pool_entry(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    from fabric_cli.auth import get_anthropic_key, write_credential_pool
+
+    write_credential_pool(
+        "anthropic",
+        [
+            {
+                "id": "legacy-oauth",
+                "label": "old subscription",
+                "auth_type": "oauth",
+                "priority": 0,
+                "source": "manual:anthropic_pkce",
+                "access_token": "sk-ant-oat01-obsolete",
+            }
+        ],
+    )
+
+    assert get_anthropic_key() == ""
+    resp = client.get("/api/providers/oauth", headers=HEADERS)
+    assert resp.status_code == 200, resp.text
+    status = {p["id"]: p for p in resp.json()["providers"]}["anthropic"]["status"]
+    assert status == {"logged_in": False, "source": None}
 
 
 def test_xai_oauth_device_code_start_returns_user_code(monkeypatch):

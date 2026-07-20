@@ -24,7 +24,8 @@ from unittest.mock import MagicMock, patch
 class TestAnthropicPoolExhaustedFallsBackToEnv:
     def test_pool_present_no_entry_falls_back_to_resolve_token(self, monkeypatch):
         """pool=(True, None) but a valid env token exists → client is built."""
-        monkeypatch.setenv("ANTHROPIC_TOKEN", "«redacted:sk-…»-oauth-token")
+        monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "«redacted:sk-…»-api-key")
         with patch(
             "agent.auxiliary_client._select_pool_entry", return_value=(True, None)
         ), patch(
@@ -43,7 +44,7 @@ class TestAnthropicPoolExhaustedFallsBackToEnv:
         # Default aux model when none configured.
         assert model == "claude-haiku-4-5-20251001"
         # Must have used the env/legacy token, not a pooled entry.
-        assert mock_build.call_args.args[0] == "«redacted:sk-…»-oauth-token"
+        assert mock_build.call_args.args[0] == "«redacted:sk-…»-api-key"
 
     def test_pool_present_no_entry_and_no_token_still_returns_none(self, monkeypatch):
         """No pooled entry AND no resolvable token → clean (None, None), no crash."""
@@ -65,7 +66,8 @@ class TestAnthropicPoolExhaustedFallsBackToEnv:
     def test_base_url_defaults_when_pool_present_but_no_entry(self, monkeypatch):
         """Falling through with pool_present=True must not crash on base_url
         resolution (previously guarded by `if pool_present`)."""
-        monkeypatch.setenv("ANTHROPIC_TOKEN", "«redacted:sk-…»-oauth-token")
+        monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "«redacted:sk-…»-api-key")
         captured = {}
 
         def _fake_build(token, base_url):

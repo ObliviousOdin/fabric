@@ -63,12 +63,15 @@ marked as planned; they are never presented as shipped.
 - Map Xcode Cloud's `CI_BUILD_NUMBER` (or explicit local release number) into
   `CFBundleVersion`, rejecting missing/invalid release values at the release
   gate.
+- Require a clean tracked checkout and embed its exact Git commit in the
+  packaged Info.plist as `FabricSourceRevision`.
 - Run the same generator in GitHub CI and derive metadata assertions from the
   source manifest.
 
 ### Required evidence before upload
 
 - Merged commit SHA: pending.
+- Packaged `FabricSourceRevision` (must match merged SHA): pending.
 - Required GitHub checks: pending.
 - iOS unit/release build: pending on final PR SHA.
 - Physical-iPhone smoke: pending.
@@ -84,6 +87,7 @@ Copy this section for every upload:
 
 - Date:
 - Merged commit SHA:
+- Packaged `FabricSourceRevision`:
 - TestFlight channel/group:
 - What changed:
 - What to test:

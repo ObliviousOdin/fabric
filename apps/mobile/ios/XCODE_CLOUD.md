@@ -16,9 +16,11 @@ repository.
 | **Start-condition branch** | `claude/ios-mobile-fabric-merge-urgeht` (or `main` later) | You — in the Xcode Cloud workflow (Step 4). |
 | **TestFlight public link** | appears after the first build | You — paste into `website/src/pages/ios.tsx` (Step 6). |
 
-You are using the canonical `io.github.obliviousodin.*` identity, so the bundle
-ID is already correct in the repo — you do **not** need the `FABRIC_IOS_BUNDLE_ID`
-override described at the end.
+The bundle ID above is committed as the default. Bundle IDs are globally unique
+across Apple, so if your account reports it as **not available** (already
+registered to another team), register one you own instead and supply it at build
+time with `FABRIC_IOS_BUNDLE_ID` — see [Using a bundle ID you own](#using-a-bundle-id-you-own-if-the-default-is-taken).
+Your value stays out of the repo.
 
 ## Why the setup looks the way it does
 
@@ -145,27 +147,37 @@ const TESTFLIGHT_URL = "https://testflight.apple.com/join/XXXXXXXX";
 Commit it; the existing Pages workflow republishes the `/ios` page with a live
 **Join the TestFlight beta** button in place of the "coming soon" state.
 
-## Using your own bundle ID (optional — not needed for this setup)
+## Using a bundle ID you own (if the default is taken)
 
-You are shipping under `io.github.obliviousodin.fabric.mobile`, so you can skip
-this section. It is here only if someone later wants to ship under a different
-bundle ID **without committing it**:
+`io.github.obliviousodin.fabric.mobile` is committed as the default, but bundle
+IDs are globally unique across Apple. If your account reports it as **not
+available** when you try to register it, it is already claimed by another team —
+register a bundle ID under a reverse-domain **you** control and supply it to the
+build **without committing it**:
 
-- **In Xcode Cloud** — Edit Workflow → **Environment → Environment Variables** →
-  add `FABRIC_IOS_BUNDLE_ID` set to your value (for example
-  `com.example.fabric.mobile`). `ci_scripts/ci_post_clone.sh` applies it to the
-  generated project before the build; your value stays in Xcode Cloud, never in
-  git.
-- **For local builds** — create `apps/mobile/ios/Signing.xcconfig` (gitignored)
-  and reference it from the scheme or pass `-xcconfig Signing.xcconfig` to
-  `xcodebuild`:
+1. **Register the App ID and create the app record** with your own identifier
+   (Explicit App ID, no capabilities), exactly as in Step 2 / the App-ID section
+   above but using your value, e.g. `com.example.fabric.mobile`.
+2. **In Xcode Cloud** — Edit Workflow → **Environment → Environment Variables** →
+   add `FABRIC_IOS_BUNDLE_ID` = your value. `ci_scripts/ci_post_clone.sh` rewrites
+   the generated project to that ID before each build. Your value lives in Xcode
+   Cloud, never in git.
+3. **For a local device build** — after `xcodegen generate`, open the project and
+   set the **Bundle Identifier** (and your Team) in the target's **Signing &
+   Capabilities** tab. That edit lives in the untracked `.xcodeproj`. To instead
+   bake it in the way CI does, regenerate with the variable set:
 
-  ```
-  DEVELOPMENT_TEAM = <YOUR_TEAM_ID>
-  PRODUCT_BUNDLE_IDENTIFIER = com.example.fabric.mobile
-  ```
+   ```bash
+   cd apps/mobile/ios
+   FABRIC_IOS_BUNDLE_ID=com.example.fabric.mobile ../../../ci_scripts/ci_post_clone.sh
+   ```
 
-Either way your team ID and bundle ID never enter the repository.
+   > Note: putting `PRODUCT_BUNDLE_IDENTIFIER` in an `xcconfig` does **not**
+   > override it — the generated target sets it explicitly, which wins. Use the
+   > environment variable (which edits `project.yml` before generation) instead.
+   > An `xcconfig` is still the right place for `DEVELOPMENT_TEAM` on local builds.
+
+Your bundle ID and team ID never enter the repository this way.
 
 ## Build numbers
 

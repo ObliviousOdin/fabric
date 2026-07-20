@@ -173,6 +173,7 @@ jobs:
           test -n "$expected_build"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" = "$expected_version"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" = "$expected_build"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :FabricSourceRevision' "$plist")" = "development"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UISupportedInterfaceOrientations:0' "$plist")" = "UIInterfaceOrientationPortrait"
           test "$(/usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' "$plist")" = "false"
           privacy="$app/PrivacyInfo.xcprivacy"

@@ -45,8 +45,10 @@ Acceptance:
   explicit local release value.
 - GitHub CI executes the same project-generation script as Xcode Cloud and
   derives metadata assertions from the manifest rather than hard-coding them.
-- The merged commit SHA, version/build, tester notes, test results, archive
-  result, and internal TestFlight result are recorded in `IOS_RELEASES.md`.
+- Every release archive embeds the exact clean Git commit as
+  `FabricSourceRevision`; it matches the merged `main` SHA recorded alongside
+  the version/build, tester notes, test results, archive result, and internal
+  TestFlight result in `IOS_RELEASES.md`.
 - A physical-iPhone smoke pass covers launch, pairing, connect, session resume,
   prompt streaming, approval response, background/foreground recovery, and
   disconnect.
@@ -137,8 +139,9 @@ No phase is complete because a simulator build launches. Every release needs:
 - a physical-iPhone smoke pass;
 - a clean branch, coherent commits, reviewed PR, green required checks, and a
   merge to the protected base branch;
-- an archive from the exact merged SHA, a unique build number, internal
-  TestFlight processing, and tester confirmation;
+- an archive whose packaged `FabricSourceRevision` matches the exact merged
+  SHA, a unique build number, internal TestFlight processing, and tester
+  confirmation;
 - an honest entry in `IOS_RELEASES.md`, including known gaps and rollback path.
 
 ## Current state

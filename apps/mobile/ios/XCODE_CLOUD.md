@@ -33,8 +33,9 @@ edits the tracked `project.yml`.
   `project.yml` must be present in the checkout. The project-adjacent
   `ci_scripts/ci_post_clone.sh` then regenerates them on the build machine.
   This placement follows [Apple's custom-build-script discovery contract](https://developer.apple.com/documentation/xcode/writing-custom-build-scripts).
-  Release-only bundle and build values exist only in its temporary spec and
-  regenerated build outputs.
+  Release-only bundle, build, and exact source-revision values exist only in
+  its temporary spec and regenerated build outputs. Generic builds identify
+  their provenance as `development`.
 - **Xcode Cloud owns signing.** Certificates, profiles, and your Apple team are
   held by Xcode Cloud through your Apple account — so no signing material lives
   in git, matching this repo's "no secrets in CI" posture.
@@ -124,7 +125,8 @@ friction.
 - **Environment variables** — set `FABRIC_IOS_BUNDLE_ID` to the exact explicit
   App ID used by the App Store Connect record. Xcode Cloud supplies
   `CI_BUILD_NUMBER`; the post-clone script maps it to `CFBundleVersion` so every
-  upload is unique.
+  upload is unique. The script requires a clean tracked checkout and derives
+  `FabricSourceRevision` from Git `HEAD`; operators do not supply this value.
 - **Start Conditions** — use *Branch Changes* on `main`, or a reviewed tag
   pattern such as `ios-v*`. Do not release an unmerged feature branch.
 - **Environment** — Xcode 16.x, latest macOS.
@@ -142,7 +144,10 @@ to upload, and no `DEVELOPMENT_TEAM` value in the repo.
    reviewed release tag).
 2. After the build finishes, the version appears in **App Store Connect →
    TestFlight** following ~5–15 minutes of processing.
-3. Add **internal testers** (up to 100 people on your team). For an install
+3. Read `FabricSourceRevision` from the archived app's Info.plist and record it
+   in `IOS_RELEASES.md`. It must exactly match the merged `main` commit used by
+   the workflow.
+4. Add **internal testers** (up to 100 people on your team). For an install
    link anyone can use, create a tester group and enable its **Public Link**.
 
 ## Step 6 — Wire up the website button
@@ -199,6 +204,14 @@ uses it as `CURRENT_PROJECT_VERSION`, giving every upload a unique
 archive. A release bundle ID and build number must be supplied together; a
 partial release override fails closed. Build inputs must be positive integers.
 The committed `CURRENT_PROJECT_VERSION` is only the development default.
+
+## Source provenance
+
+Generic development builds contain `FabricSourceRevision=development`. A
+release generation instead refuses tracked working-tree or index changes,
+resolves the exact 40- or 64-character commit at Git `HEAD`, and embeds it in
+the generated Info.plist. Before distributing an archive, verify that packaged
+value matches the merged `main` SHA and copy both into `IOS_RELEASES.md`.
 
 ## Troubleshooting
 

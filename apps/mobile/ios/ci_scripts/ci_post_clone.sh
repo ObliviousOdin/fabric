@@ -91,7 +91,22 @@ if [ -z "$bundle_id" ] && [ -n "$build_number" ]; then
   exit 2
 fi
 
+source_revision=""
 if [ -n "$bundle_id" ]; then
+  # Release provenance must describe an immutable tracked tree. Untracked local
+  # files do not enter the archive through this project, but any tracked change
+  # makes HEAD an inaccurate description of the packaged source.
+  if ! git -C "$repo_root" diff --quiet --ignore-submodules -- \
+    || ! git -C "$repo_root" diff --cached --quiet --ignore-submodules --; then
+    echo "iOS release generation requires a clean tracked checkout" >&2
+    exit 2
+  fi
+  source_revision="$(git -C "$repo_root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null || true)"
+  if ! printf '%s\n' "$source_revision" | grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$'; then
+    echo "iOS release generation could not resolve an exact Git commit" >&2
+    exit 2
+  fi
+
   if ! grep -Fq 'io.github.obliviousodin.fabric.mobile' "$generated_spec"; then
     echo "The source iOS bundle marker changed; update ci_post_clone.sh before releasing" >&2
     exit 2
@@ -118,6 +133,23 @@ if [ -n "$build_number" ]; then
     "$generated_spec" > "$next_spec"
   if ! grep -Fq "CURRENT_PROJECT_VERSION: \"$build_number\"" "$next_spec"; then
     echo "The configured iOS build number was not applied" >&2
+    exit 2
+  fi
+  mv "$next_spec" "$generated_spec"
+fi
+
+if [ -n "$source_revision" ]; then
+  if ! grep -Fq 'FabricSourceRevision: development' "$generated_spec"; then
+    echo "The source iOS revision marker changed; update ci_post_clone.sh before releasing" >&2
+    exit 2
+  fi
+  echo "Embedding source revision $source_revision in the generated project"
+  next_spec="$work/project.revision.yml"
+  sed "s#FabricSourceRevision: development#FabricSourceRevision: $source_revision#g" \
+    "$generated_spec" > "$next_spec"
+  if grep -Fq 'FabricSourceRevision: development' "$next_spec" \
+    || ! grep -Fq "FabricSourceRevision: $source_revision" "$next_spec"; then
+    echo "The source iOS revision was not applied completely" >&2
     exit 2
   fi
   mv "$next_spec" "$generated_spec"

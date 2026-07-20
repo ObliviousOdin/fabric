@@ -41,6 +41,8 @@ class IOSProjectGenerationTests(unittest.TestCase):
         self.assertIn("CURRENT_PROJECT_VERSION = 1;", project)
         self.assertIn('BlueprintName = "Fabric"', scheme)
         self.assertIn("io.github.obliviousodin.fabric.mobile.pairing", info)
+        self.assertIn("<key>FabricSourceRevision</key>", info)
+        self.assertIn("<string>development</string>", info)
         self.assertNotIn("com.example.fabric.mobile", project)
         self.assertNotIn("com.example.fabric.mobile", info)
         self.assertEqual(POST_CLONE.parent.parent, PROJECT_SPEC.parent)
@@ -55,6 +57,15 @@ class IOSProjectGenerationTests(unittest.TestCase):
         self.project_spec = self.ios_dir / "project.yml"
         shutil.copy2(PROJECT_SPEC, self.project_spec)
         self.original_spec = self.project_spec.read_bytes()
+
+        subprocess.run(
+            ["git", "init"],
+            cwd=self.checkout,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.source_revision = self._commit_spec("add iOS project manifest")
 
         self.capture = self.checkout / "captured-project.yml"
         self.fake_xcodegen = self.checkout / "fake-xcodegen"
@@ -75,6 +86,40 @@ class IOSProjectGenerationTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.fake_xcodegen.chmod(0o755)
+
+    def _commit_spec(self, message: str) -> str:
+        relative_spec = self.project_spec.relative_to(self.checkout)
+        subprocess.run(
+            ["git", "add", str(relative_spec)],
+            cwd=self.checkout,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Fabric Tests",
+                "-c",
+                "user.email=fabric-tests@users.noreply.github.com",
+                "commit",
+                "-m",
+                message,
+            ],
+            cwd=self.checkout,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.checkout,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
 
     def run_post_clone(self, **overrides: str) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
@@ -136,7 +181,43 @@ class IOSProjectGenerationTests(unittest.TestCase):
             "PRODUCT_BUNDLE_IDENTIFIER: com.example.fabric.mobile.tests\n", rendered
         )
         self.assertIn('CURRENT_PROJECT_VERSION: "42"', rendered)
+        self.assertIn(f"FabricSourceRevision: {self.source_revision}", rendered)
+        self.assertNotIn("FabricSourceRevision: development", rendered)
         self.assertNotIn("io.github.obliviousodin.fabric.mobile", rendered)
+        self.assert_source_manifest_unchanged()
+
+    def test_release_requires_a_clean_tracked_checkout(self) -> None:
+        self.project_spec.write_text(
+            self.project_spec.read_text(encoding="utf-8") + "\n# tracked dirt\n",
+            encoding="utf-8",
+        )
+        self.original_spec = self.project_spec.read_bytes()
+
+        result = self.run_post_clone(
+            FABRIC_IOS_BUNDLE_ID="com.example.fabric.mobile",
+            FABRIC_IOS_BUILD_NUMBER="42",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("requires a clean tracked checkout", result.stderr)
+        self.assertFalse(self.capture.exists())
+        self.assert_source_manifest_unchanged()
+
+        subprocess.run(
+            ["git", "add", str(self.project_spec.relative_to(self.checkout))],
+            cwd=self.checkout,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = self.run_post_clone(
+            FABRIC_IOS_BUNDLE_ID="com.example.fabric.mobile",
+            FABRIC_IOS_BUILD_NUMBER="42",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("requires a clean tracked checkout", result.stderr)
+        self.assertFalse(self.capture.exists())
         self.assert_source_manifest_unchanged()
 
     def test_xcode_cloud_build_number_is_used_when_no_explicit_number_exists(self) -> None:
@@ -192,6 +273,7 @@ class IOSProjectGenerationTests(unittest.TestCase):
         )
         self.project_spec.write_text(changed_spec, encoding="utf-8")
         self.original_spec = self.project_spec.read_bytes()
+        self.source_revision = self._commit_spec("change bundle marker")
 
         result = self.run_post_clone(
             FABRIC_IOS_BUNDLE_ID="com.example.fabric.mobile",
@@ -210,6 +292,7 @@ class IOSProjectGenerationTests(unittest.TestCase):
         )
         self.project_spec.write_text(changed_spec, encoding="utf-8")
         self.original_spec = self.project_spec.read_bytes()
+        self.source_revision = self._commit_spec("change build marker")
 
         result = self.run_post_clone(
             FABRIC_IOS_BUNDLE_ID="com.example.fabric.mobile",
@@ -218,6 +301,25 @@ class IOSProjectGenerationTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("source iOS build marker changed", result.stderr)
+        self.assertFalse(self.capture.exists())
+        self.assert_source_manifest_unchanged()
+
+    def test_release_fails_closed_when_source_revision_marker_drifts(self) -> None:
+        changed_spec = self.project_spec.read_text(encoding="utf-8").replace(
+            "FabricSourceRevision: development",
+            "FabricSourceRevision: unavailable",
+        )
+        self.project_spec.write_text(changed_spec, encoding="utf-8")
+        self.original_spec = self.project_spec.read_bytes()
+        self.source_revision = self._commit_spec("change source revision marker")
+
+        result = self.run_post_clone(
+            FABRIC_IOS_BUNDLE_ID="com.example.fabric.mobile",
+            FABRIC_IOS_BUILD_NUMBER="42",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("source iOS revision marker changed", result.stderr)
         self.assertFalse(self.capture.exists())
         self.assert_source_manifest_unchanged()
 

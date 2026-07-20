@@ -81,7 +81,7 @@ struct SavedGateway: Identifiable, Codable, Equatable {
 enum GatewayStore {
     private static let listKey = "fabric.gateways.v1"
     private static let lastActiveKey = "fabric.gateways.lastActive"
-    private static let keychainService = "io.github.obliviousodin.fabric.mobile"
+    private static let keychainService = "us.rabot.fabric.mobile"
 
     // MARK: - Library
 

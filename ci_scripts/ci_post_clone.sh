@@ -1,10 +1,10 @@
 #!/bin/sh
 # Xcode Cloud post-clone step for the Fabric iOS app.
 #
-# The Xcode project is generated from apps/mobile/ios/project.yml by XcodeGen
-# and is deliberately NOT committed (it is derived output). Xcode Cloud must
-# therefore generate it after cloning and before the build resolves the
-# project. Point your Xcode Cloud workflow at:
+# The generic Xcode project bootstrap is committed because Xcode Cloud validates
+# the project path before custom scripts run. This script regenerates that
+# project from apps/mobile/ios/project.yml after cloning, applying release-only
+# bundle/build values through a temporary manifest. Point the workflow at:
 #     project:  apps/mobile/ios/FabricMobile.xcodeproj
 #     scheme:   Fabric
 #

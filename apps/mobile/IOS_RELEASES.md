@@ -43,6 +43,19 @@ marked as planned; they are never presented as shipped.
 
 ## Next upload — FMB-P0
 
+### Apple release-state audit (2026-07-20)
+
+- App Store Connect confirms that `0.1.0 (1)` is installed by an internal
+  tester and is currently waiting for beta review.
+- The active Xcode Cloud `Default` workflow targets `main`, the `Fabric`
+  scheme, and `apps/mobile/ios/FabricMobile.xcodeproj`.
+- Its first two builds failed before custom scripts ran because the generated
+  project was absent from the checkout. FMB-P0 now commits a generic,
+  CI-synchronized Xcode project and Info.plist bootstrap so Xcode Cloud can
+  discover the project before applying protected release overrides.
+- The workflow still needs its protected release bundle environment value and
+  TestFlight internal distribution enabled before the merged-SHA build runs.
+
 ### Change set
 
 - Generate release projects without mutating tracked `project.yml`.

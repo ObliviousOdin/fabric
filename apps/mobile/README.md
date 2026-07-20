@@ -330,12 +330,16 @@ served value is injected into the dashboard index page
 ```bash
 brew install xcodegen
 cd apps/mobile/ios
-xcodegen generate        # produces FabricMobile.xcodeproj from project.yml
+xcodegen generate        # refreshes the committed generic Xcode Cloud bootstrap
 open FabricMobile.xcodeproj
 ```
 
 Run the `Fabric` scheme on an iOS 17+ simulator or device. No third-party
 dependencies — Foundation `URLSessionWebSocketTask` + SwiftUI only.
+`project.yml` is authoritative; commit its regenerated generic
+`FabricMobile.xcodeproj` and `Fabric/Info.plist` outputs with every manifest
+change so Xcode Cloud can discover a complete project before its post-clone
+release override runs.
 
 To build signed TestFlight releases from CI, see
 [`ios/XCODE_CLOUD.md`](ios/XCODE_CLOUD.md).

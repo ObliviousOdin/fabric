@@ -1,6 +1,7 @@
 # XcodeGen manifest for the Fabric iOS client.
 # Generate the project with:  xcodegen generate
-# (The .xcodeproj is derived output and stays untracked.)
+# project.yml remains authoritative; the generic .xcodeproj bootstrap is
+# committed so Xcode Cloud can discover the project before post-clone scripts.
 name: FabricMobile
 options:
   bundleIdPrefix: io.github.obliviousodin

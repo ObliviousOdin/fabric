@@ -27,11 +27,12 @@ edits the tracked `project.yml`.
 
 - **The app is a thin remote client.** It connects to a `fabric serve` gateway;
   it does not run the agent. Nothing here needs backend secrets.
-- **The Xcode project is generated, not committed.** `project.yml` is the source
-  of truth; XcodeGen produces `FabricMobile.xcodeproj`, which stays untracked.
-  `ci_scripts/ci_post_clone.sh` regenerates it on the build machine after every
-  clone. Release-only bundle and build values exist only in its temporary spec
-  and the generated project.
+- **The manifest is authoritative; the generic project is a committed
+  bootstrap.** Xcode Cloud validates `FabricMobile.xcodeproj` before it runs
+  custom scripts, so the portable project and generated Info.plist from
+  `project.yml` must be present in the checkout. `ci_scripts/ci_post_clone.sh`
+  then regenerates them on the build machine. Release-only bundle and build
+  values exist only in its temporary spec and regenerated build outputs.
 - **Xcode Cloud owns signing.** Certificates, profiles, and your Apple team are
   held by Xcode Cloud through your Apple account — so no signing material lives
   in git, matching this repo's "no secrets in CI" posture.
@@ -44,10 +45,10 @@ edits the tracked `project.yml`.
 - A Mac with Xcode 16 or newer.
 - XcodeGen for the one-time local setup: `brew install xcodegen`.
 
-## Step 1 — Generate the project locally (one time)
+## Step 1 — Regenerate the bootstrap project
 
-Xcode Cloud is configured from inside Xcode, which needs the project present
-when you set it up. Generate it:
+Xcode Cloud needs the project present before it can start a build or run
+`ci_post_clone.sh`. Generate the portable bootstrap from the manifest:
 
 ```bash
 cd apps/mobile/ios
@@ -55,10 +56,11 @@ xcodegen generate
 open FabricMobile.xcodeproj
 ```
 
-Do **not** commit `FabricMobile.xcodeproj` — it is derived output and is already
-gitignored. Build machines regenerate it via `ci_scripts/ci_post_clone.sh`. The
-**Fabric** scheme is marked shared by XcodeGen, which is what lets Xcode Cloud
-discover it.
+Commit `FabricMobile.xcodeproj` and `Fabric/Info.plist` whenever `project.yml`
+changes. GitHub CI regenerates both and fails if the committed bootstrap drifts
+from the manifest. They contain only the public development bundle identity;
+protected release values are still applied after clone and never committed.
+The **Fabric** scheme is shared so Xcode Cloud can discover it.
 
 ## Step 2 — Create the app record in App Store Connect
 
@@ -110,8 +112,9 @@ friction.
 2. Select the **Fabric** app and the shared **Fabric** scheme.
 3. When prompted, grant Xcode Cloud access to this GitHub repository — it
    installs the Xcode Cloud GitHub app. Approve it for `ObliviousOdin/fabric`.
-4. Xcode Cloud detects `ci_scripts/ci_post_clone.sh` on its own and runs it
-   after each clone to generate the project. There is nothing to enable for that.
+4. Xcode Cloud discovers the committed generic project, then detects
+   `ci_scripts/ci_post_clone.sh` and runs it after each clone to regenerate the
+   release project. There is nothing else to enable for the script.
 
 ## Step 4 — Configure the workflow
 
@@ -178,6 +181,11 @@ without committing it:
    > generator environment variable instead. An `xcconfig` is still the right
    > place for `DEVELOPMENT_TEAM` on local builds.
 
+   A local release run intentionally rewrites the committed bootstrap outputs
+   in that checkout. After archiving, rerun the command without bundle/build
+   overrides to restore the generic project before creating a commit. The
+   authoritative `project.yml` is never modified.
+
 Your bundle ID and team ID never enter the repository this way.
 
 ## Build numbers
@@ -192,7 +200,12 @@ The committed `CURRENT_PROJECT_VERSION` is only the development default.
 ## Troubleshooting
 
 - **"Scheme not found."** Regenerate locally (`xcodegen generate`) and confirm
-  the **Fabric** scheme is shared, then re-select it in the workflow.
+  the **Fabric** scheme is shared and committed, then re-select it in the
+  workflow.
+- **"Project FabricMobile.xcodeproj does not exist."** The generic bootstrap was
+  not committed. Regenerate from `project.yml`, commit the full
+  `FabricMobile.xcodeproj` directory plus `Fabric/Info.plist`, and rerun the
+  workflow.
 - **Signing/registration fails on the default bundle ID.** It may already be
   claimed by another Apple team. Set `FABRIC_IOS_BUNDLE_ID` to one you own (see
   above).

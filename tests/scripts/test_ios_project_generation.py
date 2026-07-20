@@ -12,9 +12,38 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 POST_CLONE = ROOT / "ci_scripts" / "ci_post_clone.sh"
 PROJECT_SPEC = ROOT / "apps" / "mobile" / "ios" / "project.yml"
+BOOTSTRAP_PROJECT = (
+    ROOT / "apps" / "mobile" / "ios" / "FabricMobile.xcodeproj" / "project.pbxproj"
+)
+BOOTSTRAP_SCHEME = (
+    ROOT
+    / "apps"
+    / "mobile"
+    / "ios"
+    / "FabricMobile.xcodeproj"
+    / "xcshareddata"
+    / "xcschemes"
+    / "Fabric.xcscheme"
+)
+BOOTSTRAP_INFO = ROOT / "apps" / "mobile" / "ios" / "Fabric" / "Info.plist"
 
 
 class IOSProjectGenerationTests(unittest.TestCase):
+    def test_committed_xcode_cloud_bootstrap_is_generic_and_complete(self) -> None:
+        project = BOOTSTRAP_PROJECT.read_text(encoding="utf-8")
+        scheme = BOOTSTRAP_SCHEME.read_text(encoding="utf-8")
+        info = BOOTSTRAP_INFO.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PRODUCT_BUNDLE_IDENTIFIER = io.github.obliviousodin.fabric.mobile;",
+            project,
+        )
+        self.assertIn("CURRENT_PROJECT_VERSION = 1;", project)
+        self.assertIn('BlueprintName = "Fabric"', scheme)
+        self.assertIn("io.github.obliviousodin.fabric.mobile.pairing", info)
+        self.assertNotIn("com.example.fabric.mobile", project)
+        self.assertNotIn("com.example.fabric.mobile", info)
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)

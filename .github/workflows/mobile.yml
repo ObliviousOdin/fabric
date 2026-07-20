@@ -121,6 +121,9 @@ jobs:
       - name: Generate the Xcode project
         run: ../../../ci_scripts/ci_post_clone.sh
 
+      - name: Verify the committed Xcode Cloud bootstrap is current
+        run: git diff --exit-code -- FabricMobile.xcodeproj Fabric/Info.plist
+
       - name: Test the immutable iOS project-generation contract
         run: python3 ../../../tests/scripts/test_ios_project_generation.py
 

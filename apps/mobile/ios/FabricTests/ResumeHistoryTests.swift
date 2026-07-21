@@ -1,3 +1,5 @@
+import SwiftUI
+import UIKit
 import XCTest
 @testable import Fabric
 
@@ -660,6 +662,95 @@ final class ResumeHistoryTests: XCTestCase {
                 .code(language: "text", text: code),
             ]
         )
+    }
+
+    func testCompletingTallRichReplyKeepsTranscriptAtBottomAfterRelayout() async {
+        var message = TranscriptMessage(
+            role: .assistant,
+            text: "Working…",
+            streaming: true
+        )
+        let host = UIHostingController(rootView: TranscriptView(messages: [message]))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true }
+
+        host.view.frame = window.bounds
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        try? await Task.sleep(for: .milliseconds(20))
+
+        let code = (0..<40)
+            .map { "let row\($0) = \($0)" }
+            .joined(separator: "\n")
+        message.text = """
+        # Finished
+
+        - Verified the complete response
+        - Preserved the final code block
+
+        ```swift
+        \(code)
+        ```
+        """
+        message.streaming = false
+        host.rootView = TranscriptView(messages: [message])
+
+        var lastMetrics: (offset: CGFloat, maximum: CGFloat, content: CGFloat, viewport: CGFloat)?
+        for _ in 0..<100 {
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+            if let scrollView = transcriptScrollView(in: host.view) {
+                let maximum = max(
+                    -scrollView.adjustedContentInset.top,
+                    scrollView.contentSize.height
+                        - scrollView.bounds.height
+                        + scrollView.adjustedContentInset.bottom
+                )
+                lastMetrics = (
+                    scrollView.contentOffset.y,
+                    maximum,
+                    scrollView.contentSize.height,
+                    scrollView.bounds.height
+                )
+                // `scrollTo(lastMessage, anchor: .bottom)` intentionally
+                // leaves the LazyVStack's standard trailing padding below
+                // the fully visible row. A rich relayout regression leaves
+                // substantially more than that one padding interval hidden.
+                if scrollView.contentSize.height > scrollView.bounds.height + 40,
+                   abs(scrollView.contentOffset.y - maximum) <= 20 {
+                    return
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        guard let lastMetrics else {
+            return XCTFail("Expected the hosted transcript to contain a vertical scroll view")
+        }
+        XCTFail(
+            "Expected rich completion at bottom; offset=\(lastMetrics.offset), "
+                + "maximum=\(lastMetrics.maximum), content=\(lastMetrics.content), "
+                + "viewport=\(lastMetrics.viewport)"
+        )
+    }
+
+    private func transcriptScrollView(in root: UIView) -> UIScrollView? {
+        var candidates: [UIScrollView] = []
+        collectScrollViews(in: root, into: &candidates)
+        return candidates
+            .filter { $0.contentSize.height > $0.bounds.height + 1 }
+            .max { $0.contentSize.height < $1.contentSize.height }
+    }
+
+    private func collectScrollViews(in view: UIView, into result: inout [UIScrollView]) {
+        if let scrollView = view as? UIScrollView {
+            result.append(scrollView)
+        }
+        for child in view.subviews {
+            collectScrollViews(in: child, into: &result)
+        }
     }
 
     func testActiveSessionUsesStableSessionKeyForNavigation() {

@@ -321,22 +321,7 @@ private struct ChatContentView: View {
     }
 
     private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(model.messages) { message in
-                        MessageBubble(message: message)
-                            .id(message.id)
-                    }
-                }
-                .padding()
-            }
-            .onChange(of: model.messages) {
-                if let lastId = model.messages.last?.id {
-                    proxy.scrollTo(lastId, anchor: .bottom)
-                }
-            }
-        }
+        TranscriptView(messages: model.messages)
     }
 
     /// Waiting-for-approval banner. Status language per the design contract:
@@ -502,8 +487,42 @@ private struct ChatContentView: View {
     }
 }
 
+/// Owns transcript scrolling so a completed assistant row can request one
+/// follow-up scroll after its cached rich layout has a measured height.
+/// Without that second signal, a tall code or list block can grow below the
+/// viewport after the ordinary `messages` change already scrolled the plain
+/// streaming row.
+struct TranscriptView: View {
+    let messages: [TranscriptMessage]
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(messages) { message in
+                        MessageBubble(
+                            message: message,
+                            onRichLayoutReady: message.id == messages.last?.id
+                                ? { proxy.scrollTo(message.id, anchor: .bottom) }
+                                : nil
+                        )
+                        .id(message.id)
+                    }
+                }
+                .padding()
+            }
+            .onChange(of: messages) {
+                if let lastId = messages.last?.id {
+                    proxy.scrollTo(lastId, anchor: .bottom)
+                }
+            }
+        }
+    }
+}
+
 private struct MessageBubble: View {
     let message: TranscriptMessage
+    let onRichLayoutReady: (() -> Void)?
 
     var body: some View {
         switch message.role {
@@ -524,7 +543,10 @@ private struct MessageBubble: View {
             }
         case .assistant:
             HStack(alignment: .top) {
-                AssistantMessageBody(message: message)
+                AssistantMessageBody(
+                    message: message,
+                    onRichLayoutReady: onRichLayoutReady
+                )
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .background(FabricTheme.surfaceRaised)
@@ -1090,8 +1112,17 @@ enum AssistantMarkdownSafety {
     }
 }
 
+private struct RichTranscriptHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 private struct AssistantMessageBody: View {
     let message: TranscriptMessage
+    let onRichLayoutReady: (() -> Void)?
 
     @State private var renderCache = AssistantTranscriptRenderCache()
 
@@ -1117,6 +1148,16 @@ private struct AssistantMessageBody: View {
                             maxWidth: document.containsTechnicalBlock ? .infinity : nil,
                             alignment: .leading
                         )
+                        .background {
+                            if onRichLayoutReady != nil {
+                                GeometryReader { geometry in
+                                    Color.clear.preference(
+                                        key: RichTranscriptHeightPreferenceKey.self,
+                                        value: geometry.size.height
+                                    )
+                                }
+                            }
+                        }
                         .accessibilityElement(children: .contain)
                         .accessibilityLabel("Fabric response")
                 } else {
@@ -1136,6 +1177,10 @@ private struct AssistantMessageBody: View {
         .onAppear { cacheDocument(for: renderInput) }
         .onChange(of: renderInput) { _, newValue in
             cacheDocument(for: newValue)
+        }
+        .onPreferenceChange(RichTranscriptHeightPreferenceKey.self) { height in
+            guard height > 0, renderCache.document != nil else { return }
+            onRichLayoutReady?()
         }
     }
 

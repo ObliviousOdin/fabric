@@ -186,7 +186,13 @@ TOOLSETS = {
         "tools": ["cronjob"],
         "includes": []
     },
-    
+
+    "loom": {
+        "description": "Loom deployment plane: inspect hosts/projects/deployments, plan, deploy, and roll back.",
+        "tools": ["loom"],
+        "includes": [],
+    },
+
 
     "file": {
         "description": "File manipulation tools: read, write, patch (with fuzzy matching), and search (content + files)",

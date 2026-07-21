@@ -113,7 +113,7 @@ Run the rebranded plane as a **sidecar service** (its own container(s): API + Po
 
 ### Option B — Fork & rebrand OpenShip as a Fabric-branded sibling
 
-Hard-fork `oblien/openship`, execute the [`REBRAND_MAP`](./source-spec/REBRAND_MAP.md) (dual-brand, compatibility shims), ship it as a Fabric-family product (its own repo or a monorepo folder).
+Fork `oblien/openship` outright, execute the [`REBRAND_MAP`](./source-spec/REBRAND_MAP.md) (dual-brand, compatibility shims), ship it as a Fabric-family product (its own repo or a monorepo folder).
 
 **Pros:** maximum control and "make it our own"; can prune scope to the reliable core; owns the roadmap.
 **Cons:** you now maintain a large TS deployment platform *and* Fabric; must track upstream security fixes; the rebrand itself is a multi-week hardening program (the spec is explicit about this).

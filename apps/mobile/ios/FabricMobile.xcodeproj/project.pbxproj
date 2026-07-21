@@ -42,6 +42,7 @@
 		9546BB85CA5D4DC19E6DA502 /* bootstrap-page-2.json in Resources */ = {isa = PBXBuildFile; fileRef = DE3236B367DE48627DE9B7D7 /* bootstrap-page-2.json */; };
 		9A3E38E43CCC7553DD744EF4 /* PairingPayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C7BFE683A90163E7E3F9FB /* PairingPayloadTests.swift */; };
 		9C092844D86F70A2614F9555 /* PairingFlowModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 033D09410C9764976C5F9546 /* PairingFlowModelTests.swift */; };
+		A0938CE3B2B1843137A220CD /* WorkInboxModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53C3048668F381F4E7902A51 /* WorkInboxModelTests.swift */; };
 		A09DECD1DC67AA4930E1C99B /* RemoteControlSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866F3A31E7680B3C401BFD26 /* RemoteControlSheets.swift */; };
 		A2902C8EA6FE916ED775235A /* tombstone.json in Resources */ = {isa = PBXBuildFile; fileRef = 034D30BD2B95E176EC50AFA8 /* tombstone.json */; };
 		A29B062FC213F81EC60BDE0F /* ResumeHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5052E62B1392922749F8EC7B /* ResumeHistoryTests.swift */; };
@@ -57,6 +58,7 @@
 		D5AEDD93F518FC0224AD8B33 /* SavedGatewayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D717E0920AEB950A30325E44 /* SavedGatewayTests.swift */; };
 		D7BCBDB0C0A661B997F5FE8B /* cursor-expired.json in Resources */ = {isa = PBXBuildFile; fileRef = 94A8ED8E93E58F02C35EE9E1 /* cursor-expired.json */; };
 		DE41174B4AE13E9BECE8E9F8 /* AddGatewayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC16A8344D8694E0445ED56 /* AddGatewayView.swift */; };
+		EC08DB1E77335FBA687E9E6D /* WorkInboxModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A76BB1B38FE0A6D88E2E25C /* WorkInboxModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -83,9 +85,11 @@
 		2C3A2D35BBEF8CE01D18A16A /* FabricMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricMobileApp.swift; sourceTree = "<group>"; };
 		2D075734769A0025DC152BAB /* delta.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = delta.json; sourceTree = "<group>"; };
 		2EB3236C5337F2F7175AE109 /* incompatible.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = incompatible.json; sourceTree = "<group>"; };
+		3A76BB1B38FE0A6D88E2E25C /* WorkInboxModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkInboxModel.swift; sourceTree = "<group>"; };
 		3F2CFA26661CC23DAE50B21F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		5052E62B1392922749F8EC7B /* ResumeHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumeHistoryTests.swift; sourceTree = "<group>"; };
 		53A856CAC846194DFE6D0435 /* GatewayCapabilitiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayCapabilitiesTests.swift; sourceTree = "<group>"; };
+		53C3048668F381F4E7902A51 /* WorkInboxModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkInboxModelTests.swift; sourceTree = "<group>"; };
 		57442E4850DCF4E2DED9304D /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
 		58C179BCEF71B93C103470D8 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		5EBC35A073721043E19187A5 /* GatewayListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayListView.swift; sourceTree = "<group>"; };
@@ -138,6 +142,7 @@
 				5052E62B1392922749F8EC7B /* ResumeHistoryTests.swift */,
 				D717E0920AEB950A30325E44 /* SavedGatewayTests.swift */,
 				D4C540BD0C2DD543FE4AB8AE /* WorkContractTests.swift */,
+				53C3048668F381F4E7902A51 /* WorkInboxModelTests.swift */,
 			);
 			path = FabricTests;
 			sourceTree = "<group>";
@@ -219,8 +224,17 @@
 				10534D7B2D24FAD2F01D6152 /* Connect */,
 				4A65431BA131573AAE285D8E /* Home */,
 				68ADBDF133F50D638CAC47C2 /* Sessions */,
+				8AFD40A4723CDFBC4D64FBD6 /* Work */,
 			);
 			path = Features;
+			sourceTree = "<group>";
+		};
+		8AFD40A4723CDFBC4D64FBD6 /* Work */ = {
+			isa = PBXGroup;
+			children = (
+				3A76BB1B38FE0A6D88E2E25C /* WorkInboxModel.swift */,
+			);
+			path = Work;
 			sourceTree = "<group>";
 		};
 		A0C31EA2A8546AA13EE256BF /* Chat */ = {
@@ -422,6 +436,7 @@
 				A29B062FC213F81EC60BDE0F /* ResumeHistoryTests.swift in Sources */,
 				D5AEDD93F518FC0224AD8B33 /* SavedGatewayTests.swift in Sources */,
 				AC9202423DA63CA28366139F /* WorkContractTests.swift in Sources */,
+				A0938CE3B2B1843137A220CD /* WorkInboxModelTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -451,6 +466,7 @@
 				5E926420C1DABB9AD689B4A9 /* QRScannerView.swift in Sources */,
 				A09DECD1DC67AA4930E1C99B /* RemoteControlSheets.swift in Sources */,
 				235C95E12197DE57E2E10426 /* SessionListView.swift in Sources */,
+				EC08DB1E77335FBA687E9E6D /* WorkInboxModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

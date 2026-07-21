@@ -1212,7 +1212,7 @@ class WorkLedger:
             raise WorkStoreSchemaError("work.db event_floor must be >= 1")
         return ledger_id
 
-    def _connect(self, *, for_write: bool = False) -> sqlite3.Connection:
+    def _connect_once(self, *, for_write: bool = False) -> sqlite3.Connection:
         # Never recreate a missing/replaced file from a stale service instance.
         try:
             mode = self.path.lstat().st_mode
@@ -1246,6 +1246,37 @@ class WorkLedger:
         except Exception:
             conn.close()
             raise
+
+    def _connect(self, *, for_write: bool = False) -> sqlite3.Connection:
+        """Open and validate one connection behind a bounded busy retry.
+
+        A competing connection can briefly hold the schema lock while this
+        path reads the application signature or confirms WAL mode. SQLite's
+        per-attempt busy timeout is intentionally short, so retry this
+        pre-transaction, idempotent open/validation phase up to the same
+        wall-clock deadline used for writes. The transaction body is never
+        replayed.
+        """
+        deadline = time.monotonic() + self.write_deadline_seconds
+        while True:
+            try:
+                return self._connect_once(for_write=for_write)
+            except WorkStoreBusy as exc:
+                busy_error: BaseException = exc
+            except sqlite3.OperationalError as exc:
+                if not _is_busy_error(exc):
+                    raise
+                busy_error = exc
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise WorkStoreBusy("work.db open deadline exhausted") from busy_error
+            time.sleep(
+                min(
+                    remaining,
+                    random.uniform(_RETRY_MIN_SECONDS, _RETRY_MAX_SECONDS),
+                )
+            )
 
     def _begin(self, conn: sqlite3.Connection, *, deadline: float) -> None:
         self._boundary(conn, "BEGIN IMMEDIATE", deadline=deadline)

@@ -1792,8 +1792,16 @@ class WorkService:
                 },
             )
             if receipt.get("replayed"):
+                # The ledger detected a concurrent duplicate create for this key
+                # (a same-instant first-create race the preflight could not see).
+                # Return the same truthful shape as the preflight replay so a
+                # client keying on runtime_started is never told a second runtime
+                # started for a Run this caller did not schedule.
                 reservation.release()
-                return dict(receipt)
+                replayed_receipt = dict(receipt)
+                replayed_receipt["replayed"] = True
+                replayed_receipt["runtime_started"] = False
+                return replayed_receipt
 
             job = receipt["job"]
             run = job["current_run"]

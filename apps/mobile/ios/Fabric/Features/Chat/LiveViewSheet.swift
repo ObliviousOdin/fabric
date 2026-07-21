@@ -19,6 +19,56 @@ private enum LiveViewFrameError: LocalizedError {
     }
 }
 
+/// Capability negotiation is a real third state, not evidence that capture is
+/// unsupported. Reconnects pass through `.negotiating`, so keeping it explicit
+/// prevents a temporary socket transition from erasing the last verified
+/// frame or presenting a false unsupported state.
+enum LiveViewCaptureCapability: Equatable {
+    case negotiating
+    case supported
+    case unsupported
+
+    init(negotiation: GatewayCapabilityNegotiation?) {
+        guard let negotiation else {
+            self = .negotiating
+            return
+        }
+
+        switch negotiation {
+        case .negotiating:
+            self = .negotiating
+        case .verified(let capabilities):
+            self = capabilities.methods.contains("computer.screenshot")
+                ? .supported
+                : .unsupported
+        case .legacy:
+            self = legacyMobileMethods.contains("computer.screenshot")
+                ? .supported
+                : .unsupported
+        case .incompatible, .invalid:
+            self = .unsupported
+        }
+    }
+
+    var isSupported: Bool { self == .supported }
+
+    var verifiedSupport: Bool? {
+        switch self {
+        case .negotiating: nil
+        case .supported: true
+        case .unsupported: false
+        }
+    }
+}
+
+enum LiveViewStatusTone: Equatable {
+    case danger
+    case muted
+    case warning
+    case info
+    case live
+}
+
 /// Owns the read-only capture lifecycle independently from the sheet chrome.
 /// A single task performs capture then delay in sequence, so even cancellation
 /// races during sleep/wake cannot create concurrent screenshot requests.
@@ -31,7 +81,8 @@ final class LiveViewModel {
     private(set) var retryRequired = false
     private(set) var isLoading: Bool
     private(set) var isPaused = false
-    private(set) var supportsCapture: Bool
+    private(set) var captureCapability: LiveViewCaptureCapability
+    private(set) var lastVerifiedSupportsCapture: Bool?
     private(set) var isConnectionReady: Bool
 
     @ObservationIgnored private let interval: Duration
@@ -45,6 +96,24 @@ final class LiveViewModel {
     @ObservationIgnored private var restartAfterCurrent = false
 
     init(
+        captureCapability: LiveViewCaptureCapability,
+        connectionReady: Bool = true,
+        interval: Duration = .milliseconds(1500),
+        capture: @escaping () async throws -> ScreenCapture,
+        wait: @escaping (Duration) async throws -> Void = { duration in
+            try await Task.sleep(for: duration)
+        }
+    ) {
+        self.captureCapability = captureCapability
+        lastVerifiedSupportsCapture = captureCapability.verifiedSupport
+        isConnectionReady = connectionReady
+        self.interval = interval
+        self.capture = capture
+        self.wait = wait
+        isLoading = captureCapability.isSupported && connectionReady
+    }
+
+    convenience init(
         supportsCapture: Bool,
         connectionReady: Bool = true,
         interval: Duration = .milliseconds(1500),
@@ -53,17 +122,28 @@ final class LiveViewModel {
             try await Task.sleep(for: duration)
         }
     ) {
-        self.supportsCapture = supportsCapture
-        isConnectionReady = connectionReady
-        self.interval = interval
-        self.capture = capture
-        self.wait = wait
-        isLoading = supportsCapture && connectionReady
+        self.init(
+            captureCapability: supportsCapture ? .supported : .unsupported,
+            connectionReady: connectionReady,
+            interval: interval,
+            capture: capture,
+            wait: wait
+        )
     }
 
-    var isUnsupported: Bool { !supportsCapture }
+    var isUnsupported: Bool { captureCapability == .unsupported }
+    var isCaptureCapabilityNegotiating: Bool { captureCapability == .negotiating }
     var isPolling: Bool { pollTask != nil }
     var shouldObscureContent: Bool { !isVisible || !isSceneActive }
+    var statusTone: LiveViewStatusTone {
+        if isUnsupported || retryRequired { return .danger }
+        if isPaused { return .muted }
+        if isFrameStale { return .warning }
+        if !isConnectionReady || isCaptureCapabilityNegotiating || isLoading {
+            return .info
+        }
+        return .live
+    }
     var staleNoticeText: String? {
         guard frame != nil, isFrameStale, let errorText else { return nil }
         if retryRequired {
@@ -79,15 +159,23 @@ final class LiveViewModel {
     }
 
     /// Capability negotiation is connection-scoped and may change after a
-    /// reconnect. Revocation stops capture and drops the retained pixels;
-    /// restoration resumes only when every other lifecycle gate is open.
-    func setCaptureSupported(_ supported: Bool) {
-        guard supportsCapture != supported else { return }
-        supportsCapture = supported
-        if supported {
+    /// reconnect. A verified revocation drops retained pixels; the normal
+    /// negotiating bridge preserves the last verified result and frame while
+    /// holding capture closed until the next contract arrives.
+    func setCaptureCapability(_ capability: LiveViewCaptureCapability) {
+        guard captureCapability != capability else { return }
+        captureCapability = capability
+
+        switch capability {
+        case .negotiating:
+            isLoading = false
+            stopPolling()
+        case .supported:
+            lastVerifiedSupportsCapture = true
             if frame == nil, isConnectionReady { isLoading = true }
             requestImmediateRefresh()
-        } else {
+        case .unsupported:
+            lastVerifiedSupportsCapture = false
             isLoading = false
             frame = nil
             isFrameStale = false
@@ -115,7 +203,7 @@ final class LiveViewModel {
     func appear(sceneIsActive: Bool) {
         isVisible = true
         isSceneActive = sceneIsActive
-        guard supportsCapture else {
+        guard captureCapability.isSupported else {
             isLoading = false
             return
         }
@@ -154,7 +242,7 @@ final class LiveViewModel {
     /// request has not returned yet, the refresh waits for it instead of
     /// overlapping it.
     func retry() {
-        guard supportsCapture else { return }
+        guard captureCapability.isSupported else { return }
         retryRequired = false
         errorText = nil
         isPaused = false
@@ -163,7 +251,7 @@ final class LiveViewModel {
     }
 
     private var canPoll: Bool {
-        supportsCapture
+        captureCapability.isSupported
             && isConnectionReady
             && isVisible
             && isSceneActive
@@ -402,6 +490,9 @@ struct LiveViewSheet: View {
             } description: {
                 Text("Live view will resume automatically when the gateway reconnects.")
             }
+        } else if model.isCaptureCapabilityNegotiating {
+            ProgressView("Checking live view availability…")
+                .tint(FabricTheme.action)
         } else {
             ProgressView("Connecting to the screen…")
                 .tint(FabricTheme.action)
@@ -505,6 +596,9 @@ struct LiveViewSheet: View {
         if !model.isConnectionReady {
             return model.frame == nil ? "Waiting for connection" : "Stale · reconnecting"
         }
+        if model.isCaptureCapabilityNegotiating {
+            return model.frame == nil ? "Checking availability" : "Stale · checking availability"
+        }
         if model.isFrameStale {
             return model.errorText == nil ? "Stale · refreshing" : "Stale · retrying"
         }
@@ -513,10 +607,12 @@ struct LiveViewSheet: View {
     }
 
     private var statusColor: Color {
-        if model.isUnsupported || model.retryRequired { return FabricTheme.danger }
-        if model.isPaused { return FabricTheme.textMuted }
-        if model.isFrameStale { return FabricTheme.warning }
-        if model.isLoading { return FabricTheme.info }
-        return FabricTheme.threadActive
+        switch model.statusTone {
+        case .danger: FabricTheme.danger
+        case .muted: FabricTheme.textMuted
+        case .warning: FabricTheme.warning
+        case .info: FabricTheme.info
+        case .live: FabricTheme.threadActive
+        }
     }
 }

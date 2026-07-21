@@ -182,18 +182,75 @@ final class GatewayCapabilitiesTests: XCTestCase {
         XCTAssertEqual(probe.callCount, 0)
         XCTAssertNil(model.frame)
 
-        model.setCaptureSupported(true)
+        model.setCaptureCapability(.supported)
         await assertEventually { probe.callCount == 1 && model.frame != nil }
         XCTAssertFalse(model.isUnsupported)
 
-        model.setCaptureSupported(false)
+        model.setCaptureCapability(.unsupported)
         await assertEventually { !model.isPolling }
         XCTAssertTrue(model.isUnsupported)
         XCTAssertNil(model.frame)
 
-        model.setCaptureSupported(true)
+        model.setCaptureCapability(.supported)
         await assertEventually { probe.callCount == 2 && model.frame != nil }
         XCTAssertEqual(model.frame?.dimensions, "3×3")
+        model.setPaused(true)
+    }
+
+    @MainActor
+    func testLiveViewPreservesVerifiedFrameAcrossNegotiatingReconnect() async throws {
+        let verifiedNegotiation = GatewayCapabilitiesParser.parse(
+            try fixtureObject("gateway-capabilities-v1.json")
+        )
+        let verifiedCapability = LiveViewCaptureCapability(
+            negotiation: verifiedNegotiation
+        )
+        XCTAssertEqual(verifiedCapability, .supported)
+        XCTAssertEqual(
+            LiveViewCaptureCapability(negotiation: .negotiating),
+            .negotiating
+        )
+
+        let firstFrame = makeScreenCapture(width: 5, height: 3, color: .systemPurple)
+        let probe = ImmediateLiveViewCaptureProbe(outcomes: [
+            .capture(firstFrame),
+            .capture(makeScreenCapture(width: 8, height: 6, color: .systemBlue)),
+        ])
+        let model = LiveViewModel(
+            captureCapability: verifiedCapability,
+            connectionReady: true,
+            interval: .seconds(60),
+            capture: probe.capture
+        )
+
+        model.appear(sceneIsActive: true)
+        await assertEventually { probe.callCount == 1 && model.frame != nil }
+        let verifiedImage = model.frame?.image
+        XCTAssertEqual(model.lastVerifiedSupportsCapture, true)
+
+        model.setCaptureCapability(
+            LiveViewCaptureCapability(negotiation: .negotiating)
+        )
+        model.setConnectionReady(false)
+        await assertEventually { !model.isPolling }
+
+        XCTAssertEqual(model.captureCapability, .negotiating)
+        XCTAssertEqual(model.lastVerifiedSupportsCapture, true)
+        XCTAssertFalse(model.isUnsupported)
+        XCTAssertTrue(model.frame?.image === verifiedImage)
+        XCTAssertTrue(model.isFrameStale)
+        XCTAssertEqual(model.statusTone, .warning)
+        XCTAssertEqual(probe.callCount, 1)
+
+        model.setCaptureCapability(
+            LiveViewCaptureCapability(negotiation: verifiedNegotiation)
+        )
+        model.setConnectionReady(true)
+        await assertEventually {
+            probe.callCount == 2 && model.frame?.dimensions == "8×6"
+        }
+        XCTAssertEqual(model.lastVerifiedSupportsCapture, true)
+        XCTAssertFalse(model.isFrameStale)
         model.setPaused(true)
     }
 
@@ -301,6 +358,9 @@ final class GatewayCapabilitiesTests: XCTestCase {
 
         model.appear(sceneIsActive: false)
         XCTAssertTrue(model.shouldObscureContent)
+        XCTAssertNil(model.frame)
+        XCTAssertFalse(model.isConnectionReady)
+        XCTAssertEqual(model.statusTone, .info)
         model.setSceneActive(true)
         await briefYield()
         XCTAssertEqual(probe.callCount, 0)

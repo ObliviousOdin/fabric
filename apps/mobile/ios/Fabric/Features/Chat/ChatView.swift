@@ -35,6 +35,9 @@ struct ChatView: View {
                 ChatContentView(
                     model: model,
                     draft: $draft,
+                    liveViewCaptureCapability: LiveViewCaptureCapability(
+                        negotiation: appModel.capabilityNegotiation
+                    ),
                     recoveryAction: SessionRecoveryAction(
                         storedSessionId: model.storedSessionId
                     ),
@@ -147,6 +150,7 @@ struct InitialPromptDispatch: Equatable {
 private struct ChatContentView: View {
     @Bindable var model: ChatViewModel
     @Binding var draft: String
+    let liveViewCaptureCapability: LiveViewCaptureCapability
     let recoveryAction: SessionRecoveryAction
     let onRetrySession: () -> Void
     let onReturnToConversations: () -> Void
@@ -160,17 +164,19 @@ private struct ChatContentView: View {
     init(
         model: ChatViewModel,
         draft: Binding<String>,
+        liveViewCaptureCapability: LiveViewCaptureCapability,
         recoveryAction: SessionRecoveryAction,
         onRetrySession: @escaping () -> Void,
         onReturnToConversations: @escaping () -> Void
     ) {
         _model = Bindable(wrappedValue: model)
         _draft = draft
+        self.liveViewCaptureCapability = liveViewCaptureCapability
         self.recoveryAction = recoveryAction
         self.onRetrySession = onRetrySession
         self.onReturnToConversations = onReturnToConversations
         _liveViewModel = State(initialValue: LiveViewModel(
-            supportsCapture: model.supportsGatewayMethod("computer.screenshot"),
+            captureCapability: liveViewCaptureCapability,
             connectionReady: model.sessionReady,
             capture: { try await model.api.captureScreen() }
         ))
@@ -275,7 +281,7 @@ private struct ChatContentView: View {
                     } label: {
                         Label("Live screen view…", systemImage: "display")
                     }
-                    .disabled(!supportsLiveView)
+                    .disabled(!liveViewCaptureCapability.isSupported)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -302,8 +308,8 @@ private struct ChatContentView: View {
         .sheet(isPresented: $showLiveView) {
             LiveViewSheet(model: liveViewModel)
         }
-        .onChange(of: supportsLiveView, initial: true) { _, supported in
-            liveViewModel.setCaptureSupported(supported)
+        .onChange(of: liveViewCaptureCapability, initial: true) { _, capability in
+            liveViewModel.setCaptureCapability(capability)
         }
         .onChange(of: model.sessionReady, initial: true) { _, ready in
             liveViewModel.setConnectionReady(ready)
@@ -311,10 +317,6 @@ private struct ChatContentView: View {
         .onDisappear {
             liveViewModel.disappear()
         }
-    }
-
-    private var supportsLiveView: Bool {
-        model.supportsGatewayMethod("computer.screenshot")
     }
 
     private var transcript: some View {

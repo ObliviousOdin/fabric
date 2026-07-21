@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import logging
 import queue
+import sqlite3
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import FrozenInstanceError, replace
@@ -13,6 +14,7 @@ import pytest
 
 from fabric_cli.work_ledger import (
     RuntimeOwnerMismatch as LedgerRuntimeOwnerMismatch,
+    VersionConflict,
     WorkLedger,
 )
 from tui_gateway import work_service as work_service_module
@@ -1740,3 +1742,103 @@ def test_service_shutdown_cleans_only_its_profile_runtime_waiters_and_queue(
     second_reservation.release()
     service_two.shutdown()
     scheduler.shutdown()
+
+
+def test_startup_reconcile_propagates_unexpected_version_conflict(
+    tmp_path: Path, runtime_owner: OwnerProof
+) -> None:
+    """An unexpected ledger invariant conflict must fail service construction."""
+    profile = tmp_path / "profile"
+    ledger = WorkLedger(profile)
+    old_owner = replace(
+        runtime_owner,
+        boot_token="instantiation:previous-boot",
+        generation="gen_previous",
+    )
+    created = ledger.create_job(
+        kind="background_prompt",
+        title="Must remain fail closed",
+        source="test",
+        owner=old_owner,  # type: ignore[arg-type]
+        idempotency_key="unexpected-reconcile-conflict-0001",
+        runtime_summary={"kind": "in_process_agent"},
+        run_runtime={"kind": "in_process_agent"},
+    )["job"]
+    conn = sqlite3.connect(ledger.path)
+    try:
+        conn.execute(
+            "CREATE TRIGGER force_reconcile_version_conflict "
+            "BEFORE UPDATE OF status ON jobs WHEN OLD.status='queued' "
+            "BEGIN SELECT RAISE(IGNORE); END"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    scheduler = GlobalWorkScheduler(SchedulerLimits(1, 1))
+    try:
+        with pytest.raises(VersionConflict):
+            WorkService(
+                profile,
+                ledger=ledger,
+                scheduler=scheduler,
+                owner=runtime_owner,
+                auto_reconcile=True,
+            )
+        assert ledger.get_job(created["job_id"])["status"] == "queued"
+        assert ledger.list_nonterminal_owners()
+    finally:
+        ledger.close()
+        scheduler.shutdown()
+
+
+def test_ledger_race_replay_receipt_reports_no_runtime_started(
+    tmp_path: Path, runtime_owner: OwnerProof
+) -> None:
+    """A create the ledger dedupes as a concurrent duplicate must return the
+    same truthful shape as the preflight replay: ``replayed`` True and
+    ``runtime_started`` False, so a client never attaches to a Run it did not
+    schedule."""
+
+    class ReplayingCreateLedger(FakeLedger):
+        def get_idempotency(self, *, operation: str, idempotency_key: str):
+            return None
+
+        def create_job(self, **_kwargs):
+            return {
+                "replayed": True,
+                "mutation_id": "mut_ledger_race",
+                "job": {
+                    "job_id": "job_" + "1" * 32,
+                    "current_run": {"run_id": "run_" + "1" * 32},
+                },
+            }
+
+    ledger = ReplayingCreateLedger()
+    scheduler = GlobalWorkScheduler(SchedulerLimits(1, 1))
+    service = WorkService(
+        tmp_path,
+        ledger=ledger,
+        scheduler=scheduler,
+        owner=runtime_owner,
+        auto_reconcile=False,
+    )
+    ran: list[str] = []
+    try:
+        receipt = service.create_background_job(
+            runtime_session_id="runtime-race",
+            source_session_key="session-race",
+            text="prompt race",
+            title="Background race",
+            idempotency_key="ledger-race-key-00000001",
+            agent_inputs={"model": "test"},
+            runner=lambda spec, control: ran.append(spec.run_id),
+        )
+    finally:
+        service.shutdown()
+        scheduler.shutdown()
+
+    assert receipt["replayed"] is True
+    assert receipt["runtime_started"] is False
+    # The ledger already owned the durable Job, so no second runtime was started.
+    assert ran == []

@@ -1061,3 +1061,50 @@ def test_default_profile_home_is_server_derived_not_client_supplied(
         str(launch_home),
         profile_home=launch_home,
     )["work_profile_id"] == server._work_profile_id(session)
+
+
+def test_gateway_restart_marks_running_job_interrupted_through_rpc(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A running Job left by a prior gateway instantiation is reported as a
+    truthful interrupted state through job.get after a restart rebuilds the
+    profile service under a new owner."""
+    profile = tmp_path / "profile"
+    session, _ = _session(profile)
+    epoch = {"value": "restart-epoch-1"}
+    monkeypatch.setattr(
+        "gateway.drain_control.current_instantiation_epoch",
+        lambda: epoch["value"],
+    )
+
+    # Owner-1 durably owns a running Run (committed via the ledger, no scheduler).
+    service_one = server._work_service_for_session(session)
+    owner_one = service_one.owner
+    job = service_one.ledger.create_job(
+        kind="background_prompt",
+        title="Long running",
+        source="mobile",
+        owner=owner_one,
+        idempotency_key="restart-running-key-000001",
+        source_session_key="conversation-mobile",
+        runtime_session_id="runtime-restart",
+        runtime_summary={"kind": "in_process_agent"},
+        run_runtime={"kind": "in_process_agent"},
+    )["job"]
+    job_id = job["job_id"]
+    claimed = service_one.ledger.transition_job(
+        job_id, expected_version=1, next_status="claimed"
+    )
+    service_one.ledger.transition_job(
+        job_id, expected_version=claimed["version"], next_status="running"
+    )
+
+    # The gateway restarts: services close and a new instantiation epoch begins.
+    shutdown_work_services(wait_for_scheduler=True)
+    epoch["value"] = "restart-epoch-2"
+
+    # The next RPC lazily rebuilds the service under owner-2, whose startup
+    # reconciliation interrupts owner-1's running Run before the read returns.
+    got = _rpc("job.get", {"session_id": "mobile", "job_id": job_id})["result"]
+    assert got["status"] == "interrupted"
+    assert got["error"]["code"] == "runtime_owner_lost"

@@ -181,6 +181,15 @@ advertised by any live gateway). Cheap on the client, unblocks all server work.
 each new key is additive-optional and fail-closed; no live manifest advertises
 them yet.
 
+> **Status:** in flight on this branch. Landed TDD-verified: the governance
+> registry (`gateway-feature-registry-v1.json`), the 8 new optional families +
+> flag-only `scoped_grants` + `supportsGatewayFeature` in the TS reference, the
+> `fabric-trust-v1` and `fabric-node-v1` fixture corpora with their TS parsers,
+> and the typed-error taxonomy (all green: `apps/shared` vitest + tsc,
+> `apps/mobile-web` vitest + tsc). Swift and Kotlin capability mirrors are on
+> the branch; Kotlin is verified by the PR `android` job, Swift by the macOS
+> checklist in `ios/HANDOFF-loop0.md` (a required pre-merge gate).
+
 ### Loop 1 — Pairing reliability bundle  *(client-only; fastest visible win)*
 
 The named opportunity (a) and the current critical dead-ends. Deliver

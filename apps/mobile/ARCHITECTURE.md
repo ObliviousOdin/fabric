@@ -106,6 +106,12 @@ The governance rules a new family must follow:
    discovered by calling a method and catching an error (except the one
    sanctioned `-32601 ⇒ legacy` bootstrap that predates negotiation).
 
+All timestamps in these contracts (`at`, `granted_at`, `expires_at`, …) are
+**Unix epoch milliseconds**, matching the shipped `fabric-work-v1` corpus. The
+canonical machine-readable registry lives at
+`apps/mobile/contracts/gateway-feature-registry-v1.json`; every platform
+asserts parity with it (see `contracts/README.md`).
+
 The registry this program adds (see the appendix for the full table):
 
 | Feature key | Direction | Required methods (subset check) |

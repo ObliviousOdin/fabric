@@ -67,6 +67,12 @@ targets:
         buildPhase: resources
       - path: ../contracts/gateway-capabilities-malformed.json
         buildPhase: resources
+      - path: ../contracts/gateway-capabilities-families-v1.json
+        buildPhase: resources
+      - path: ../contracts/gateway-capabilities-family-contradiction.json
+        buildPhase: resources
+      - path: ../contracts/gateway-feature-registry-v1.json
+        buildPhase: resources
       - path: ../contracts/legacy-mobile-methods.json
         buildPhase: resources
       - path: ../contracts/fabric-pairing-v2.json

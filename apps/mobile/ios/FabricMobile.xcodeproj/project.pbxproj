@@ -15,6 +15,8 @@
 		196C73FCA0C0A797904623FA /* terminal.json in Resources */ = {isa = PBXBuildFile; fileRef = CF2716EFA82EA83E0668BB81 /* terminal.json */; };
 		1F96B393FF3EE32C3E36F02B /* PairingURI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89D2601B6230C9D2249D80E9 /* PairingURI.swift */; };
 		235C95E12197DE57E2E10426 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6295AC1FB76C35B031EBEF24 /* SessionListView.swift */; };
+		24D62AD2C04431BC2CDE5C6C /* ConversationHomeDebugFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAD37753829FF07CF4D2C73F /* ConversationHomeDebugFixtures.swift */; };
+		279614AD2D28DABCCA5B365E /* ConversationHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D800CE43C245A4797EC940A /* ConversationHomeView.swift */; };
 		281E9F3C240B42B32A80A195 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 114E502998A8CE6CA1C1BC89 /* Assets.xcassets */; };
 		2C2940D3C0550EE4588B5929 /* FabricGoalPortfolio.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA7446C8E083BBFBD1A3EC29 /* FabricGoalPortfolio.swift */; };
 		33B4E2B72D53190870B70C80 /* GatewayStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E788461E2DF03CA0F6128F9 /* GatewayStore.swift */; };
@@ -28,7 +30,9 @@
 		4D7AE628A7A893F692173B96 /* gateway-capabilities-incompatible.json in Resources */ = {isa = PBXBuildFile; fileRef = 7FD48E3CADC1A4F2709D5D66 /* gateway-capabilities-incompatible.json */; };
 		56DF927DF13B7E77652A7E64 /* bootstrap-page-1.json in Resources */ = {isa = PBXBuildFile; fileRef = E74DD14448B2A54E9CFD93B0 /* bootstrap-page-1.json */; };
 		56ED4990736694157DA23A63 /* fabric-pairing-v2.json in Resources */ = {isa = PBXBuildFile; fileRef = 6D8F08A60A4586EE5893C3E9 /* fabric-pairing-v2.json */; };
+		5C382289748FACDC6BDA4954 /* ConversationHomeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728FF3B5AD846CC75F63A3F3 /* ConversationHomeModel.swift */; };
 		5E926420C1DABB9AD689B4A9 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F55A105AD6902AC6D282B12B /* QRScannerView.swift */; };
+		62664DFEAF6876B11FE2F7CC /* ConversationHomeModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD666BEFE17AC010F380D524 /* ConversationHomeModelTests.swift */; };
 		69BE57442CC48B8D911610D2 /* additive-future.json in Resources */ = {isa = PBXBuildFile; fileRef = CFB96B2E1031E6C4519CCB98 /* additive-future.json */; };
 		88DC45C1FFD151294158331E /* replaced-ledger.json in Resources */ = {isa = PBXBuildFile; fileRef = A3D8FF63DA666046CAE8A11B /* replaced-ledger.json */; };
 		8CEA98F6B988474EE350B8DE /* FabricWorkSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB978B8F714B72E27A81EFA6 /* FabricWorkSync.swift */; };
@@ -86,7 +90,9 @@
 		64177EA0B0A9841984EEDC21 /* GatewayAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayAPI.swift; sourceTree = "<group>"; };
 		67B8A44C68F860E47594E46E /* legacy-mobile-methods.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "legacy-mobile-methods.json"; sourceTree = "<group>"; };
 		6D8F08A60A4586EE5893C3E9 /* fabric-pairing-v2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "fabric-pairing-v2.json"; sourceTree = "<group>"; };
+		728FF3B5AD846CC75F63A3F3 /* ConversationHomeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationHomeModel.swift; sourceTree = "<group>"; };
 		7429FE32EA73F2689A58B7D4 /* InteractionReceiptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractionReceiptTests.swift; sourceTree = "<group>"; };
+		7D800CE43C245A4797EC940A /* ConversationHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationHomeView.swift; sourceTree = "<group>"; };
 		7FD48E3CADC1A4F2709D5D66 /* gateway-capabilities-incompatible.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-incompatible.json"; sourceTree = "<group>"; };
 		82269ED2BBD6CF3FEBA37C14 /* gateway-capabilities-v1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-v1.json"; sourceTree = "<group>"; };
 		866F3A31E7680B3C401BFD26 /* RemoteControlSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlSheets.swift; sourceTree = "<group>"; };
@@ -106,17 +112,20 @@
 		CFB96B2E1031E6C4519CCB98 /* additive-future.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "additive-future.json"; sourceTree = "<group>"; };
 		D4C540BD0C2DD543FE4AB8AE /* WorkContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkContractTests.swift; sourceTree = "<group>"; };
 		D717E0920AEB950A30325E44 /* SavedGatewayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedGatewayTests.swift; sourceTree = "<group>"; };
+		DAD37753829FF07CF4D2C73F /* ConversationHomeDebugFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationHomeDebugFixtures.swift; sourceTree = "<group>"; };
 		DAF5503C200A9D187123A534 /* FabricWorkContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricWorkContract.swift; sourceTree = "<group>"; };
 		DE3236B367DE48627DE9B7D7 /* bootstrap-page-2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-page-2.json"; sourceTree = "<group>"; };
 		E74DD14448B2A54E9CFD93B0 /* bootstrap-page-1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-page-1.json"; sourceTree = "<group>"; };
 		F55A105AD6902AC6D282B12B /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		FACE05AECDAE13F55E07AC81 /* JsonRpcGatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JsonRpcGatewayClient.swift; sourceTree = "<group>"; };
+		FD666BEFE17AC010F380D524 /* ConversationHomeModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationHomeModelTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		0E8152C7A0F246FFFD32AAA9 /* FabricTests */ = {
 			isa = PBXGroup;
 			children = (
+				FD666BEFE17AC010F380D524 /* ConversationHomeModelTests.swift */,
 				53A856CAC846194DFE6D0435 /* GatewayCapabilitiesTests.swift */,
 				873D6FDF5E7DB46AA7754215 /* GoalPortfolioTests.swift */,
 				7429FE32EA73F2689A58B7D4 /* InteractionReceiptTests.swift */,
@@ -145,6 +154,16 @@
 			);
 			name = mobile;
 			path = ..;
+			sourceTree = "<group>";
+		};
+		4A65431BA131573AAE285D8E /* Home */ = {
+			isa = PBXGroup;
+			children = (
+				DAD37753829FF07CF4D2C73F /* ConversationHomeDebugFixtures.swift */,
+				728FF3B5AD846CC75F63A3F3 /* ConversationHomeModel.swift */,
+				7D800CE43C245A4797EC940A /* ConversationHomeView.swift */,
+			);
+			path = Home;
 			sourceTree = "<group>";
 		};
 		4CA38F495733D77181920E25 /* Fabric */ = {
@@ -193,6 +212,7 @@
 			children = (
 				A0C31EA2A8546AA13EE256BF /* Chat */,
 				10534D7B2D24FAD2F01D6152 /* Connect */,
+				4A65431BA131573AAE285D8E /* Home */,
 				68ADBDF133F50D638CAC47C2 /* Sessions */,
 			);
 			path = Features;
@@ -387,6 +407,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				62664DFEAF6876B11FE2F7CC /* ConversationHomeModelTests.swift in Sources */,
 				010D7C7747AE0E123A4145D0 /* GatewayCapabilitiesTests.swift in Sources */,
 				C4CCFA6AC80CB1CD02AD925C /* GoalPortfolioTests.swift in Sources */,
 				A7D097F9C0A4C377F8F62B79 /* InteractionReceiptTests.swift in Sources */,
@@ -405,6 +426,9 @@
 				AC09295728E05DBDCE169AA1 /* AppModel.swift in Sources */,
 				0160D0F6BB62086B3E42EFE3 /* ChatView.swift in Sources */,
 				B4668491CA6D5572A9F78DDD /* ChatViewModel.swift in Sources */,
+				24D62AD2C04431BC2CDE5C6C /* ConversationHomeDebugFixtures.swift in Sources */,
+				5C382289748FACDC6BDA4954 /* ConversationHomeModel.swift in Sources */,
+				279614AD2D28DABCCA5B365E /* ConversationHomeView.swift in Sources */,
 				2C2940D3C0550EE4588B5929 /* FabricGoalPortfolio.swift in Sources */,
 				144E9F91E4AD4F76C9ECC634 /* FabricMobileApp.swift in Sources */,
 				C2A694075BB866A62DBE5290 /* FabricTheme.swift in Sources */,
@@ -505,7 +529,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -617,7 +641,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

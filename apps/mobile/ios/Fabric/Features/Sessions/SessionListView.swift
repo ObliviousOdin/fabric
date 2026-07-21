@@ -95,6 +95,7 @@ struct SessionListView: View {
         }
         .navigationTitle(appModel.activeGateway?.label ?? "Sessions")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {

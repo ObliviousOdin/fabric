@@ -56,6 +56,100 @@ final result: passed
 
 ---
 
+# Design QA — iOS Conversation-First Home
+
+Date: 2026-07-20
+
+## Comparison setup
+
+- Source visual truth: `<CODEX_GENERATED_IMAGES>/019f8090-688a-72d1-9756-cf712c83657f/exec-da678f5f-150c-43b9-8992-86050247d6bb.png`
+  (`72b45e4543390307a3783bd039a2e8870a5bc5d8450beb088329fb61adf5a566`)
+- Final implementation capture:
+  `<TMPDIR>/fabric-home-final-running-light-stable.png`
+- Normalized implementation:
+  `<CODEX_VISUALIZATIONS>/2026/07/20/019f8090-688a-72d1-9756-cf712c83657f/phase1-home/conversation-home-running-normalized-final.png`
+  (`b7c6831b05628ac667379b5a9ee89cada3cd6265cfc90e837d12db1a18f268ff`)
+- Combined source/implementation comparison:
+  `<CODEX_VISUALIZATIONS>/2026/07/20/019f8090-688a-72d1-9756-cf712c83657f/phase1-home/conversation-home-comparison-final.png`
+  (`d6c0bcc0efd0e44c65c7bd2f516e418a77f6b4aa639ed8e57a313f4e8047ef1e`)
+- Source viewport: 853 x 1844.
+- Simulator viewport: 1206 x 2622; comparison crop 1206 x 2607,
+  normalized to 853 x 1844.
+- Themes: Fabric Light and Fabric Dark.
+- Primary comparison state: connected, one running conversation, two recent
+  conversations, empty outcome composer.
+
+The final comparison preserves the approved conversation-first hierarchy:
+canonical Fabric identity, one large outcome composer, one primary action, one
+prominent live conversation, and a concise recent briefing. Intentional product
+differences are a solid-purple action instead of a gradient, a neutral 3:1
+composer boundary with purple reserved for focus, sentence-case status copy,
+no decorative watermark or non-functional expand affordance, native SF Symbols,
+and a disabled Start goal action until an objective exists.
+
+## Focused evidence
+
+- Header and composer comparison:
+  `<CODEX_VISUALIZATIONS>/2026/07/20/019f8090-688a-72d1-9756-cf712c83657f/phase1-home/conversation-home-focus-header-composer-final.png`
+  (`e5166584e0d04a3f5291ff1ec2469897c9cf448b692bbb92c9874369106b34ce`)
+- Live and recent briefing comparison:
+  `<CODEX_VISUALIZATIONS>/2026/07/20/019f8090-688a-72d1-9756-cf712c83657f/phase1-home/conversation-home-focus-work-briefing-final.png`
+  (`ae0434b62619519f77e44162fe03712732dc441caf69ceb40269389de2c43ef3`)
+- Final state matrix:
+  `<CODEX_VISUALIZATIONS>/2026/07/20/019f8090-688a-72d1-9756-cf712c83657f/phase1-home/conversation-home-state-matrix-final.png`
+  (`22d6d01834a37cf8b2700ff4d7625af6cfe143d80b8eb373ced9eec6ec100e15`)
+
+## Iteration history
+
+1. The baseline implementation still presented a stock session list and a
+   stale private-label identity. The first comparison also found that a Home
+   objective could be lost across launch failure, offline copy did not match
+   the real connection state, the composer boundary lacked sufficient neutral
+   contrast, the enabled action state had no proof capture, Dynamic Type could
+   truncate important titles, and chevron/action icon details diverged from the
+   selected direction.
+2. The first native Home iteration restored the canonical mark and
+   conversation-first hierarchy, preserved the objective through unknown
+   create outcomes, added truthful offline/live-status copy, raised the neutral
+   control contrast, added a typed-enabled fixture, removed title truncation at
+   accessibility sizes, and aligned the visible disclosure/action language.
+   The expanded matrix then exposed a P1 overlap between the offline recovery
+   banner and Home, plus P2 gaps in dark-mark treatment, status priority, and a
+   transiently dimmed comparison capture.
+3. The final iteration moved recovery chrome into normal layout flow, made the
+   banner adapt vertically at accessibility sizes, prioritized offline truth
+   over optional live-status copy, added VoiceOver state-change announcements,
+   kept accessibility-size titles unbounded and scrollable, used the canonical
+   on-dark mark geometry/gradient, and recaptured the stable post-animation
+   running state. The full and focused source/implementation comparisons were
+   regenerated and inspected together after those fixes.
+
+## State, interaction, and accessibility verification
+
+- The matrix passes running light, running dark, typed/enabled, loading, empty,
+  error, offline, AX XXXL running, AX XXXL offline, and small-device states.
+- AX content reflows without clipping and remains vertically scrollable.
+- Offline recovery stays above Home in normal layout flow and does not overlap
+  the header, composer, or recent briefing.
+- All visible controls meet the 44-point minimum target contract.
+- Start goal is disabled for an empty objective and enabled for a typed one.
+- The neutral composer boundary exceeds 3:1 against its surface in both themes;
+  the stronger purple boundary appears only on focus.
+- Headers and conversation titles retain their reading order and do not use
+  artificial line limits at accessibility sizes.
+- VoiceOver receives explicit announcements for offline, load-error, and
+  optional-live-status-unavailable transitions.
+- No decorative placeholder, fake asset, or non-functional control was added.
+
+## Final review
+
+The final independent design review reported no remaining P0, P1, or P2
+findings.
+
+final result: passed
+
+---
+
 # Design QA — Desktop Agent Live View
 
 Date: 2026-07-16

@@ -149,6 +149,13 @@ final class ChatViewModel {
     /// validated bootstrap/delta pages, never by an event hint.
     private(set) var durableWorkProjection: FabricWorkProjection?
 
+    /// Product-facing Work state shared by every future home/mission-control
+    /// direction. It remains a pure projection; rendering stays out of this
+    /// view model until the visual direction is selected.
+    var goalPortfolio: FabricGoalPortfolio? {
+        durableWorkProjection.map(FabricGoalPortfolio.init(projection:))
+    }
+
     let api: GatewayAPI
     private(set) var storedSessionId: String?
     private(set) var sessionId: String?
@@ -203,6 +210,10 @@ final class ChatViewModel {
             return workIdentity != nil
         }
         return supportsMethod("prompt.background")
+    }
+
+    var canSubmitInitialPrompt: Bool {
+        sessionReady && sessionId != nil && supportsMethod("prompt.submit")
     }
 
     private func canCall(_ method: String, action: String) -> Bool {
@@ -265,6 +276,7 @@ final class ChatViewModel {
             return
         }
         starting = true
+        sessionError = nil
         bootstrapGeneration += 1
         let generation = bootstrapGeneration
         defer {
@@ -348,6 +360,7 @@ final class ChatViewModel {
             connectionDidClose()
         }
         starting = true
+        sessionError = nil
         bootstrapGeneration += 1
         let generation = bootstrapGeneration
         defer {
@@ -423,15 +436,37 @@ final class ChatViewModel {
             return
         }
 
-        guard canCall("prompt.submit", action: "Sending messages") else { return }
+        _ = await submitPrompt(trimmed, sessionId: sessionId)
+    }
+
+    /// Submit a conversation-first Home objective as a normal prompt even
+    /// when its first character is `/`. Home promises the baseline
+    /// `prompt.submit` contract; it must not silently reinterpret user prose
+    /// as a slash command or steering note. The return value means an attempt
+    /// began, not that the gateway confirmed receipt; the transcript retains
+    /// the objective when the network outcome is unknown.
+    @discardableResult
+    func sendInitialPrompt(_ text: String) async -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard sessionReady, let sessionId, !trimmed.isEmpty else { return false }
+        return await submitPrompt(trimmed, sessionId: sessionId)
+    }
+
+    @discardableResult
+    private func submitPrompt(_ trimmed: String, sessionId: String) async -> Bool {
+        guard canCall("prompt.submit", action: "Sending messages") else { return false }
         messages.append(TranscriptMessage(role: .user, text: trimmed))
         busy = true
         do {
             try await api.submitPrompt(sessionId: sessionId, text: trimmed)
         } catch {
             busy = false
-            messages.append(TranscriptMessage(role: .system, text: "Send failed: \(error.localizedDescription)"))
+            messages.append(TranscriptMessage(
+                role: .system,
+                text: "Send outcome is unknown: \(error.localizedDescription) Check this conversation before trying again."
+            ))
         }
+        return true
     }
 
     /// Inject a note into the running turn without interrupting it.

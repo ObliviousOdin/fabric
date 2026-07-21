@@ -5,17 +5,44 @@ import SwiftUI
 /// commands, steering, background tasks, and process control.
 struct ChatView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(\.dismiss) private var dismiss
 
     let resumeStoredSessionId: String?
     let title: String
+    let onInitialPromptAttempted: () -> Void
 
     @State private var model: ChatViewModel?
     @State private var draft = ""
+    @State private var initialPromptDispatch: InitialPromptDispatch
+
+    init(
+        resumeStoredSessionId: String?,
+        title: String,
+        initialPrompt: String? = nil,
+        onInitialPromptAttempted: @escaping () -> Void = {}
+    ) {
+        self.resumeStoredSessionId = resumeStoredSessionId
+        self.title = title
+        self.onInitialPromptAttempted = onInitialPromptAttempted
+        _initialPromptDispatch = State(
+            initialValue: InitialPromptDispatch(prompt: initialPrompt)
+        )
+    }
 
     var body: some View {
         Group {
             if let model {
-                ChatContentView(model: model, draft: $draft)
+                ChatContentView(
+                    model: model,
+                    draft: $draft,
+                    recoveryAction: SessionRecoveryAction(
+                        storedSessionId: model.storedSessionId
+                    ),
+                    onRetrySession: {
+                        Task { await retrySession(using: model) }
+                    },
+                    onReturnToConversations: { dismiss() }
+                )
             } else {
                 ProgressView()
             }
@@ -39,8 +66,12 @@ struct ChatView: View {
                 )
                 model = vm
                 await vm.start()
+                await dispatchInitialPromptIfReady(using: vm)
             } else if appModel.phase == .connected {
-                await model?.resumeAfterReconnect()
+                if let model {
+                    await model.resumeAfterReconnect()
+                    await dispatchInitialPromptIfReady(using: model)
+                }
             }
         }
         .onChange(of: appModel.phase) { oldPhase, newPhase in
@@ -51,12 +82,74 @@ struct ChatView: View {
         .onDisappear {
             model?.stop()
         }
+        .toolbar(.visible, for: .navigationBar)
+    }
+
+    private func dispatchInitialPromptIfReady(using model: ChatViewModel) async {
+        guard let prompt = initialPromptDispatch.beginIfReady(
+            model.canSubmitInitialPrompt,
+            onAttempt: onInitialPromptAttempted
+        ) else { return }
+        // `prompt.submit` is not idempotent. Consume this launch intent before
+        // awaiting the network so reconnect/task re-entry cannot submit the
+        // same user goal twice. If session bootstrap was interrupted after its
+        // durable key was issued, the first successful resume still gets the
+        // launch prompt.
+        await model.sendInitialPrompt(prompt)
+    }
+
+    private func retrySession(using model: ChatViewModel) async {
+        // Creating a session is not idempotent. A failed create response can
+        // mean the gateway created the session but the client missed the
+        // receipt, so only a known durable key is safe to retry.
+        guard model.storedSessionId != nil else { return }
+        await model.resumeAfterReconnect()
+        await dispatchInitialPromptIfReady(using: model)
+    }
+}
+
+enum SessionRecoveryAction: Equatable {
+    case retryResume
+    case returnToConversations
+
+    init(storedSessionId: String?) {
+        self = storedSessionId?.isEmpty == false
+            ? .retryResume
+            : .returnToConversations
+    }
+}
+
+/// One-shot launch intent for the conversation-first home. Keeping this as a
+/// tiny value type makes the no-double-submit invariant unit-testable without
+/// constructing a live WebSocket client.
+struct InitialPromptDispatch: Equatable {
+    private let prompt: String?
+    private(set) var attempted = false
+
+    init(prompt: String?) {
+        let trimmed = prompt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.prompt = (trimmed?.isEmpty == false) ? trimmed : nil
+    }
+
+    mutating func beginIfReady(
+        _ ready: Bool,
+        onAttempt: () -> Void = {}
+    ) -> String? {
+        guard ready, !attempted, let prompt else { return nil }
+        attempted = true
+        // Synchronous by contract: Home clears only the matching launch draft
+        // before the non-cancellable JSON-RPC await can yield or complete late.
+        onAttempt()
+        return prompt
     }
 }
 
 private struct ChatContentView: View {
     @Bindable var model: ChatViewModel
     @Binding var draft: String
+    let recoveryAction: SessionRecoveryAction
+    let onRetrySession: () -> Void
+    let onReturnToConversations: () -> Void
 
     @State private var showCommandCatalog = false
     @State private var showProcesses = false
@@ -75,11 +168,24 @@ private struct ChatContentView: View {
                     .background(FabricTheme.warning.fabricTint())
             }
             if let sessionError = model.sessionError {
-                ContentUnavailableView(
-                    "Session unavailable",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(sessionError)
-                )
+                VStack(spacing: 12) {
+                    ContentUnavailableView(
+                        "Session unavailable",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text(sessionError)
+                    )
+                    switch recoveryAction {
+                    case .retryResume:
+                        Button("Retry session", action: onRetrySession)
+                            .buttonStyle(.borderedProminent)
+                            .frame(minHeight: FabricTheme.minTarget)
+                    case .returnToConversations:
+                        Button("Back to conversations", action: onReturnToConversations)
+                            .buttonStyle(.borderedProminent)
+                            .frame(minHeight: FabricTheme.minTarget)
+                            .accessibilityHint("Your goal remains preserved on Home")
+                    }
+                }
             } else {
                 transcript
             }

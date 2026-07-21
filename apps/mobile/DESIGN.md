@@ -56,7 +56,9 @@ mobile export target, these files become generated artifacts.
   `Fabric/Assets.xcassets/AppIcon.appiconset`; Android uses an adaptive icon
   (maskable mark on the canonical purple) under `app/src/main/res`. Store
   listing/marketing icons are still produced separately at packaging time.
-- Compose/SwiftUI screens are review-verified against this contract but have
-  not been screenshot-diffed like the dashboard (`design-qa.md` pattern).
-  A device pass should capture Connect/Sessions/Chat in both themes before
-  any release.
+- The iOS conversation-first Home has a same-viewport source/implementation
+  comparison plus light, dark, typed-enabled, loading, empty, error, offline,
+  accessibility-size, and small-device evidence recorded in
+  [`design-qa.md`](../../design-qa.md). Connect, Chat, the complete Sessions
+  browser, and Android still need their own physical-device captures in both
+  themes before their corresponding release scope can be marked complete.

@@ -163,6 +163,7 @@ export const en: Translations = {
       automations: "Automations",
       channelsEvents: "Channels and Events",
       conversations: "Conversations",
+      deploy: "Deploy",
       design: "Design",
       experience: "Fabric experience",
       help: "Help",

@@ -249,6 +249,14 @@
       {
         "alias_of": null,
         "aliases": [],
+        "help": "Deployment plane (hosts, projects, deploys)",
+        "name": "loom",
+        "source": "fabric_cli/subcommands/loom.py",
+        "visibility": "public"
+      },
+      {
+        "alias_of": null,
+        "aliases": [],
         "help": "Language Server Protocol management",
         "name": "lsp",
         "source": "agent/lsp/cli.py",
@@ -6510,6 +6518,28 @@
           }
         ],
         "confidence": "exact",
+        "key": "loom",
+        "label": "Loom deployment plane: inspect hosts/projects/deployments, plan, deploy, and roll back.",
+        "metadata": {
+          "includes": [],
+          "tools": [
+            "loom"
+          ]
+        },
+        "origin": "bundled"
+      },
+      {
+        "authorities": [
+          {
+            "path": "toolsets.py",
+            "symbol": "TOOLSETS"
+          },
+          {
+            "path": "tools/registry.py",
+            "symbol": "ToolRegistry"
+          }
+        ],
+        "confidence": "exact",
         "key": "memory",
         "label": "Persistent memory across sessions (personal notes + user profile)",
         "metadata": {
@@ -7215,6 +7245,16 @@
         "title": null
       },
       {
+        "aliases": [],
+        "id": "deploy",
+        "layout": "page",
+        "nav_label": "Deploy",
+        "path": "/admin/deploy",
+        "persistent": false,
+        "surface": "admin",
+        "title": null
+      },
+      {
         "aliases": [
           "/config",
           "/admin/advanced/config"
@@ -7266,13 +7306,13 @@
   "generation_mode": "repository_only_no_runtime_imports",
   "schema_version": 1,
   "summary": {
-    "cli_command": 66,
+    "cli_command": 67,
     "command": 84,
     "dashboard_plugin_manifest": 3,
-    "dashboard_route": 25,
+    "dashboard_route": 26,
     "model_provider": 40,
     "platform": 33,
     "product_surface": 13,
-    "toolset": 58
+    "toolset": 59
   }
 }

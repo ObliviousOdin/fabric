@@ -1548,7 +1548,171 @@ export const api = {
     fetchJSON<SkillHubScan>(
       `/api/skills/hub/scan?identifier=${encodeURIComponent(identifier)}`,
     ),
+
+  // ── Loom deploy plane ───────────────────────────────────────────────
+  // Drives the non-technical Deploy page: hosts (where things run),
+  // projects (what to deploy) and deployments (plan → deploy → rollback).
+  getLoomStatus: () => fetchJSON<LoomStatus>("/api/loom/status"),
+  getLoomHosts: () => fetchJSON<LoomHost[]>("/api/loom/hosts"),
+  createLoomHost: (body: LoomHostCreate) =>
+    fetchJSON<LoomHost>("/api/loom/hosts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  scanLoomHost: (id: string) =>
+    fetchJSON<LoomHost>(`/api/loom/hosts/${encodeURIComponent(id)}/scan`, {
+      method: "POST",
+    }),
+  getLoomProjects: () => fetchJSON<LoomProject[]>("/api/loom/projects"),
+  createLoomProject: (body: LoomProjectCreate) =>
+    fetchJSON<LoomProject>("/api/loom/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  getLoomDeployments: (project?: string) =>
+    fetchJSON<LoomDeployment[]>(
+      `/api/loom/deployments${
+        project ? `?project=${encodeURIComponent(project)}` : ""
+      }`,
+    ),
+  planLoomDeploy: (body: LoomDeployRequest) =>
+    fetchJSON<LoomDeployment>("/api/loom/plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  loomDeploy: (body: LoomDeployRequest) =>
+    fetchJSON<LoomDeployment>("/api/loom/deploy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  // Apply an already-PLANNED deployment by id (the reviewed-plan confirm
+  // path). Unlike ``loomDeploy`` this does not replan — it applies the exact
+  // deployment the user previewed, so what runs is what was reviewed.
+  loomApply: (
+    deploymentId: string,
+    body: { allow_destructive?: boolean } = {},
+  ) =>
+    fetchJSON<LoomDeployment>(
+      `/api/loom/deployments/${encodeURIComponent(deploymentId)}/apply`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    ),
+  loomRollback: (body: LoomRollbackRequest) =>
+    fetchJSON<LoomDeployment>("/api/loom/rollback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  getLoomLogs: (id: string) =>
+    fetchJSON<{ logs: string }>(
+      `/api/loom/deployments/${encodeURIComponent(id)}/logs`,
+    ),
 };
+
+// ── Loom deploy plane types ────────────────────────────────────────────
+
+/** A place something can run: the local machine or a remote SSH target. */
+export interface LoomHost {
+  id: string;
+  name: string;
+  kind: string;
+  state: string;
+  address: string;
+  user: string;
+  port: number;
+  ssh_key_path: string;
+  host_key_fingerprint: string;
+  created_at: string;
+  meta: Record<string, unknown>;
+}
+
+export interface LoomHostCreate {
+  name: string;
+  kind: "local" | "ssh";
+  address?: string;
+  user?: string;
+  port?: number;
+  ssh_key_path?: string;
+}
+
+/** Something that can be deployed: a Docker Compose app or Fabric itself. */
+export interface LoomProject {
+  id: string;
+  name: string;
+  kind: string;
+  source: string;
+  config: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface LoomProjectCreate {
+  name: string;
+  kind: "compose" | "fabric-hosted";
+  source?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface LoomPlanStep {
+  action: string;
+  detail: string;
+  kind: string;
+}
+
+/** The preview of what a deploy will do, surfaced before anything runs. */
+export interface LoomPlan {
+  summary: string;
+  steps: LoomPlanStep[];
+  has_destructive: boolean;
+}
+
+export interface LoomDeployment {
+  id: string;
+  project_id: string;
+  host_id: string;
+  state: string;
+  source_ref: string;
+  plan: LoomPlan | null;
+  active: boolean;
+  previous_id: string;
+  message: string;
+  logs: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LoomActiveDeployment {
+  deployment: string;
+  project_id: string;
+  host_id: string;
+  state: string;
+}
+
+export interface LoomStatus {
+  hosts: number;
+  projects: number;
+  deployments: number;
+  active: LoomActiveDeployment[];
+}
+
+export interface LoomDeployRequest {
+  project: string;
+  host: string;
+  source_ref?: string;
+  allow_destructive?: boolean;
+}
+
+export interface LoomRollbackRequest {
+  project: string;
+  host: string;
+  to?: string;
+}
 
 /** Identity payload returned by ``GET /api/auth/me`` (Phase 7).
  *

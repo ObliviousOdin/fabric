@@ -14,6 +14,7 @@ import {
   Palette,
   Plug,
   Radio,
+  Rocket,
   Settings,
   Shield,
   ShieldCheck,
@@ -70,6 +71,7 @@ const PairingPage = lazy(() => import("@/pages/PairingPage"));
 const ChannelsPage = lazy(() => import("@/pages/ChannelsPage"));
 const WebhooksPage = lazy(() => import("@/pages/WebhooksPage"));
 const SystemPage = lazy(() => import("@/pages/SystemPage"));
+const DeployPage = lazy(() => import("@/pages/DeployPage"));
 const ConfigPage = lazy(() => import("@/pages/ConfigPage"));
 const EnvPage = lazy(() => import("@/pages/EnvPage"));
 const DocsPage = lazy(() => import("@/pages/DocsPage"));
@@ -334,6 +336,14 @@ export const APP_ROUTES: readonly AppRouteDef[] = [
       icon: Wrench,
       anchorAliases: ["system"],
     },
+  },
+  {
+    id: "deploy",
+    path: "/admin/deploy",
+    surface: "admin",
+    layout: "page",
+    component: DeployPage,
+    nav: { label: "Deploy", labelKey: "deploy", icon: Rocket },
   },
   {
     id: "advanced",

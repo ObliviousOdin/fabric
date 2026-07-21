@@ -232,6 +232,23 @@ def test_release_workflow_builds_dashboard_before_python_packages():
     assert web_build < package_build < candidate_check
 
 
+def test_release_workflow_keeps_required_smoke_contexts_on_prs():
+    workflow = Path(".github/workflows/release-channels.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "smoke-macos-pr-context:" in workflow
+    assert "name: Smoke macos-15 package" in workflow
+    assert "Preserve required macOS smoke context on PRs" in workflow
+    assert "smoke-windows-pr-context:" in workflow
+    assert "name: Smoke windows-2025 package" in workflow
+    assert "Preserve required Windows smoke context on PRs" in workflow
+    assert (
+        'github.event_name == \'pull_request\' && \'["ubuntu-24.04"]\''
+        in workflow
+    )
+
+
 def test_only_successful_main_push_run_can_feed_production():
     assert (
         validate_run(

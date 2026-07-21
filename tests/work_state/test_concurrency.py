@@ -192,3 +192,82 @@ def test_begin_immediate_deadline_is_bounded_and_body_never_runs_under_lock(
     assert raised.value.retryable is True
     assert body_calls == 0
     assert 0.08 <= elapsed < 1.0
+
+
+def test_read_open_retries_a_transient_exclusive_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = WorkLedger(
+        tmp_path / "profile",
+        busy_timeout_ms=5,
+        write_deadline_seconds=0.5,
+    )
+    blocker = sqlite3.connect(ledger.path, isolation_level=None, timeout=0.1)
+    assert blocker.execute("PRAGMA journal_mode=DELETE").fetchone()[0] == "delete"
+    blocker.execute("BEGIN EXCLUSIVE")
+    busy_observed = threading.Event()
+    original_connect_once = WorkLedger._connect_once
+
+    def observe_connect_once(
+        candidate: WorkLedger,
+        *,
+        for_write: bool = False,
+    ) -> sqlite3.Connection:
+        try:
+            return original_connect_once(candidate, for_write=for_write)
+        except WorkStoreBusy:
+            busy_observed.set()
+            raise
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                busy_observed.set()
+            raise
+
+    monkeypatch.setattr(WorkLedger, "_connect_once", observe_connect_once)
+    result: list[str] = []
+    errors: list[BaseException] = []
+
+    def read_identity() -> None:
+        try:
+            result.append(ledger.assert_store_identity())
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    reader = threading.Thread(target=read_identity)
+    reader.start()
+    try:
+        assert busy_observed.wait(timeout=1)
+        assert reader.is_alive()
+    finally:
+        blocker.execute("ROLLBACK")
+        blocker.close()
+    reader.join(timeout=2)
+
+    assert not reader.is_alive()
+    assert errors == []
+    assert result == [ledger.ledger_id]
+
+
+def test_read_open_deadline_returns_typed_retryable_busy(tmp_path: Path) -> None:
+    ledger = WorkLedger(
+        tmp_path / "profile",
+        busy_timeout_ms=5,
+        write_deadline_seconds=0.12,
+    )
+    blocker = sqlite3.connect(ledger.path, isolation_level=None, timeout=0.1)
+    assert blocker.execute("PRAGMA journal_mode=DELETE").fetchone()[0] == "delete"
+    blocker.execute("BEGIN EXCLUSIVE")
+
+    started = time.monotonic()
+    try:
+        with pytest.raises(WorkStoreBusy) as raised:
+            ledger.assert_store_identity()
+    finally:
+        blocker.execute("ROLLBACK")
+        blocker.close()
+    elapsed = time.monotonic() - started
+
+    assert raised.value.retryable is True
+    assert "open deadline exhausted" in str(raised.value)
+    assert 0.08 <= elapsed < 1.0

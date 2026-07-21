@@ -191,7 +191,7 @@ apps/mobile/
 │   └── Fabric/
 │       ├── App/         ← app entry, root navigation model
 │       ├── Core/        ← FabricKit: JSON-RPC client, typed API, keychain store
-│       └── Features/    ← Connect, Sessions, Chat screens
+│       └── Features/    ← Connect, conversation-first Home, Sessions, Chat
 └── android/             ← Jetpack Compose app, Gradle Kotlin DSL
     └── app/src/main/kotlin/io/github/obliviousodin/fabric/mobile/
         ├── core/        ← JSON-RPC client (OkHttp), typed API, settings store
@@ -211,10 +211,12 @@ The v1 vertical slice on both platforms:
    probe `GET /api/status` to pick the auth mode. Tokens live in the
    Keychain (iOS) / Android Keystore-backed encrypted storage; passwords never
    persist.
-2. **Sessions** — `session.list` to resume or start new, plus an
-   **Active now** monitor (`session.active_list`) showing live runtime
-   status with interrupt control per session. The title names the
-   connected server.
+2. **Home / Sessions** — iOS opens on a conversation-first Home backed by
+   `session.list` and optional `session.active_list`: one outcome composer,
+   one prioritized live conversation, and at most two recent conversations.
+   **See all** opens the complete session browser, including live runtime
+   status and interrupt control. Android currently opens that complete session
+   browser directly. Both surfaces name the connected server.
 3. **Chat** — `session.create`/`session.resume` → `prompt.submit` → live
    streamed transcript (`message.delta`), status/tool activity line,
    interrupt, and approval prompts (`approval.request` → `approval.respond`).
@@ -238,6 +240,19 @@ the same chat screen:
   unblocked from the phone.
 - **Process control** — per-session background processes (`process.list`)
   with output tails and kill (`process.kill`).
+
+The iOS durable Work client also validates and reconciles the versioned
+`fabric.work` Job/Attention ledger. `FabricGoalPortfolio` is the shared native
+product projection over that ledger: each fully understood Job appears exactly
+once under needs attention, active work, or outcomes; compatible future kinds
+and statuses remain visible but non-actionable; and open Attention not
+represented by a needs-attention Job remains visible separately instead of
+being silently dropped. Result and error bodies are not copied into list state
+— detail views must fetch the bounded `job.get` payload deliberately. This
+model remains available to later goal and mission-control surfaces. The
+selected FMB-P1 Home is now implemented against the advertised session
+contract and intentionally does not render this projection until the gateway
+advertises the complete reviewed Durable Work contract.
 
 ## Pairing (QR) and connecting over Tailscale
 

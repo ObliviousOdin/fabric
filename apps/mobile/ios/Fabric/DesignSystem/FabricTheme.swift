@@ -29,6 +29,10 @@ enum FabricTheme {
 
     static let border = dynamic(light: 0xD1CFCB, dark: 0x28252A)
     static let borderStrong = dynamic(light: 0xB6B1A8, dark: 0x4B4550)
+    /// Neutral interactive boundary with at least 3:1 contrast against the
+    /// corresponding surface. It aliases the canonical disabled-text role
+    /// instead of introducing an untracked platform color.
+    static let controlBorder = textDisabled
 
     static let action = dynamic(light: 0x4628CC, dark: 0x5542E3)
     static let focus = dynamic(light: 0x4628CC, dark: 0x9481E6)

@@ -7,7 +7,17 @@ struct FabricMobileApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            Group {
+#if DEBUG
+                if let fixture = ConversationHomeDebugFixture.requested {
+                    ConversationHomeDebugFixtureView(fixture: fixture)
+                } else {
+                    RootView()
+                }
+#else
+                RootView()
+#endif
+            }
                 .environment(appModel)
                 // The Fabric action accent drives every interactive control;
                 // neutral surfaces carry the rest (design contract).
@@ -38,13 +48,14 @@ struct RootView: View {
             // there rather than a separate screen.
             GatewayListView()
         } else {
-            NavigationStack {
-                SessionListView()
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
                 if appModel.phase != .connected {
                     ConnectionRecoveryBanner()
                 }
+                NavigationStack {
+                    ConversationHomeView()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
@@ -54,28 +65,73 @@ private struct ConnectionRecoveryBanner: View {
     @Environment(AppModel.self) private var appModel
 
     var body: some View {
+        ConnectionRecoveryBannerContent(
+            isReconnecting: appModel.phase == .reconnecting,
+            message: appModel.phase == .reconnecting
+                ? "Reconnecting to Fabric…"
+                : (appModel.lastConnectError ?? "Fabric is offline."),
+            showActions: appModel.phase == .disconnected,
+            onRetry: { appModel.retryActiveGateway() },
+            onServers: { appModel.disconnect() }
+        )
+    }
+}
+
+/// Shared connection chrome for production and deterministic offline QA.
+/// Keeping the actions separate from the status accessibility element avoids
+/// collapsing multiple controls into one VoiceOver target.
+struct ConnectionRecoveryBannerContent: View {
+    let isReconnecting: Bool
+    let message: String
+    let showActions: Bool
+    let onRetry: () -> Void
+    let onServers: () -> Void
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    status
+                    if showActions { actions }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    status
+                    Spacer(minLength: 8)
+                    if showActions { actions }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(FabricTheme.warning.fabricTint())
+    }
+
+    private var status: some View {
         HStack(spacing: 10) {
-            if appModel.phase == .reconnecting {
+            if isReconnecting {
                 ProgressView().controlSize(.small)
             } else {
                 Image(systemName: "wifi.exclamationmark")
             }
-            Text(appModel.phase == .reconnecting
-                ? "Reconnecting to Fabric…"
-                : (appModel.lastConnectError ?? "Fabric is offline."))
+            Text(message)
                 .font(.footnote)
-                .lineLimit(2)
-            Spacer(minLength: 8)
-            if appModel.phase == .disconnected {
-                Button("Retry") { appModel.retryActiveGateway() }
-                    .buttonStyle(.bordered)
-                Button("Servers") { appModel.disconnect() }
-                    .buttonStyle(.plain)
-            }
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(FabricTheme.warning.fabricTint())
         .accessibilityElement(children: .combine)
+    }
+
+    private var actions: some View {
+        HStack(spacing: 10) {
+            Button("Retry", action: onRetry)
+                .buttonStyle(.bordered)
+                .frame(minHeight: FabricTheme.minTarget)
+            Button("Servers", action: onServers)
+                .buttonStyle(.plain)
+                .frame(minHeight: FabricTheme.minTarget)
+        }
     }
 }

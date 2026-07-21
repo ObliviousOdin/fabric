@@ -1589,6 +1589,21 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  // Apply an already-PLANNED deployment by id (the reviewed-plan confirm
+  // path). Unlike ``loomDeploy`` this does not replan — it applies the exact
+  // deployment the user previewed, so what runs is what was reviewed.
+  loomApply: (
+    deploymentId: string,
+    body: { allow_destructive?: boolean } = {},
+  ) =>
+    fetchJSON<LoomDeployment>(
+      `/api/loom/deployments/${encodeURIComponent(deploymentId)}/apply`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    ),
   loomRollback: (body: LoomRollbackRequest) =>
     fetchJSON<LoomDeployment>("/api/loom/rollback", {
       method: "POST",

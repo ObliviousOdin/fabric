@@ -133,6 +133,16 @@ export default function DeployPage() {
     load();
   }, [load]);
 
+  // A previewed plan is bound to the project + host it was planned for.
+  // Whenever either selection changes, that plan no longer describes the
+  // chosen target — drop it (and any stale result) so the user must
+  // re-preview before deploying. This is what stops "Deploy now" from
+  // applying a plan for a different target.
+  useEffect(() => {
+    setPlan(null);
+    setResult(null);
+  }, [selectedProject, selectedHost]);
+
   const projectName = useCallback(
     (id: string) => projects.find((p) => p.id === id)?.name ?? id,
     [projects],
@@ -223,15 +233,17 @@ export default function DeployPage() {
   };
 
   const doDeploy = async () => {
-    if (!selectedProject || !selectedHost) return;
+    // Apply the exact deployment the user previewed — not a fresh replan — so
+    // what runs is what was reviewed (plan-before-mutation). The plan is
+    // cleared whenever the selected project/host changes, so a plan present
+    // here is guaranteed to match the current target.
+    if (!plan) return;
     setDeploying(true);
     try {
-      const dep = await api.loomDeploy({
-        project: selectedProject,
-        host: selectedHost,
+      const dep = await api.loomApply(plan.id, {
         // The user has already reviewed the plan; if it included destructive
         // steps, confirming here is the explicit go-ahead.
-        allow_destructive: plan?.plan?.has_destructive ? true : undefined,
+        allow_destructive: plan.plan?.has_destructive ?? false,
       });
       setResult(dep);
       setPlan(null);
@@ -585,11 +597,7 @@ export default function DeployPage() {
                 value={selectedProject}
                 placeholder="Choose a project"
                 disabled={projects.length === 0}
-                onValueChange={(v) => {
-                  setSelectedProject(v);
-                  setPlan(null);
-                  setResult(null);
-                }}
+                onValueChange={setSelectedProject}
               >
                 {projects.map((p) => (
                   <SelectOption key={p.id} value={p.id}>
@@ -606,11 +614,7 @@ export default function DeployPage() {
                 value={selectedHost}
                 placeholder="Choose a machine"
                 disabled={hosts.length === 0}
-                onValueChange={(v) => {
-                  setSelectedHost(v);
-                  setPlan(null);
-                  setResult(null);
-                }}
+                onValueChange={setSelectedHost}
               >
                 {hosts.map((h) => (
                   <SelectOption key={h.id} value={h.id}>

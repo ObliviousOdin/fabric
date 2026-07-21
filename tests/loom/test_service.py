@@ -166,6 +166,20 @@ def test_apply_twice_is_conflict(tmp_path):
         svc.apply_deploy(planned.id)  # no longer 'planned'
 
 
+def test_apply_blocks_unresolved_conflict_plans(tmp_path):
+    svc, factory = _svc(tmp_path, healthy=True)
+    host = svc.add_host("box", "ssh", address="1.2.3.4", user="root")
+    svc.add_project("app", "compose")
+
+    planned = svc.plan_deploy("app", host.id)
+    assert planned.plan is not None
+    assert planned.plan.has_conflict
+
+    with pytest.raises(LoomConflictError, match="unresolved conflicts"):
+        svc.apply_deploy(planned.id)
+    assert factory.last is None
+
+
 # -- rollback ---------------------------------------------------------------
 
 

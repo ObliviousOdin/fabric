@@ -336,10 +336,20 @@ class LoomService:
             raise LoomConflictError(
                 f"deployment {dep.id} is {dep.state!r}, expected 'planned'"
             )
-        if dep.plan is not None and dep.plan.has_destructive and not allow_destructive:
-            raise LoomConflictError(
-                "plan contains destructive steps; confirm with allow_destructive=True"
-            )
+        if dep.plan is not None:
+            if dep.plan.has_conflict:
+                conflicts = [
+                    step.action
+                    for step in dep.plan.steps
+                    if step.kind == "conflict"
+                ]
+                detail = "; ".join(conflicts) or "unresolved conflict"
+                raise LoomConflictError(f"plan contains unresolved conflicts: {detail}")
+            if dep.plan.has_destructive and not allow_destructive:
+                raise LoomConflictError(
+                    "plan contains destructive steps; confirm with "
+                    "allow_destructive=True"
+                )
         # One in-flight mutation per (project, host).
         for other in self._store.list_deployments(dep.project_id):
             if (

@@ -142,11 +142,16 @@ class Plan:
     def has_destructive(self) -> bool:
         return any(step.kind == "destructive" for step in self.steps)
 
+    @property
+    def has_conflict(self) -> bool:
+        return any(step.kind == "conflict" for step in self.steps)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "summary": self.summary,
             "steps": [s.to_dict() for s in self.steps],
             "has_destructive": self.has_destructive,
+            "has_conflict": self.has_conflict,
         }
 
     @classmethod

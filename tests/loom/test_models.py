@@ -47,14 +47,20 @@ def test_plan_roundtrip_and_destructive_flag():
         summary="do a thing",
         steps=[
             PlanStep("create net", "docker network create", "create"),
+            PlanStep("port conflict", "80 already in use", "conflict"),
             PlanStep("delete volume", "rm -rf data", "destructive"),
         ],
     )
     assert plan.has_destructive
-    restored = Plan.from_dict(plan.to_dict())
+    assert plan.has_conflict
+    data = plan.to_dict()
+    assert data["has_destructive"] is True
+    assert data["has_conflict"] is True
+    restored = Plan.from_dict(data)
     assert restored.summary == "do a thing"
-    assert len(restored.steps) == 2
+    assert len(restored.steps) == 3
     assert restored.has_destructive
+    assert restored.has_conflict
     assert restored.steps[0].kind == "create"
 
 

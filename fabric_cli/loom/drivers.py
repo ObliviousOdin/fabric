@@ -17,6 +17,7 @@ never required to exercise the plan/apply/rollback logic.
 from __future__ import annotations
 
 import platform
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -225,9 +226,10 @@ class SshDriver(RuntimeDriver):
         return result
 
     def run_release(self, spec: ReleaseSpec) -> str:
-        env_flag = f" --env-file {spec.env_file}" if spec.env_file else ""
+        env_flag = f" --env-file {shlex.quote(spec.env_file)}" if spec.env_file else ""
         cmd = (
-            f"cd {spec.workdir} && docker compose -f {spec.compose_file}"
+            f"cd {shlex.quote(spec.workdir)} && "
+            f"docker compose -f {shlex.quote(spec.compose_file)}"
             f"{env_flag} up -d"
         )
         return self._remote(cmd)
@@ -236,20 +238,25 @@ class SshDriver(RuntimeDriver):
         if not spec.health_url:
             return True
         out = self._remote(
-            f"curl -fsS -o /dev/null -w '%{{http_code}}' {spec.health_url} || echo 000"
+            "curl -fsS -o /dev/null -w '%{http_code}' "
+            f"{shlex.quote(spec.health_url)} || echo 000"
         )
         code = out.strip().splitlines()[-1] if out.strip() else "000"
         return code.startswith("2") or code.startswith("3")
 
     def fetch_logs(self, spec: ReleaseSpec) -> str:
         cmd = (
-            f"cd {spec.workdir} && docker compose -f {spec.compose_file} "
+            f"cd {shlex.quote(spec.workdir)} && "
+            f"docker compose -f {shlex.quote(spec.compose_file)} "
             f"logs --tail 200"
         )
         return self._remote(cmd)
 
     def stop(self, spec: ReleaseSpec) -> str:
-        cmd = f"cd {spec.workdir} && docker compose -f {spec.compose_file} down"
+        cmd = (
+            f"cd {shlex.quote(spec.workdir)} && "
+            f"docker compose -f {shlex.quote(spec.compose_file)} down"
+        )
         return self._remote(cmd)
 
 

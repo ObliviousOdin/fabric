@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftUI
 
 /// One device-local pin. The server still owns every session title and all
@@ -99,13 +100,6 @@ struct SessionLibraryProjection {
             }
         }
 
-        var activity: TimeInterval {
-            switch self {
-            case .active(let session, _): return session.lastActive
-            case .recent(let session): return session.startedAt
-            }
-        }
-
         var stableID: String {
             durableSessionKey ?? id
         }
@@ -147,7 +141,7 @@ struct SessionLibraryProjection {
         fileprivate static func fold(_ value: String) -> String {
             value.folding(
                 options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-                locale: .current
+                locale: Locale(identifier: "en_US_POSIX")
             )
         }
     }
@@ -178,42 +172,44 @@ struct SessionLibraryProjection {
         let foldedQuery = Item.fold(
             query.trimmingCharacters(in: .whitespacesAndNewlines)
         )
-        let visible = (activeItems + recentItems).filter { $0.matches(foldedQuery) }
+        let visibleActive = activeItems.filter { $0.matches(foldedQuery) }
+        let visibleRecent = recentItems.filter { $0.matches(foldedQuery) }
 
-        pinned = visible
+        // `session.list` is already ordered by the gateway's effective
+        // last-active timestamp. SessionSummary.startedAt is creation time,
+        // not recency, so historical rows must retain their server order.
+        let pinnedActive = visibleActive
             .filter { item in
                 guard let key = item.durableSessionKey else { return false }
                 return pinnedSessionKeys.contains(key)
             }
-            .sorted(by: Self.activityOrder)
-        active = visible
+            .sorted(by: Self.activeOrder)
+        let pinnedRecent = visibleRecent.filter { item in
+            guard let key = item.durableSessionKey else { return false }
+            return pinnedSessionKeys.contains(key)
+        }
+        pinned = pinnedActive + pinnedRecent
+        active = visibleActive
             .filter { item in
-                guard item.isActive else { return false }
                 guard let key = item.durableSessionKey else { return true }
                 return !pinnedSessionKeys.contains(key)
             }
-            .sorted(by: Self.activityOrder)
-        recent = visible
+            .sorted(by: Self.activeOrder)
+        recent = visibleRecent
             .filter { item in
-                guard !item.isActive else { return false }
                 guard let key = item.durableSessionKey else { return true }
                 return !pinnedSessionKeys.contains(key)
             }
-            .sorted(by: Self.activityOrder)
     }
 
     private static func uniqueSessions(_ sessions: [SessionSummary]) -> [SessionSummary] {
-        var byID: [String: SessionSummary] = [:]
+        var seenIDs: Set<String> = []
+        var unique: [SessionSummary] = []
         for session in sessions {
-            guard let existing = byID[session.id] else {
-                byID[session.id] = session
-                continue
-            }
-            if session.startedAt > existing.startedAt {
-                byID[session.id] = session
-            }
+            guard seenIDs.insert(session.id).inserted else { continue }
+            unique.append(session)
         }
-        return Array(byID.values)
+        return unique
     }
 
     private static func uniqueActiveSessions(
@@ -234,9 +230,145 @@ struct SessionLibraryProjection {
         return Array(byIdentity.values)
     }
 
-    private static func activityOrder(_ lhs: Item, _ rhs: Item) -> Bool {
-        if lhs.activity != rhs.activity { return lhs.activity > rhs.activity }
+    private static func activeOrder(_ lhs: Item, _ rhs: Item) -> Bool {
+        guard
+            case .active(let lhsSession, _) = lhs,
+            case .active(let rhsSession, _) = rhs
+        else { return lhs.stableID < rhs.stableID }
+        if lhsSession.lastActive != rhsSession.lastActive {
+            return lhsSession.lastActive > rhsSession.lastActive
+        }
         return lhs.stableID < rhs.stableID
+    }
+}
+
+/// The existing gateway calls needed by the session library. Keeping this
+/// narrow makes the view's asynchronous publication and lifecycle fencing
+/// testable without creating another transport or RPC surface.
+@MainActor
+protocol SessionLibraryLoading {
+    func listSessions(limit: Int) async throws -> [SessionSummary]
+    func activeSessions(currentSessionId: String?) async throws -> [ActiveSession]
+}
+
+extension GatewayAPI: SessionLibraryLoading {}
+
+/// One authoritative socket/gateway identity for a library refresh.
+struct SessionLibraryLoadContext: Equatable, Hashable {
+    let gatewayID: String
+    let connectionGeneration: Int
+}
+
+/// Testable coordinator for the two-stage session library load. Historical
+/// sessions publish as soon as `session.list` completes; optional live status
+/// can fail, be absent, or finish later without hiding resumable history.
+@Observable
+@MainActor
+final class SessionLibraryModel {
+    private(set) var sessions: [SessionSummary] = []
+    private(set) var activeSessions: [ActiveSession] = []
+    private(set) var isLoading = false
+    private(set) var loadError: String?
+    private(set) var activeSessionsUnavailable = false
+
+    private var context: SessionLibraryLoadContext?
+    private var requestGeneration = 0
+
+    func reload(
+        using loader: any SessionLibraryLoading,
+        context requestedContext: SessionLibraryLoadContext,
+        supportsSessionList: Bool,
+        supportsActiveSessions: Bool,
+        unavailableMessage: String? = nil
+    ) async {
+        guard !Task.isCancelled else { return }
+
+        if context != requestedContext {
+            requestGeneration += 1
+            context = requestedContext
+            sessions = []
+            activeSessions = []
+            isLoading = false
+            loadError = nil
+            activeSessionsUnavailable = false
+        }
+
+        requestGeneration += 1
+        let request = requestGeneration
+        isLoading = true
+        loadError = nil
+
+        guard supportsSessionList else {
+            sessions = []
+            activeSessions = []
+            activeSessionsUnavailable = true
+            isLoading = false
+            loadError = unavailableMessage ?? "Session listing is unavailable on this gateway."
+            return
+        }
+
+        do {
+            let loadedSessions = try await loader.listSessions(limit: 100)
+            if finishIfCancelled(request: request, context: requestedContext) { return }
+            guard isCurrent(request: request, context: requestedContext) else { return }
+
+            // Publish the authoritative history before the optional live
+            // request. Clear the previous live decoration at this boundary so
+            // stale process state never appears beside the new history page.
+            sessions = loadedSessions
+            activeSessions = []
+            activeSessionsUnavailable = !supportsActiveSessions
+            isLoading = false
+            loadError = nil
+
+            guard supportsActiveSessions else { return }
+
+            do {
+                let loadedActiveSessions = try await loader.activeSessions(currentSessionId: nil)
+                if finishIfCancelled(request: request, context: requestedContext) { return }
+                guard isCurrent(request: request, context: requestedContext) else { return }
+                activeSessions = loadedActiveSessions
+                activeSessionsUnavailable = false
+            } catch {
+                if finishIfCancelled(request: request, context: requestedContext) { return }
+                guard isCurrent(request: request, context: requestedContext) else { return }
+                activeSessions = []
+                activeSessionsUnavailable = true
+            }
+        } catch {
+            if finishIfCancelled(request: request, context: requestedContext) { return }
+            guard isCurrent(request: request, context: requestedContext) else { return }
+            isLoading = false
+            loadError = error.localizedDescription
+        }
+    }
+
+    func invalidate() {
+        requestGeneration += 1
+        context = nil
+        sessions = []
+        activeSessions = []
+        isLoading = false
+        loadError = nil
+        activeSessionsUnavailable = false
+    }
+
+    private func finishIfCancelled(
+        request: Int,
+        context requestedContext: SessionLibraryLoadContext
+    ) -> Bool {
+        guard Task.isCancelled else { return false }
+        if isCurrent(request: request, context: requestedContext) {
+            isLoading = false
+        }
+        return true
+    }
+
+    private func isCurrent(
+        request: Int,
+        context requestedContext: SessionLibraryLoadContext
+    ) -> Bool {
+        requestGeneration == request && context == requestedContext
     }
 }
 
@@ -246,21 +378,16 @@ struct SessionLibraryProjection {
 struct SessionListView: View {
     @Environment(AppModel.self) private var appModel
 
-    @State private var sessions: [SessionSummary] = []
-    @State private var activeSessions: [ActiveSession] = []
+    @State private var model = SessionLibraryModel()
     @State private var pinnedSessionKeys: Set<String> = []
     @State private var searchQuery = ""
-    @State private var loading = false
-    @State private var loadError: String?
-    @State private var activeSessionsUnavailable = false
-    @State private var requestGeneration = 0
 
     private let pinStore = SessionLibraryPinStore()
 
     var body: some View {
         let projection = SessionLibraryProjection(
-            sessions: sessions,
-            activeSessions: activeSessions,
+            sessions: model.sessions,
+            activeSessions: model.activeSessions,
             pinnedSessionKeys: pinnedSessionKeys,
             query: searchQuery
         )
@@ -296,7 +423,7 @@ struct SessionListView: View {
                 }
             }
 
-            if activeSessionsUnavailable {
+            if model.activeSessionsUnavailable {
                 Section {
                     Label(
                         "Live status is unavailable. Recent and pinned sessions are still available.",
@@ -310,9 +437,9 @@ struct SessionListView: View {
             }
 
             Section {
-                if loading && sessions.isEmpty {
+                if model.isLoading && model.sessions.isEmpty {
                     ProgressView("Loading sessions")
-                } else if let loadError {
+                } else if let loadError = model.loadError {
                     Text(loadError)
                         .font(.footnote)
                         .foregroundStyle(FabricTheme.danger)
@@ -367,7 +494,7 @@ struct SessionListView: View {
 
     @ViewBuilder
     private func sessionLink(_ item: SessionLibraryProjection.Item, isPinned: Bool) -> some View {
-        NavigationLink {
+        let link = NavigationLink {
             ChatView(resumeStoredSessionId: item.resumeSessionKey, title: item.displayTitle)
         } label: {
             switch item {
@@ -414,10 +541,14 @@ struct SessionListView: View {
                 }
             }
         }
-        .accessibilityAction(
-            named: Text(isPinned ? "Unpin from this device" : "Pin on this device")
-        ) {
-            togglePin(item, currentlyPinned: isPinned)
+        if item.durableSessionKey == nil {
+            link
+        } else {
+            link.accessibilityAction(
+                named: Text(isPinned ? "Unpin from this device" : "Pin on this device")
+            ) {
+                togglePin(item, currentlyPinned: isPinned)
+            }
         }
     }
 
@@ -427,17 +558,12 @@ struct SessionListView: View {
                 ? "No sessions match your search."
                 : "No other sessions match your search."
         }
-        if sessions.isEmpty { return "No sessions yet." }
+        if model.sessions.isEmpty { return "No sessions yet." }
         return "Active or pinned sessions are shown above."
     }
 
     private func prepareForCurrentGateway() {
-        requestGeneration += 1
-        sessions = []
-        activeSessions = []
-        loading = false
-        loadError = nil
-        activeSessionsUnavailable = false
+        model.invalidate()
         searchQuery = ""
         guard let gatewayID = appModel.activeGatewayId else {
             pinnedSessionKeys = []
@@ -461,80 +587,16 @@ struct SessionListView: View {
             let gatewayID = appModel.activeGatewayId
         else { return }
 
-        requestGeneration += 1
-        let request = requestGeneration
-        let connectionGeneration = appModel.connectionGeneration
-        loading = true
-        loadError = nil
-
-        guard appModel.supportsGatewayMethod("session.list") else {
-            sessions = []
-            activeSessions = []
-            activeSessionsUnavailable = true
-            loading = false
-            loadError = appModel.capabilityNegotiation?.blockingMessage
-                ?? "Session listing is unavailable on this gateway."
-            return
-        }
-
-        do {
-            // Historical sessions are authoritative library content. Publish
-            // them before the optional live-status request so an absent or
-            // slow `session.active_list` never blocks search and resume.
-            let loadedSessions = try await appModel.api.listSessions()
-            guard isCurrentRequest(
-                request,
+        await model.reload(
+            using: appModel.api,
+            context: SessionLibraryLoadContext(
                 gatewayID: gatewayID,
-                connectionGeneration: connectionGeneration
-            ) else { return }
-            sessions = loadedSessions
-            loading = false
-            loadError = nil
-
-            guard appModel.supportsGatewayMethod("session.active_list") else {
-                activeSessions = []
-                activeSessionsUnavailable = true
-                return
-            }
-
-            do {
-                let loadedActiveSessions = try await appModel.api.activeSessions()
-                guard isCurrentRequest(
-                    request,
-                    gatewayID: gatewayID,
-                    connectionGeneration: connectionGeneration
-                ) else { return }
-                activeSessions = loadedActiveSessions
-                activeSessionsUnavailable = false
-            } catch {
-                guard isCurrentRequest(
-                    request,
-                    gatewayID: gatewayID,
-                    connectionGeneration: connectionGeneration
-                ) else { return }
-                activeSessions = []
-                activeSessionsUnavailable = true
-            }
-        } catch {
-            guard isCurrentRequest(
-                request,
-                gatewayID: gatewayID,
-                connectionGeneration: connectionGeneration
-            ) else { return }
-            loading = false
-            loadError = error.localizedDescription
-        }
-    }
-
-    private func isCurrentRequest(
-        _ request: Int,
-        gatewayID: String,
-        connectionGeneration: Int
-    ) -> Bool {
-        !Task.isCancelled
-            && requestGeneration == request
-            && appModel.activeGatewayId == gatewayID
-            && appModel.connectionGeneration == connectionGeneration
+                connectionGeneration: appModel.connectionGeneration
+            ),
+            supportsSessionList: appModel.supportsGatewayMethod("session.list"),
+            supportsActiveSessions: appModel.supportsGatewayMethod("session.active_list"),
+            unavailableMessage: appModel.capabilityNegotiation?.blockingMessage
+        )
     }
 }
 

@@ -222,7 +222,7 @@ final class ConversationHomeModelTests: XCTestCase {
         )
         XCTAssertEqual(
             projection.recent.map(\.durableSessionKey),
-            ["recent-a", "recent-b"]
+            ["recent-b", "recent-a"]
         )
         XCTAssertEqual(
             projection.active.filter { $0.durableSessionKey == duplicateHistory.id }.count,
@@ -254,6 +254,29 @@ final class ConversationHomeModelTests: XCTestCase {
         XCTAssertEqual(projection.recent.map(\.durableSessionKey), ["recent"])
     }
 
+    func testSessionLibraryKeepsGatewayRecencyOrderInsteadOfCreationTime() {
+        let projection = SessionLibraryProjection(
+            sessions: [
+                session(id: "recently-used-old-conversation", startedAt: 1),
+                session(id: "less-recent-new-conversation", startedAt: 500),
+                session(id: "oldest-result", startedAt: 200),
+            ],
+            activeSessions: [],
+            pinnedSessionKeys: [],
+            query: ""
+        )
+
+        XCTAssertEqual(
+            projection.recent.map(\.durableSessionKey),
+            [
+                "recently-used-old-conversation",
+                "less-recent-new-conversation",
+                "oldest-result",
+            ],
+            "session.list order represents effective last activity; creation time must not re-rank it"
+        )
+    }
+
     func testSessionLibraryPinsPersistPerGatewayAndDurableSessionKey() throws {
         let suiteName = "SessionLibraryPinStoreTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -278,6 +301,171 @@ final class ConversationHomeModelTests: XCTestCase {
             ["shared-session"],
             "Unpinning one saved gateway must not affect another gateway"
         )
+    }
+
+    func testSessionLibraryModelMissingListCapabilityNeverCallsTransport() async {
+        let loader = CountingSessionLibraryLoader()
+        let model = SessionLibraryModel()
+        let context = SessionLibraryLoadContext(gatewayID: "legacy", connectionGeneration: 1)
+
+        await model.reload(
+            using: loader,
+            context: context,
+            supportsSessionList: false,
+            supportsActiveSessions: false,
+            unavailableMessage: "Upgrade required"
+        )
+
+        XCTAssertEqual(loader.listCallCount, 0)
+        XCTAssertEqual(loader.activeCallCount, 0)
+        XCTAssertTrue(model.sessions.isEmpty)
+        XCTAssertTrue(model.activeSessions.isEmpty)
+        XCTAssertTrue(model.activeSessionsUnavailable)
+        XCTAssertEqual(model.loadError, "Upgrade required")
+        XCTAssertFalse(model.isLoading)
+    }
+
+    func testSessionLibraryModelPublishesHistoryBeforeLiveStatusCompletes() async {
+        let historical = session(id: "recent", startedAt: 1)
+        let live = active(
+            id: "runtime-live",
+            sessionKey: historical.id,
+            status: "working",
+            lastActive: 2
+        )
+        let loader = SuspendedActiveSessionLibraryLoader(sessions: [historical])
+        let model = SessionLibraryModel()
+        let context = SessionLibraryLoadContext(gatewayID: "gateway", connectionGeneration: 1)
+
+        let request = Task {
+            await model.reload(
+                using: loader,
+                context: context,
+                supportsSessionList: true,
+                supportsActiveSessions: true
+            )
+        }
+        await loader.waitUntilActiveSuspended()
+
+        XCTAssertEqual(model.sessions.map(\.id), [historical.id])
+        XCTAssertTrue(model.activeSessions.isEmpty)
+        XCTAssertNil(model.loadError)
+        XCTAssertFalse(model.isLoading)
+
+        loader.succeedActive(with: [live])
+        await request.value
+
+        XCTAssertEqual(model.activeSessions.map(\.id), [live.id])
+        XCTAssertFalse(model.activeSessionsUnavailable)
+    }
+
+    func testSessionLibraryModelKeepsHistoryWhenLiveStatusFails() async {
+        let loader = ImmediateHomeLoader(
+            sessions: [session(id: "recent", startedAt: 1)],
+            activeError: FixtureError("live unavailable")
+        )
+        let model = SessionLibraryModel()
+        let context = SessionLibraryLoadContext(gatewayID: "gateway", connectionGeneration: 1)
+
+        await model.reload(
+            using: loader,
+            context: context,
+            supportsSessionList: true,
+            supportsActiveSessions: true
+        )
+
+        XCTAssertEqual(model.sessions.map(\.id), ["recent"])
+        XCTAssertTrue(model.activeSessions.isEmpty)
+        XCTAssertTrue(model.activeSessionsUnavailable)
+        XCTAssertNil(model.loadError)
+        XCTAssertFalse(model.isLoading)
+    }
+
+    func testSessionLibraryModelNewerSameGatewayReloadRejectsOlderCompletion() async {
+        let oldLoader = SuspendedHomeLoader()
+        let newLoader = ImmediateHomeLoader(
+            sessions: [session(id: "new", startedAt: 2)]
+        )
+        let model = SessionLibraryModel()
+        let context = SessionLibraryLoadContext(gatewayID: "gateway", connectionGeneration: 1)
+
+        let oldRequest = Task {
+            await model.reload(
+                using: oldLoader,
+                context: context,
+                supportsSessionList: true,
+                supportsActiveSessions: false
+            )
+        }
+        await oldLoader.waitUntilSuspended()
+
+        await model.reload(
+            using: newLoader,
+            context: context,
+            supportsSessionList: true,
+            supportsActiveSessions: false
+        )
+        oldLoader.succeed(with: [session(id: "old", startedAt: 1)])
+        await oldRequest.value
+
+        XCTAssertEqual(model.sessions.map(\.id), ["new"])
+        XCTAssertNil(model.loadError)
+    }
+
+    func testSessionLibraryModelGatewaySwitchRejectsOlderCompletion() async {
+        let oldLoader = SuspendedHomeLoader()
+        let newLoader = ImmediateHomeLoader(
+            sessions: [session(id: "new-gateway", startedAt: 2)]
+        )
+        let model = SessionLibraryModel()
+        let oldContext = SessionLibraryLoadContext(gatewayID: "gateway-a", connectionGeneration: 1)
+        let newContext = SessionLibraryLoadContext(gatewayID: "gateway-b", connectionGeneration: 2)
+
+        let oldRequest = Task {
+            await model.reload(
+                using: oldLoader,
+                context: oldContext,
+                supportsSessionList: true,
+                supportsActiveSessions: false
+            )
+        }
+        await oldLoader.waitUntilSuspended()
+
+        await model.reload(
+            using: newLoader,
+            context: newContext,
+            supportsSessionList: true,
+            supportsActiveSessions: false
+        )
+        oldLoader.succeed(with: [session(id: "old-gateway", startedAt: 1)])
+        await oldRequest.value
+
+        XCTAssertEqual(model.sessions.map(\.id), ["new-gateway"])
+        XCTAssertNil(model.loadError)
+    }
+
+    func testSessionLibraryModelCancelledLoadCannotPublish() async {
+        let loader = SuspendedHomeLoader()
+        let model = SessionLibraryModel()
+        let context = SessionLibraryLoadContext(gatewayID: "gateway", connectionGeneration: 1)
+
+        let request = Task {
+            await model.reload(
+                using: loader,
+                context: context,
+                supportsSessionList: true,
+                supportsActiveSessions: false
+            )
+        }
+        await loader.waitUntilSuspended()
+        request.cancel()
+        loader.succeed(with: [session(id: "stale", startedAt: 1)])
+        await request.value
+
+        XCTAssertTrue(model.sessions.isEmpty)
+        XCTAssertTrue(model.activeSessions.isEmpty)
+        XCTAssertNil(model.loadError)
+        XCTAssertFalse(model.isLoading)
     }
 
     func testFailedRecentRequestNeverStartsLiveStatusRequest() async {
@@ -425,7 +613,7 @@ final class ConversationHomeModelTests: XCTestCase {
 }
 
 @MainActor
-private final class ImmediateHomeLoader: ConversationHomeLoading {
+private final class ImmediateHomeLoader: ConversationHomeLoading, SessionLibraryLoading {
     let sessions: [SessionSummary]
     let active: [ActiveSession]
     let sessionError: Error?
@@ -455,7 +643,7 @@ private final class ImmediateHomeLoader: ConversationHomeLoading {
 }
 
 @MainActor
-private final class SuspendedHomeLoader: ConversationHomeLoading {
+private final class SuspendedHomeLoader: ConversationHomeLoading, SessionLibraryLoading {
     private var continuation: CheckedContinuation<[SessionSummary], Error>?
     private(set) var activeCallCount = 0
 
@@ -475,6 +663,52 @@ private final class SuspendedHomeLoader: ConversationHomeLoading {
     }
 
     func succeed(with sessions: [SessionSummary]) {
+        let pending = continuation
+        continuation = nil
+        pending?.resume(returning: sessions)
+    }
+}
+
+@MainActor
+private final class CountingSessionLibraryLoader: SessionLibraryLoading {
+    private(set) var listCallCount = 0
+    private(set) var activeCallCount = 0
+
+    func listSessions(limit: Int) async throws -> [SessionSummary] {
+        listCallCount += 1
+        return []
+    }
+
+    func activeSessions(currentSessionId: String?) async throws -> [ActiveSession] {
+        activeCallCount += 1
+        return []
+    }
+}
+
+@MainActor
+private final class SuspendedActiveSessionLibraryLoader: SessionLibraryLoading {
+    let sessions: [SessionSummary]
+    private var continuation: CheckedContinuation<[ActiveSession], Error>?
+
+    init(sessions: [SessionSummary]) {
+        self.sessions = sessions
+    }
+
+    func listSessions(limit: Int) async throws -> [SessionSummary] {
+        Array(sessions.prefix(limit))
+    }
+
+    func activeSessions(currentSessionId: String?) async throws -> [ActiveSession] {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilActiveSuspended() async {
+        while continuation == nil { await Task.yield() }
+    }
+
+    func succeedActive(with sessions: [ActiveSession]) {
         let pending = continuation
         continuation = nil
         pending?.resume(returning: sessions)

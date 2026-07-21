@@ -18,6 +18,7 @@ from fabric_cli.work_ledger import (
     InvalidTransition,
     RuntimeOwnerMismatch as LedgerRuntimeOwnerMismatch,
     VersionConflict,
+    WorkLedger,
     WorkNotFound,
     WorkOperationInProgress,
     WorkStoreReplacedError,
@@ -86,6 +87,44 @@ def _wait_for_job(session: dict, job_id: str, status: str, timeout: float = 5) -
             return job
         time.sleep(0.01)
     raise AssertionError(f"Job {job_id} did not reach {status}: {job}")
+
+
+def _open_live_wal_anchor(db_path: Path) -> sqlite3.Connection:
+    """Pin the current snapshot so later writer frames remain inspectable."""
+
+    anchor = sqlite3.connect(db_path, isolation_level=None)
+    try:
+        anchor.execute("PRAGMA journal_mode=WAL")
+        anchor.execute("PRAGMA wal_autocheckpoint=0")
+        anchor.execute("BEGIN")
+        assert (
+            anchor.execute(
+                "SELECT value FROM work_meta WHERE key='ledger_id'"
+            ).fetchone()
+            is not None
+        )
+        return anchor
+    except BaseException:
+        anchor.close()
+        raise
+
+
+def _assert_secret_absent_from_live_store(db_path: Path, sentinel: str) -> None:
+    encoded = sentinel.encode()
+    assert encoded not in db_path.read_bytes(), "secret found in live work.db"
+    wal_path = db_path.with_name("work.db-wal")
+    assert wal_path.exists(), "live WAL anchor did not preserve work.db-wal"
+    assert encoded not in wal_path.read_bytes(), "secret found in live work.db-wal"
+
+
+def _checkpoint_and_dump(db_path: Path) -> str:
+    conn = sqlite3.connect(db_path)
+    try:
+        checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        assert checkpoint is not None and checkpoint[0] == 0
+        return "\n".join(conn.iterdump())
+    finally:
+        conn.close()
 
 
 def test_job_create_is_idempotent_and_never_persists_raw_prompt(
@@ -1414,32 +1453,30 @@ def test_sudo_password_never_enters_work_db_or_wal(tmp_path: Path) -> None:
         sensitive=True,
         deliver=lambda value: delivered.append(value) or True,
     )
-    response = _rpc(
-        "attention.respond",
-        {
-            "session_id": "mobile-session",
-            "attention_id": attention["attention_id"],
-            "expected_version": 1,
-            "idempotency_key": "sudo-secret-response-0001",
-            "action": "submit",
-            "value": sentinel,
-        },
-    )
-    assert "error" not in response
-    assert delivered == [sentinel]
-
     db_path = Path(session["profile_home"]) / "work.db"
-    conn = sqlite3.connect(db_path)
+    anchor = _open_live_wal_anchor(db_path)
     try:
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        dump = "\n".join(conn.iterdump())
+        response = _rpc(
+            "attention.respond",
+            {
+                "session_id": "mobile-session",
+                "attention_id": attention["attention_id"],
+                "expected_version": 1,
+                "idempotency_key": "sudo-secret-response-0001",
+                "action": "submit",
+                "value": sentinel,
+            },
+        )
+        assert "error" not in response
+        assert delivered == [sentinel]
+        _assert_secret_absent_from_live_store(db_path, sentinel)
     finally:
-        conn.close()
+        anchor.execute("ROLLBACK")
+        anchor.close()
+
+    dump = _checkpoint_and_dump(db_path)
     assert sentinel not in dump
     assert sentinel.encode() not in db_path.read_bytes()
-    wal = db_path.with_name("work.db-wal")
-    if wal.exists():
-        assert sentinel.encode() not in wal.read_bytes()
     assert sentinel not in repr(response)
 
 
@@ -1449,33 +1486,71 @@ def test_job_create_prompt_never_persists_in_work_db_or_wal(
     """A secret-bearing prompt never lands in committed pages or an
     un-checkpointed WAL frame of work.db."""
     session, _ = _install_session(tmp_path)
+    service = server._work_service_for_session(session)
     sentinel = "PROMPT-SECRET-" + "q" * 40
     monkeypatch.setattr(
         server,
         "_run_durable_background_agent",
         lambda _spec, _control: {"final_response": "finished"},
     )
-    created = _rpc(
-        "job.create",
-        {
-            "session_id": "mobile-session",
-            "kind": "background_prompt",
-            "text": sentinel,
-            "idempotency_key": "prompt-wal-key-000001",
-        },
-    )["result"]
-    _wait_for_job(session, created["job"]["job_id"], "succeeded")
-
     db_path = Path(session["profile_home"]) / "work.db"
-    conn = sqlite3.connect(db_path)
+    assert service.ledger.path == db_path
+    anchor = _open_live_wal_anchor(db_path)
     try:
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        created = _rpc(
+            "job.create",
+            {
+                "session_id": "mobile-session",
+                "kind": "background_prompt",
+                "text": sentinel,
+                "idempotency_key": "prompt-wal-key-000001",
+            },
+        )["result"]
+        _wait_for_job(session, created["job"]["job_id"], "succeeded")
+        _assert_secret_absent_from_live_store(db_path, sentinel)
     finally:
-        conn.close()
+        anchor.execute("ROLLBACK")
+        anchor.close()
+
+    dump = _checkpoint_and_dump(db_path)
+    assert sentinel not in dump
     assert sentinel.encode() not in db_path.read_bytes()
-    wal = db_path.with_name("work.db-wal")
-    if wal.exists():
-        assert sentinel.encode() not in wal.read_bytes()
+    assert sentinel not in repr(created)
+
+
+def test_live_wal_probe_detects_transient_secret_write_then_delete(
+    tmp_path: Path,
+) -> None:
+    """The live probe must fail even when secure-delete cleans final pages."""
+
+    ledger = WorkLedger(tmp_path / "profile")
+    db_path = ledger.path
+    sentinel = "TRANSIENT-WAL-SECRET-" + "s" * 40
+    anchor = _open_live_wal_anchor(db_path)
+    try:
+        # Deliberate mutation harness: model a regression that briefly commits a
+        # secret and removes it before the final durable-state assertions run.
+        ledger._write(  # noqa: SLF001
+            lambda conn: conn.execute(
+                "INSERT INTO work_meta(key, value) VALUES ('transient-secret-probe', ?)",
+                (sentinel,),
+            )
+        )
+        ledger._write(  # noqa: SLF001
+            lambda conn: conn.execute(
+                "DELETE FROM work_meta WHERE key='transient-secret-probe'"
+            )
+        )
+        with pytest.raises(AssertionError, match=r"live work\.db-wal"):
+            _assert_secret_absent_from_live_store(db_path, sentinel)
+    finally:
+        anchor.execute("ROLLBACK")
+        anchor.close()
+
+    dump = _checkpoint_and_dump(db_path)
+    assert sentinel not in dump
+    assert sentinel.encode() not in db_path.read_bytes()
+    ledger.close()
 
 
 def test_tool_output_callbacks_never_enter_durable_work_events(

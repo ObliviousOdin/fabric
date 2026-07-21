@@ -1792,8 +1792,16 @@ class WorkService:
                 },
             )
             if receipt.get("replayed"):
+                # The ledger detected a concurrent duplicate create for this key
+                # (a same-instant first-create race the preflight could not see).
+                # Return the same truthful shape as the preflight replay so a
+                # client keying on runtime_started is never told a second runtime
+                # started for a Run this caller did not schedule.
                 reservation.release()
-                return dict(receipt)
+                replayed_receipt = dict(receipt)
+                replayed_receipt["replayed"] = True
+                replayed_receipt["runtime_started"] = False
+                return replayed_receipt
 
             job = receipt["job"]
             run = job["current_run"]
@@ -2723,6 +2731,23 @@ class WorkService:
         if not callable(list_owners) or not callable(reconcile):
             return {}
 
+        from fabric_cli.work_ledger import (
+            RuntimeOwnerMismatch as _LedgerRuntimeOwnerMismatch,
+            VersionConflict,
+            WorkNotFound,
+        )
+
+        # A concurrent gateway sharing this profile's work.db may reconcile the
+        # same lost owner first. reconcile_startup runs inside __init__, so the
+        # race loser must self-heal rather than fail service construction. Only
+        # these compare-and-swap/ownership/absent races are benign; a replaced or
+        # unavailable store still propagates so the service stays fail-closed.
+        benign_reconcile_race = (
+            VersionConflict,
+            _LedgerRuntimeOwnerMismatch,
+            WorkNotFound,
+        )
+
         candidates = list(list_owners())
         proofs = [coerce_owner_proof(candidate) for candidate in candidates]
         classifications = classify_owner_group(
@@ -2741,11 +2766,24 @@ class WorkService:
                 else candidate
             )
             for batch in range(MAX_RECONCILIATION_BATCHES_PER_OWNER):
-                outcome = self._invoke_reconcile(
-                    reconcile,
-                    ledger_owner,
-                    classification,
-                )
+                try:
+                    outcome = self._invoke_reconcile(
+                        reconcile,
+                        ledger_owner,
+                        classification,
+                    )
+                except benign_reconcile_race as exc:
+                    # Another process already moved this owner's work. Log the
+                    # type only (never exception text, which can carry context)
+                    # and leave the winner's reconciliation authoritative.
+                    _log.warning(
+                        "work reconciliation skipped owner_pid=%d "
+                        "classification=%s error_type=%s",
+                        proof.pid,
+                        classification.value,
+                        type(exc).__name__,
+                    )
+                    break
                 if not isinstance(outcome, Mapping) or not outcome.get("has_more"):
                     break
             else:

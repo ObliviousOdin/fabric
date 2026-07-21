@@ -266,6 +266,15 @@ struct BackgroundProcess: Identifiable, Hashable {
     let outputTail: String
 }
 
+/// Authoritative application-level receipt returned inside a successful
+/// `process.kill` JSON-RPC response. Transport success alone does not prove
+/// that the process mutation succeeded.
+enum ProcessKillReceipt: Equatable {
+    case killed
+    case alreadyExited
+    case rejected
+}
+
 /// Public body of `GET /api/status`. Only the fields the client needs;
 /// `authRequired` distinguishes a gated gateway (provider login + WS tickets)
 /// from direct token auth (`authModeFromStatus` in
@@ -716,6 +725,29 @@ struct GatewayAPI {
             !approval || (result["resolved"] as? Int) == 1
         else {
             throw GatewayClientError.rpc(message: "Response did not match the pending request.")
+        }
+    }
+
+    static func requireProcessKillReceipt(
+        _ result: [String: Any]
+    ) throws -> ProcessKillReceipt {
+        guard let rawStatus = result["status"] as? String else {
+            throw GatewayClientError.rpc(
+                message: "Process stop response did not include a status."
+            )
+        }
+
+        switch rawStatus.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "killed":
+            return .killed
+        case "already_exited":
+            return .alreadyExited
+        case "error", "not_found":
+            return .rejected
+        default:
+            throw GatewayClientError.rpc(
+                message: "Process stop response included an unsupported status."
+            )
         }
     }
 
@@ -1685,11 +1717,12 @@ struct GatewayAPI {
         }
     }
 
-    func killProcess(sessionId: String, processId: String) async throws {
-        _ = try await client.request(
+    func killProcess(sessionId: String, processId: String) async throws -> ProcessKillReceipt {
+        let result = try await client.requestObject(
             "process.kill",
             params: ["session_id": sessionId, "process_id": processId]
         )
+        return try Self.requireProcessKillReceipt(result)
     }
 
     // MARK: - Computer use (live view)

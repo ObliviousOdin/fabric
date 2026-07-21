@@ -9,8 +9,8 @@ marked as planned; they are never presented as shipped.
 | Version (build) | Date | Phase | Channel | Source | Result |
 | --- | --- | --- | --- | --- | --- |
 | `0.1.0 (1)` | 2026-07-20 | Development preview | Internal TestFlight | SHA not recorded at archive time | Uploaded and installed; connection/chat vertical slice works. |
-| `0.1.x (2+)` | Planned | FMB-P0 | Internal TestFlight | `00c8c2f0` foundation; archive SHA pending | Reproducible release foundation merged; release-environment archive/upload still pending. |
-| `0.2.0 (pending)` | Planned | FMB-P1 | Internal TestFlight | Validated branch; merged `main` SHA pending | Conversation-first Home candidate; local release gates pass, device/archive/upload pending. |
+| `0.1.x (2+)` | 2026-07-20 | FMB-P0 | Internal TestFlight | `00c8c2f0`; first exercised by `0.2.0 (4)` | No standalone upload; the reproducible release foundation shipped in build 4. |
+| `0.2.0 (4)` | 2026-07-20 | FMB-P1 | Internal TestFlight | `6c9e034136afff841355d564a6e3b91152b34e6f` | Xcode Cloud archive/upload succeeded; processed to **Testing** and assigned to the internal `beta` group (2 members). Physical-device result pending. |
 
 ## `0.1.0 (1)` — development preview
 
@@ -41,20 +41,22 @@ marked as planned; they are never presented as shipped.
 - OAuth system-browser sign-in, push notifications, mobile attachments, voice,
   rich artifacts, and the goal/mission-control model are not shipped.
 
-## Next upload — FMB-P0
+## FMB-P0 release foundation — verified by `0.2.0 (4)`
 
-### Apple release-state audit (2026-07-20)
+### Apple release-state verification (2026-07-20)
 
-- App Store Connect confirms that `0.1.0 (1)` is installed by an internal
-  tester and is currently waiting for beta review.
-- The active Xcode Cloud `Default` workflow targets `main`, the `Fabric`
-  scheme, and `apps/mobile/ios/FabricMobile.xcodeproj`.
-- Its first two builds failed before custom scripts ran because the generated
-  project was absent from the checkout. FMB-P0 now commits a generic,
-  CI-synchronized Xcode project and Info.plist bootstrap so Xcode Cloud can
-  discover the project before applying protected release overrides.
-- The workflow still needs its protected release bundle environment value and
-  TestFlight internal distribution enabled before the merged-SHA build runs.
+- The Xcode Cloud `Default` workflow now supplies its registered App Store
+  bundle identifier through `FABRIC_IOS_BUNDLE_ID`, targets merged `main`, and
+  distributes successful archives to internal TestFlight.
+- Xcode Cloud build 4 archived and uploaded `0.2.0` from merged commit
+  `6c9e034136afff841355d564a6e3b91152b34e6f`.
+- Its successful post-clone log records build number 4 and embeds source
+  revision `6c9e034136afff841355d564a6e3b91152b34e6f` before the signed archive.
+- App Store Connect processed build 4 to **Testing**, validated the configured
+  release bundle identifier, and assigned it to the internal `beta` group with
+  2 members.
+- Independent extraction of `FabricSourceRevision` from the signed archive,
+  plus the physical-iPhone and internal-tester behavior checks, remains open.
 
 ### Change set
 
@@ -68,19 +70,22 @@ marked as planned; they are never presented as shipped.
 - Run the same generator in GitHub CI and derive metadata assertions from the
   source manifest.
 
-### Required evidence before upload
+### Release evidence
 
-- Merged commit SHA: pending.
-- Packaged `FabricSourceRevision` (must match merged SHA): pending.
-- Required GitHub checks: pending.
-- iOS unit/release build: pending on final PR SHA.
+- Merged commit SHA: `6c9e034136afff841355d564a6e3b91152b34e6f`.
+- Generated `FabricSourceRevision`: `6c9e034136afff841355d564a6e3b91152b34e6f`;
+  independent signed-archive extraction remains pending.
+- Required GitHub checks: passed on the merged SHA.
+- iOS unit/release build: passed on the merged SHA.
 - Physical-iPhone smoke: pending.
-- Archive/upload/processing: pending.
-- Internal tester result: pending.
+- Archive/upload/processing: Xcode Cloud build 4 succeeded; TestFlight status is
+  **Testing**.
+- Internal tester result: `beta` group assigned (2 members); install and
+  behavior result pending.
 
-## Planned upload — FMB-P1 conversation-first home
+## `0.2.0 (4)` — FMB-P1 conversation-first home
 
-### Change set under test
+### Change set in build
 
 - Replace the connected stock session list with the approved conversation-first
   home: canonical Fabric identity, a large outcome composer, one solid-purple
@@ -103,11 +108,17 @@ This home is deliberately session-backed. The gateway does not yet advertise
 the complete Durable Work contract, so the native goal portfolio is not shown
 as production authority and no Job state is inferred from event hints.
 
-### Required evidence before upload
+### Release evidence
 
-- Marketing version: `0.2.0` confirmed in the unsigned Release package.
-- Merged commit SHA, packaged `FabricSourceRevision`, and required hosted checks:
-  pending until merge.
+- Date: 2026-07-20.
+- Marketing version: `0.2.0`; Xcode Cloud/TestFlight build number: `4`.
+- Merged commit SHA: `6c9e034136afff841355d564a6e3b91152b34e6f`.
+- Release bundle identifier: supplied through protected
+  `FABRIC_IOS_BUNDLE_ID`; App Store Connect validation passed.
+- Generated `FabricSourceRevision`: `6c9e034136afff841355d564a6e3b91152b34e6f`;
+  independent signed-archive extraction remains pending.
+- Hosted checks: Mobile clients, Public repository checks, and Fabric release
+  channels passed for the merged SHA.
 - Same-viewport source/implementation screenshot comparison: passed. See the
   iOS Home section in [`design-qa.md`](../../design-qa.md); final comparison
   SHA-256 `d6c0bcc0efd0e44c65c7bd2f516e418a77f6b4aa639ed8e57a313f4e8047ef1e`.
@@ -122,9 +133,12 @@ as production authority and no Job state is inferred from event hints.
   the physical VoiceOver gesture smoke remains part of the device gate.
 - Physical-iPhone Start goal, progress resume, Recent, reconnect, and QR pass:
   pending.
-- Archive/upload/processing/internal tester result: pending.
-- Rollback: latest verified `0.1.x` build, once uploaded; until then use
-  development preview `0.1.0 (1)`.
+- Archive/upload result: Xcode Cloud build 4 succeeded and processed to
+  **Testing**.
+- TestFlight channel/group: Internal TestFlight; `beta`, 2 members. Phase-one
+  What to Test notes are published.
+- Tester result: pending physical installation and behavior pass.
+- Rollback: development preview `0.1.0 (1)`.
 
 ## Entry template
 

@@ -235,9 +235,12 @@ initial iOS development preview has been signed, uploaded, installed, and used
 through internal TestFlight; it is evidence that the distribution path works,
 not a claim that the production gates are complete. Shared protocol, PWA,
 Android, and iOS simulator checks run in CI; `fabric mobile` is the documented
-gateway/pairing entry point. Repeatable clean-SHA archives, full physical-device
-acceptance, protected release automation, store assets, public beta delivery,
-and the native visual/state capture matrix remain open gates. See
+gateway/pairing entry point. A first merged-main Xcode Cloud candidate,
+`0.2.0 (4)`, has archived, uploaded, processed to **Testing**, and reached the
+internal `beta` group through the protected release workflow. Independent
+signed-archive provenance inspection, full physical-device acceptance, store
+assets, public beta delivery, and later-phase native quality gates remain open.
+See
 `IOS_RELEASES.md` for exact build evidence and `ROADMAP.md` for the phased parity
 program. Passing a simulator build alone does not advance the support tier or
 justify a store release.

@@ -148,8 +148,8 @@ No phase is complete because a simulator build launches. Every release needs:
 
 | Phase | State | Evidence / next gate |
 | --- | --- | --- |
-| FMB-P0 | Landed | PR #66 merged as `00c8c2f0`. Xcode Cloud release settings, the merged-SHA archive/upload, and the physical-iPhone smoke pass remain before a reproducible P0 build can be marked shipped. |
-| FMB-P1 | Local candidate verified | Conversation-first is implemented as the `0.2.0` candidate: canonical outcome composer, at-most-once foreground goal launch with duplicate-safe recovery for unknown create outcomes, prioritized live conversation, recent briefing, and recoverable session navigation against the advertised session contract. Same-viewport comparison, the complete state matrix, accessibility review, 12/12 generation tests, 80/80 native tests, unsigned Release packaging, metadata/privacy audit, and final code/design review pass locally. The reviewed fail-closed goal portfolio remains non-production authority while Durable Work is intentionally unadvertised. Hosted checks, physical-device validation, merge, Xcode Cloud archive/upload, and internal TestFlight confirmation remain. |
+| FMB-P0 | Internal TestFlight candidate | PR #66 merged as `00c8c2f0`; its release foundation was exercised by Xcode Cloud build 4 from merged SHA `6c9e0341`, which archived, uploaded, processed to **Testing**, and reached the internal `beta` group. Independent signed-archive provenance extraction and the physical-iPhone smoke remain. |
+| FMB-P1 | Internal TestFlight candidate | PR #68 merged as `6c9e0341`; hosted checks passed and `0.2.0 (4)` is **Testing** for the 2-member internal `beta` group with phase-one tester notes published. Physical Start goal/resume/reconnect/QR/VoiceOver validation and tester confirmation remain before phase completion. |
 | FMB-P2 | Planned | Requires the P1 product shell and push/attachment contracts. |
 | FMB-P3 | Planned | Durable Work must be advertised only after its full client/server contract is verified. |
 | FMB-P4 | Planned | Begins after parity evidence, not feature-count claims. |

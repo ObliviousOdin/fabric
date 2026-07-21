@@ -76,6 +76,9 @@ final class InteractionReceiptTests: XCTestCase {
             RemoteControlPresentation.filteredCategories(categories, query: "   "),
             categories
         )
+        XCTAssertTrue(
+            RemoteControlPresentation.filteredCategories(categories, query: "not-present").isEmpty
+        )
     }
 
     func testProcessOutputIsBoundedToTheNewestCharacters() {
@@ -85,6 +88,7 @@ final class InteractionReceiptTests: XCTestCase {
 
         XCTAssertEqual(bounded.count, RemoteControlPresentation.outputCharacterLimit)
         XCTAssertEqual(bounded, newest)
+        XCTAssertEqual(RemoteControlPresentation.boundedOutput("short output"), "short output")
     }
 
     func testProcessStatusAlwaysHasALiteralLabel() {
@@ -133,6 +137,16 @@ final class InteractionReceiptTests: XCTestCase {
         )
         XCTAssertEqual(
             ProcessKillFeedback.classify(GatewayClientError.socketClosed),
+            .outcomeUnknown
+        )
+        XCTAssertEqual(
+            ProcessKillFeedback.classify(GatewayClientError.notConnected),
+            .outcomeUnknown
+        )
+        XCTAssertEqual(
+            ProcessKillFeedback.classify(
+                GatewayClientError.connectFailed(underlying: "offline")
+            ),
             .outcomeUnknown
         )
         XCTAssertTrue(ProcessKillFeedback.outcomeUnknown.message.contains("Refresh status"))

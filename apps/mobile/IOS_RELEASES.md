@@ -11,6 +11,7 @@ marked as planned; they are never presented as shipped.
 | `0.1.0 (1)` | 2026-07-20 | Development preview | Internal TestFlight | SHA not recorded at archive time | Uploaded and installed; connection/chat vertical slice works. |
 | `0.1.x (2+)` | 2026-07-20 | FMB-P0 | Internal TestFlight | `00c8c2f0`; first exercised by `0.2.0 (4)` | No standalone upload; the reproducible release foundation shipped in build 4. |
 | `0.2.0 (4)` | 2026-07-20 | FMB-P1 | Internal TestFlight | `6c9e034136afff841355d564a6e3b91152b34e6f` | Xcode Cloud archive/upload succeeded; processed to **Testing** and assigned to the internal `beta` group (2 members). Physical-device result pending. |
+| `0.2.0 (5)` | 2026-07-20 | FMB-P1 repeat | Internal TestFlight | `6c9e034136afff841355d564a6e3b91152b34e6f` | Manual Xcode Cloud rebuild succeeded in 5 minutes; archive and internal-TestFlight post-action passed, build processed to **Testing**, `beta` remained assigned (2 members), and phase-one tester notes were published. Physical-device result pending. |
 
 ## `0.1.0 (1)` — development preview
 
@@ -41,7 +42,7 @@ marked as planned; they are never presented as shipped.
 - OAuth system-browser sign-in, push notifications, mobile attachments, voice,
   rich artifacts, and the goal/mission-control model are not shipped.
 
-## FMB-P0 release foundation — verified by `0.2.0 (4)`
+## FMB-P0 release foundation — verified by `0.2.0 (4)` and `(5)`
 
 ### Apple release-state verification (2026-07-20)
 
@@ -55,6 +56,10 @@ marked as planned; they are never presented as shipped.
 - App Store Connect processed build 4 to **Testing**, validated the configured
   release bundle identifier, and assigned it to the internal `beta` group with
   2 members.
+- A manual rebuild from the same immutable source produced build 5. Its archive
+  and internal-TestFlight post-action both succeeded, and App Store Connect
+  processed it to **Testing** for the same `beta` group. This repeat proves the
+  workflow can issue a new build number without changing the source revision.
 - Independent extraction of `FabricSourceRevision` from the signed archive,
   plus the physical-iPhone and internal-tester behavior checks, remains open.
 
@@ -139,6 +144,27 @@ as production authority and no Job state is inferred from event hints.
   What to Test notes are published.
 - Tester result: pending physical installation and behavior pass.
 - Rollback: development preview `0.1.0 (1)`.
+
+## `0.2.0 (5)` — reproducibility repeat
+
+Build 5 intentionally contains the same app source and behavior as build 4. It
+is a release-path repeat, not a feature increment.
+
+### Release evidence
+
+- Date: 2026-07-20.
+- Marketing version: `0.2.0`; Xcode Cloud/TestFlight build number: `5`.
+- Merged commit SHA: `6c9e034136afff841355d564a6e3b91152b34e6f`.
+- Start condition: manual `Default` workflow build of `main`.
+- Toolchain: Xcode 26.6 (17F113) on macOS Tahoe 26.5.1 (25F80).
+- Archive action: succeeded; Xcode Cloud duration 5 minutes after 9 seconds
+  queued.
+- TestFlight internal-testing post-action: succeeded.
+- TestFlight result: processed to **Testing**, expires in 90 days, and assigned
+  to the internal `beta` group (2 members).
+- Phase-one What to Test notes: published.
+- Physical-iPhone install and behavior result: pending.
+- Rollback: `0.2.0 (4)` or development preview `0.1.0 (1)`.
 
 ## Entry template
 

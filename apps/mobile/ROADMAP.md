@@ -148,8 +148,8 @@ No phase is complete because a simulator build launches. Every release needs:
 
 | Phase | State | Evidence / next gate |
 | --- | --- | --- |
-| FMB-P0 | Internal TestFlight candidate | PR #66 merged as `00c8c2f0`; its release foundation was exercised by Xcode Cloud build 4 from merged SHA `6c9e0341`, which archived, uploaded, processed to **Testing**, and reached the internal `beta` group. Independent signed-archive provenance extraction and the physical-iPhone smoke remain. |
-| FMB-P1 | Internal TestFlight candidate | PR #68 merged as `6c9e0341`; hosted checks passed and `0.2.0 (4)` is **Testing** for the 2-member internal `beta` group with phase-one tester notes published. Physical Start goal/resume/reconnect/QR/VoiceOver validation and tester confirmation remain before phase completion. |
+| FMB-P0 | Internal TestFlight candidate | PR #66 merged as `00c8c2f0`; its release foundation was exercised twice from merged SHA `6c9e0341`. Xcode Cloud builds 4 and 5 both archived, uploaded, processed to **Testing**, and reached the internal `beta` group. Independent signed-archive provenance extraction and the physical-iPhone smoke remain. |
+| FMB-P1 | Internal TestFlight candidate | PR #68 merged as `6c9e0341`; hosted checks passed and the latest reproducibility repeat, `0.2.0 (5)`, is **Testing** for the 2-member internal `beta` group with phase-one tester notes published. Physical Start goal/resume/reconnect/QR/VoiceOver validation and tester confirmation remain before phase completion. |
 | FMB-P2 | Planned | Requires the P1 product shell and push/attachment contracts. |
 | FMB-P3 | Planned | Durable Work must be advertised only after its full client/server contract is verified. |
 | FMB-P4 | Planned | Begins after parity evidence, not feature-count claims. |

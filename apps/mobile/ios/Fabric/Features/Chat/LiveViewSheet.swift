@@ -31,20 +31,22 @@ final class LiveViewModel {
     private(set) var retryRequired = false
     private(set) var isLoading: Bool
     private(set) var isPaused = false
+    private(set) var supportsCapture: Bool
+    private(set) var isConnectionReady: Bool
 
-    @ObservationIgnored private let supportsCapture: Bool
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private let capture: () async throws -> ScreenCapture
     @ObservationIgnored private let wait: (Duration) async throws -> Void
 
-    @ObservationIgnored private var isVisible = false
-    @ObservationIgnored private var isSceneActive = false
+    private var isVisible = false
+    private var isSceneActive = false
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var activePollToken: UUID?
     @ObservationIgnored private var restartAfterCurrent = false
 
     init(
         supportsCapture: Bool,
+        connectionReady: Bool = true,
         interval: Duration = .milliseconds(1500),
         capture: @escaping () async throws -> ScreenCapture,
         wait: @escaping (Duration) async throws -> Void = { duration in
@@ -52,14 +54,63 @@ final class LiveViewModel {
         }
     ) {
         self.supportsCapture = supportsCapture
+        isConnectionReady = connectionReady
         self.interval = interval
         self.capture = capture
         self.wait = wait
-        isLoading = supportsCapture
+        isLoading = supportsCapture && connectionReady
     }
 
     var isUnsupported: Bool { !supportsCapture }
     var isPolling: Bool { pollTask != nil }
+    var shouldObscureContent: Bool { !isVisible || !isSceneActive }
+    var staleNoticeText: String? {
+        guard frame != nil, isFrameStale, let errorText else { return nil }
+        if retryRequired {
+            return "Last frame shown. \(errorText) Tap Retry to reconnect."
+        }
+        if isPaused {
+            return "Last frame shown. \(errorText) Live view is paused."
+        }
+        if !isConnectionReady {
+            return "Last frame shown. \(errorText) Waiting for Fabric to reconnect."
+        }
+        return "Last frame shown. \(errorText) Retrying…"
+    }
+
+    /// Capability negotiation is connection-scoped and may change after a
+    /// reconnect. Revocation stops capture and drops the retained pixels;
+    /// restoration resumes only when every other lifecycle gate is open.
+    func setCaptureSupported(_ supported: Bool) {
+        guard supportsCapture != supported else { return }
+        supportsCapture = supported
+        if supported {
+            if frame == nil, isConnectionReady { isLoading = true }
+            requestImmediateRefresh()
+        } else {
+            isLoading = false
+            frame = nil
+            isFrameStale = false
+            errorText = nil
+            retryRequired = false
+            stopPolling()
+        }
+    }
+
+    /// The chat session owns reconnect readiness. Holding this gate closed
+    /// keeps a foreground transition from converting a temporary socket gap
+    /// into a hard, user-driven Retry state.
+    func setConnectionReady(_ ready: Bool) {
+        guard isConnectionReady != ready else { return }
+        isConnectionReady = ready
+        if ready {
+            if frame == nil { isLoading = true }
+            requestImmediateRefresh()
+        } else {
+            isLoading = false
+            stopPolling()
+        }
+    }
 
     func appear(sceneIsActive: Bool) {
         isVisible = true
@@ -113,6 +164,7 @@ final class LiveViewModel {
 
     private var canPoll: Bool {
         supportsCapture
+            && isConnectionReady
             && isVisible
             && isSceneActive
             && !isPaused
@@ -197,17 +249,28 @@ final class LiveViewModel {
     }
 
     private func handleFailure(_ error: Error) -> Bool {
-        isLoading = false
         errorText = error.localizedDescription
 
         guard frame != nil else {
+            if Self.isConnectionFailure(error) {
+                // The app-level reconnect is already in progress. Keep this
+                // bounded sequential loop eligible so it recovers without a
+                // misleading hard Retry screen when the socket returns.
+                isLoading = true
+                retryRequired = false
+                isFrameStale = false
+                return true
+            }
+
             // With no trustworthy image to show, continuing would be an
             // indefinite spinner. Stop and give the user an explicit retry.
+            isLoading = false
             retryRequired = true
             isFrameStale = false
             return false
         }
 
+        isLoading = false
         isFrameStale = true
         if Self.isHardFailure(error) {
             retryRequired = true
@@ -224,10 +287,20 @@ final class LiveViewModel {
         if error is LiveViewFrameError { return true }
         guard let gatewayError = error as? GatewayClientError else { return false }
         switch gatewayError {
-        case .requestTimedOut:
+        case .requestTimedOut, .notConnected, .connectFailed, .socketClosed:
             return false
-        case .notConnected, .connectFailed, .socketClosed, .rpc:
+        case .rpc:
             return true
+        }
+    }
+
+    private static func isConnectionFailure(_ error: Error) -> Bool {
+        guard let gatewayError = error as? GatewayClientError else { return false }
+        switch gatewayError {
+        case .notConnected, .connectFailed, .socketClosed:
+            return true
+        case .requestTimedOut, .rpc:
+            return false
         }
     }
 
@@ -250,13 +323,10 @@ final class LiveViewModel {
 struct LiveViewSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @State private var model: LiveViewModel
+    @Bindable var model: LiveViewModel
 
-    init(api: GatewayAPI, supportsMethod: @escaping (String) -> Bool) {
-        _model = State(initialValue: LiveViewModel(
-            supportsCapture: supportsMethod("computer.screenshot"),
-            capture: { try await api.captureScreen() }
-        ))
+    init(model: LiveViewModel) {
+        self.model = model
     }
 
     var body: some View {
@@ -266,6 +336,7 @@ struct LiveViewSheet: View {
                 content
                 staleNotice
                 statusBar
+                privacyCover
             }
             .navigationTitle("Live view")
             .navigationBarTitleDisplayMode(.inline)
@@ -303,6 +374,7 @@ struct LiveViewSheet: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity)
+                    .privacySensitive()
                     .accessibilityLabel(model.isFrameStale ? "Last available screen frame" : "Live screen frame")
             }
         } else if model.retryRequired {
@@ -313,12 +385,22 @@ struct LiveViewSheet: View {
             } actions: {
                 Button("Retry") { model.retry() }
                     .buttonStyle(.borderedProminent)
+                    .frame(
+                        minWidth: FabricTheme.minTarget,
+                        minHeight: FabricTheme.minTarget
+                    )
             }
         } else if model.isPaused {
             ContentUnavailableView {
                 Label("Live view paused", systemImage: "pause.circle")
             } description: {
                 Text("Resume to request a screen frame.")
+            }
+        } else if !model.isConnectionReady {
+            ContentUnavailableView {
+                Label("Waiting for Fabric", systemImage: "wifi.exclamationmark")
+            } description: {
+                Text("Live view will resume automatically when the gateway reconnects.")
             }
         } else {
             ProgressView("Connecting to the screen…")
@@ -328,15 +410,13 @@ struct LiveViewSheet: View {
 
     @ViewBuilder
     private var staleNotice: some View {
-        if model.frame != nil, model.isFrameStale, let errorText = model.errorText {
+        if let notice = model.staleNoticeText {
             VStack {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "clock.badge.exclamationmark")
                         .foregroundStyle(FabricTheme.warning)
                         .accessibilityHidden(true)
-                    Text(model.retryRequired
-                        ? "Last frame shown. \(errorText) Tap Retry to reconnect."
-                        : "Last frame shown. \(errorText) Retrying…")
+                    Text(notice)
                         .font(.subheadline)
                         .foregroundStyle(FabricTheme.text)
                     Spacer(minLength: 0)
@@ -351,6 +431,21 @@ struct LiveViewSheet: View {
                 .padding(.top, 12)
                 Spacer()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var privacyCover: some View {
+        if scenePhase != .active || model.shouldObscureContent {
+            ZStack {
+                FabricTheme.canvas.ignoresSafeArea()
+                ContentUnavailableView {
+                    Label("Live view hidden", systemImage: "eye.slash")
+                } description: {
+                    Text("Return to Fabric to show the remote screen.")
+                }
+            }
+            .accessibilityElement(children: .combine)
         }
     }
 
@@ -387,6 +482,10 @@ struct LiveViewSheet: View {
     private var trailingAction: some View {
         if model.retryRequired, model.frame != nil {
             Button("Retry") { model.retry() }
+                .frame(
+                    minWidth: FabricTheme.minTarget,
+                    minHeight: FabricTheme.minTarget
+                )
         } else if !model.isUnsupported {
             Button(model.isPaused ? "Resume" : "Pause") {
                 model.setPaused(!model.isPaused)
@@ -402,6 +501,9 @@ struct LiveViewSheet: View {
         }
         if model.retryRequired {
             return model.frame == nil ? "Unavailable" : "Stale · retry needed"
+        }
+        if !model.isConnectionReady {
+            return model.frame == nil ? "Waiting for connection" : "Stale · reconnecting"
         }
         if model.isFrameStale {
             return model.errorText == nil ? "Stale · refreshing" : "Stale · retrying"

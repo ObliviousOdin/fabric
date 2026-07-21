@@ -155,6 +155,26 @@ private struct ChatContentView: View {
     @State private var showProcesses = false
     @State private var showLiveView = false
     @State private var promptAnswer = ""
+    @State private var liveViewModel: LiveViewModel
+
+    init(
+        model: ChatViewModel,
+        draft: Binding<String>,
+        recoveryAction: SessionRecoveryAction,
+        onRetrySession: @escaping () -> Void,
+        onReturnToConversations: @escaping () -> Void
+    ) {
+        _model = Bindable(wrappedValue: model)
+        _draft = draft
+        self.recoveryAction = recoveryAction
+        self.onRetrySession = onRetrySession
+        self.onReturnToConversations = onReturnToConversations
+        _liveViewModel = State(initialValue: LiveViewModel(
+            supportsCapture: model.supportsGatewayMethod("computer.screenshot"),
+            connectionReady: model.sessionReady,
+            capture: { try await model.api.captureScreen() }
+        ))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -255,7 +275,7 @@ private struct ChatContentView: View {
                     } label: {
                         Label("Live screen view…", systemImage: "display")
                     }
-                    .disabled(!model.supportsGatewayMethod("computer.screenshot"))
+                    .disabled(!supportsLiveView)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -280,8 +300,21 @@ private struct ChatContentView: View {
             )
         }
         .sheet(isPresented: $showLiveView) {
-            LiveViewSheet(api: model.api, supportsMethod: model.supportsGatewayMethod)
+            LiveViewSheet(model: liveViewModel)
         }
+        .onChange(of: supportsLiveView, initial: true) { _, supported in
+            liveViewModel.setCaptureSupported(supported)
+        }
+        .onChange(of: model.sessionReady, initial: true) { _, ready in
+            liveViewModel.setConnectionReady(ready)
+        }
+        .onDisappear {
+            liveViewModel.disappear()
+        }
+    }
+
+    private var supportsLiveView: Bool {
+        model.supportsGatewayMethod("computer.screenshot")
     }
 
     private var transcript: some View {

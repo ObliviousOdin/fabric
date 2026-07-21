@@ -162,9 +162,10 @@ final class GatewayCapabilitiesTests: XCTestCase {
     }
 
     @MainActor
-    func testUnsupportedLiveViewIssuesNoScreenshotRequests() async {
+    func testLiveViewCapabilityChangesStopAndResumeCaptureDynamically() async {
         let probe = ImmediateLiveViewCaptureProbe(outcomes: [
             .capture(makeScreenCapture(width: 2, height: 2, color: .systemPurple)),
+            .capture(makeScreenCapture(width: 3, height: 3, color: .systemBlue)),
         ])
         let model = LiveViewModel(
             supportsCapture: false,
@@ -180,10 +181,24 @@ final class GatewayCapabilitiesTests: XCTestCase {
         XCTAssertFalse(model.isPolling)
         XCTAssertEqual(probe.callCount, 0)
         XCTAssertNil(model.frame)
+
+        model.setCaptureSupported(true)
+        await assertEventually { probe.callCount == 1 && model.frame != nil }
+        XCTAssertFalse(model.isUnsupported)
+
+        model.setCaptureSupported(false)
+        await assertEventually { !model.isPolling }
+        XCTAssertTrue(model.isUnsupported)
+        XCTAssertNil(model.frame)
+
+        model.setCaptureSupported(true)
+        await assertEventually { probe.callCount == 2 && model.frame != nil }
+        XCTAssertEqual(model.frame?.dimensions, "3×3")
+        model.setPaused(true)
     }
 
     @MainActor
-    func testLiveViewKeepsOneCaptureInFlightAcrossCancellationRaces() async {
+    func testLiveViewKeepsOneCaptureInFlightAcrossCancellationAndPresentationRaces() async {
         let probe = SuspendedLiveViewCaptureProbe(
             capture: makeScreenCapture(width: 3, height: 2, color: .systemBlue)
         )
@@ -202,6 +217,10 @@ final class GatewayCapabilitiesTests: XCTestCase {
         model.setPaused(false)
         model.setSceneActive(false)
         model.setSceneActive(true)
+        model.disappear()
+        XCTAssertTrue(model.shouldObscureContent)
+        model.appear(sceneIsActive: true)
+        XCTAssertFalse(model.shouldObscureContent)
         model.retry()
         await Task.yield()
 
@@ -236,6 +255,7 @@ final class GatewayCapabilitiesTests: XCTestCase {
 
         model.appear(sceneIsActive: true)
         await assertEventually { probe.callCount == 1 && model.frame != nil }
+        XCTAssertFalse(model.shouldObscureContent)
 
         model.setPaused(true)
         await assertEventually { !model.isPolling }
@@ -248,18 +268,55 @@ final class GatewayCapabilitiesTests: XCTestCase {
 
         model.setSceneActive(false)
         await assertEventually { !model.isPolling }
+        XCTAssertTrue(model.shouldObscureContent)
         await briefYield()
         XCTAssertEqual(probe.callCount, 2)
 
         model.setSceneActive(true)
         await assertEventually { probe.callCount == 3 }
+        XCTAssertFalse(model.shouldObscureContent)
 
         model.disappear()
         await assertEventually { !model.isPolling }
+        XCTAssertTrue(model.shouldObscureContent)
         model.setSceneActive(false)
         model.setSceneActive(true)
         await briefYield()
         XCTAssertEqual(probe.callCount, 3)
+    }
+
+    @MainActor
+    func testForegroundReconnectWaitsForReadinessAndRecoversWithoutRetry() async {
+        let probe = ImmediateLiveViewCaptureProbe(outcomes: [
+            .failure(GatewayClientError.socketClosed),
+            .capture(makeScreenCapture(width: 8, height: 5, color: .systemCyan)),
+            .capture(makeScreenCapture(width: 8, height: 5, color: .systemCyan)),
+        ])
+        let model = LiveViewModel(
+            supportsCapture: true,
+            connectionReady: false,
+            interval: .milliseconds(10),
+            capture: probe.capture
+        )
+
+        model.appear(sceneIsActive: false)
+        XCTAssertTrue(model.shouldObscureContent)
+        model.setSceneActive(true)
+        await briefYield()
+        XCTAssertEqual(probe.callCount, 0)
+        XCTAssertFalse(model.retryRequired)
+
+        // The session reconnect completing opens the gate. A socket-close
+        // race from that window remains recoverable and the sequential loop
+        // obtains a frame without requiring a user Retry.
+        model.setConnectionReady(true)
+        await assertEventually {
+            probe.callCount >= 2
+                && model.frame?.dimensions == "8×5"
+                && !model.retryRequired
+        }
+        XCTAssertEqual(probe.maximumInFlight, 1)
+        model.setPaused(true)
     }
 
     @MainActor
@@ -290,6 +347,12 @@ final class GatewayCapabilitiesTests: XCTestCase {
         }
         XCTAssertFalse(model.retryRequired)
         XCTAssertTrue(model.frame?.image === firstImage)
+        model.setPaused(true)
+        XCTAssertEqual(
+            model.staleNoticeText,
+            "Last frame shown. request timed out: computer.screenshot Live view is paused."
+        )
+        XCTAssertFalse(model.staleNoticeText?.contains("Retrying") == true)
 
         model.retry()
         await assertEventually {

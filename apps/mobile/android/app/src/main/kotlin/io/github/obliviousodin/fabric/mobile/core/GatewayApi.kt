@@ -329,6 +329,35 @@ val DURABLE_WORK_GATEWAY_METHODS = setOf(
     "attention.respond",
 )
 
+/**
+ * Additive feature gates introduced after the original version-1 fixture.
+ * Their absence means "not advertised" so an older gateway remains a valid
+ * version-1 peer; when present, the same method/feature invariant applies.
+ */
+val OPTIONAL_GATEWAY_FEATURE_METHODS = mapOf(
+    "artifact_fetch" to setOf("artifact.list", "artifact.fetch"),
+    "connected_nodes" to setOf("node.list", "node.revoke"),
+    "device_node" to setOf("node.enroll"),
+    "durable_work" to DURABLE_WORK_GATEWAY_METHODS,
+    "node_invoke" to setOf("node.announce", "node.result", "node.reject"),
+    "push" to setOf("push.register_device", "push.deregister_device"),
+    "session_admin" to setOf("session.rename", "session.archive"),
+    "trust_center" to setOf(
+        "trust.audit.list",
+        "grant.list",
+        "grant.create",
+        "grant.revoke",
+    ),
+    "workspace_read" to setOf("fs.list", "fs.read"),
+)
+
+/**
+ * Optional features advertised as a bare boolean with no dedicated methods
+ * (scoped_grants extends approval.respond params), so no method/feature
+ * consistency check applies. Absence still means "not advertised" -> false.
+ */
+val OPTIONAL_GATEWAY_FEATURE_FLAGS = setOf("scoped_grants")
+
 data class GatewayExecutionContract(
     val location: String,
     val toolExecution: String,
@@ -375,6 +404,18 @@ fun GatewayCapabilityNegotiation?.supportsDurableWork(): Boolean = when (this) {
     is GatewayCapabilityNegotiation.Verified ->
         capabilities.features["durable_work"] == true &&
             capabilities.methods.containsAll(DURABLE_WORK_GATEWAY_METHODS)
+    else -> false
+}
+
+/**
+ * Whether a feature family is usable on this gateway. Mirrors the durable_work
+ * precedent: an optional family only exists when a verified contract advertises
+ * it true — a legacy gateway predates every optional family, and an
+ * incompatible or invalid contract fails closed, even when the raw method
+ * names would appear to overlap.
+ */
+fun GatewayCapabilityNegotiation?.supportsGatewayFeature(feature: String): Boolean = when (this) {
+    is GatewayCapabilityNegotiation.Verified -> capabilities.features[feature] == true
     else -> false
 }
 
@@ -1525,22 +1566,39 @@ internal fun parseGatewayCapabilities(payload: JsonObject): GatewayCapabilityNeg
         }
         features[name] = value
     }
-    // This additive feature is optional in the v1 gateway capability contract.
-    // Absent means false; present must still exactly match the full RPC set.
-    val durableWorkValue = featuresObject["durable_work"]
-    if (durableWorkValue == null) {
-        features["durable_work"] = false
-    } else {
-        val value = (durableWorkValue as? JsonPrimitive)
+    // These additive features are optional in the v1 gateway capability
+    // contract. Absent means false; present must still exactly match the
+    // feature's full RPC set.
+    for ((name, requiredMethods) in OPTIONAL_GATEWAY_FEATURE_METHODS) {
+        val rawValue = featuresObject[name]
+        if (rawValue == null) {
+            features[name] = false
+            continue
+        }
+        val value = (rawValue as? JsonPrimitive)
             ?.takeIf { !it.isString }
             ?.booleanOrNull
-            ?: return GatewayCapabilityNegotiation.Invalid("feature durable_work must be a boolean")
-        if (value != methods.containsAll(DURABLE_WORK_GATEWAY_METHODS)) {
+            ?: return GatewayCapabilityNegotiation.Invalid("feature $name must be a boolean")
+        if (value != methods.containsAll(requiredMethods)) {
             return GatewayCapabilityNegotiation.Invalid(
-                "feature durable_work contradicts its advertised methods",
+                "feature $name contradicts its advertised methods",
             )
         }
-        features["durable_work"] = value
+        features[name] = value
+    }
+    // Flag-only optional features carry no dedicated methods, so only the
+    // boolean shape is checked. Absent still means "not advertised".
+    for (name in OPTIONAL_GATEWAY_FEATURE_FLAGS) {
+        val rawValue = featuresObject[name]
+        if (rawValue == null) {
+            features[name] = false
+            continue
+        }
+        val value = (rawValue as? JsonPrimitive)
+            ?.takeIf { !it.isString }
+            ?.booleanOrNull
+            ?: return GatewayCapabilityNegotiation.Invalid("feature $name must be a boolean")
+        features[name] = value
     }
 
     val server = payload["server"] as? JsonObject

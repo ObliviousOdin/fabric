@@ -1,0 +1,12 @@
+{
+  "code": -32047,
+  "message": "Trust audit cursor is outside the retained range; refresh from the newest entries.",
+  "data": {
+    "code": "cursor_expired",
+    "bootstrap": true,
+    "reason": "retention_floor",
+    "ledger_id": "ledger_33333333333333333333333333333333",
+    "event_floor": 150,
+    "high_water": 205
+  }
+}

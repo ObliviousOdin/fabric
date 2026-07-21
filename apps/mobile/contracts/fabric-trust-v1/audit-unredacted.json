@@ -1,0 +1,23 @@
+{
+  "contract": {
+    "name": "fabric.trust",
+    "version": 1,
+    "min_compatible": 1
+  },
+  "cursor": 401,
+  "next_before": null,
+  "entries": [
+    {
+      "entry_id": 401,
+      "at": 1784452500000,
+      "actor": "agent",
+      "kind": "capability_invocation",
+      "method": "camera.capture",
+      "node_id": "node-phone-1",
+      "grant_id": "grant-11111111",
+      "decision": "auto",
+      "summary": "This entry claims to carry unredacted material and must be rejected.",
+      "redacted": false
+    }
+  ]
+}

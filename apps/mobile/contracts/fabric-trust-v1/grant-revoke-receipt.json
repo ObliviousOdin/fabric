@@ -1,0 +1,8 @@
+{
+  "grant_id": "grant-22222222",
+  "revoked": true,
+  "revoked_at": 1784452000000,
+  "grant_version": 4,
+  "mutation_id": "mut-7c9a1f2b",
+  "replayed": false
+}

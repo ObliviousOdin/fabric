@@ -2,7 +2,9 @@ package io.github.obliviousodin.fabric.mobile.core
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -15,6 +17,17 @@ import org.junit.Test
 import java.io.File
 
 class GatewayCapabilitiesTest {
+    private val newOptionalFamilies = listOf(
+        "artifact_fetch",
+        "connected_nodes",
+        "device_node",
+        "node_invoke",
+        "push",
+        "session_admin",
+        "trust_center",
+        "workspace_read",
+    )
+
     @Test
     fun acceptsCurrentContractAndExecutionTruth() {
         val result = parseGatewayCapabilities(contractFixture("gateway-capabilities-v1.json"))
@@ -121,6 +134,162 @@ class GatewayCapabilitiesTest {
         assertTrue(contradiction is GatewayCapabilityNegotiation.Invalid)
         assertFalse(GatewayCapabilityNegotiation.Legacy.supportsDurableWork())
     }
+
+    @Test
+    fun featureRegistryFixtureMatchesTheCompiledRegistry() {
+        val registry = contractFixture("gateway-feature-registry-v1.json")
+        val contract = registry["contract"] as JsonObject
+        assertEquals(GATEWAY_CAPABILITY_CONTRACT_NAME, contract["name"]?.toString()?.trim('"'))
+        assertEquals(GATEWAY_CLIENT_CONTRACT_VERSION, contract["version"]?.toString()?.toInt())
+        assertEquals(
+            GATEWAY_FEATURE_METHODS,
+            (registry["baseline_features"] as JsonObject).mapValues { (_, methods) ->
+                (methods as JsonArray).map { it.toString().trim('"') }.toSet()
+            },
+        )
+        assertEquals(
+            OPTIONAL_GATEWAY_FEATURE_METHODS,
+            (registry["optional_features"] as JsonObject).mapValues { (_, methods) ->
+                (methods as JsonArray).map { it.toString().trim('"') }.toSet()
+            },
+        )
+        assertEquals(
+            OPTIONAL_GATEWAY_FEATURE_FLAGS,
+            (registry["flag_only_optional_features"] as JsonArray)
+                .map { it.toString().trim('"') }
+                .toSet(),
+        )
+        assertEquals(
+            LEGACY_MOBILE_METHODS,
+            (registry["legacy_mobile_methods"] as JsonArray)
+                .map { it.toString().trim('"') }
+                .toSet(),
+        )
+    }
+
+    @Test
+    fun familiesFixtureVerifiesEveryNewFamilyTrueAndKeepsDurableWorkDark() {
+        val result = parseGatewayCapabilities(
+            contractFixture("gateway-capabilities-families-v1.json"),
+        )
+
+        assertTrue(result is GatewayCapabilityNegotiation.Verified)
+        val features = (result as GatewayCapabilityNegotiation.Verified).capabilities.features
+        for (family in newOptionalFamilies) {
+            assertEquals(true, features[family])
+        }
+        assertEquals(true, features["scoped_grants"])
+        assertEquals(false, features["durable_work"])
+        assertFalse(result.supportsDurableWork())
+    }
+
+    @Test
+    fun rejectsFamilyWhoseRequiredMethodSetIsMissing() {
+        val result = parseGatewayCapabilities(
+            contractFixture("gateway-capabilities-family-contradiction.json"),
+        )
+
+        assertTrue(result is GatewayCapabilityNegotiation.Invalid)
+        assertTrue((result as GatewayCapabilityNegotiation.Invalid).reason.contains("trust_center"))
+    }
+
+    @Test
+    fun originalV1FixtureStillVerifiesWithEveryNewFamilyFalse() {
+        val result = parseGatewayCapabilities(contractFixture("gateway-capabilities-v1.json"))
+
+        assertTrue(result is GatewayCapabilityNegotiation.Verified)
+        val features = (result as GatewayCapabilityNegotiation.Verified).capabilities.features
+        for (family in newOptionalFamilies) {
+            assertEquals(false, features[family])
+        }
+        assertEquals(false, features["scoped_grants"])
+    }
+
+    @Test
+    fun rejectsAdvertisedFalseFamilyWhoseMethodsAreAllPresent() {
+        val contradictory = withFeature(
+            contractFixture("gateway-capabilities-families-v1.json"),
+            "push",
+            JsonPrimitive(false),
+        )
+
+        val result = parseGatewayCapabilities(contradictory)
+        assertTrue(result is GatewayCapabilityNegotiation.Invalid)
+        assertTrue((result as GatewayCapabilityNegotiation.Invalid).reason.contains("push"))
+    }
+
+    @Test
+    fun treatsScopedGrantsAsAPureFlagWithNoMethodSetCheck() {
+        val base = contractFixture("gateway-capabilities-v1.json")
+
+        val absent = parseGatewayCapabilities(base)
+        assertTrue(absent is GatewayCapabilityNegotiation.Verified)
+        assertEquals(
+            false,
+            (absent as GatewayCapabilityNegotiation.Verified).capabilities.features["scoped_grants"],
+        )
+
+        val nonBoolean = parseGatewayCapabilities(
+            withFeature(base, "scoped_grants", JsonPrimitive("yes")),
+        )
+        assertTrue(nonBoolean is GatewayCapabilityNegotiation.Invalid)
+        assertTrue(
+            (nonBoolean as GatewayCapabilityNegotiation.Invalid).reason.contains("scoped_grants"),
+        )
+
+        val explicitFalse = parseGatewayCapabilities(
+            withFeature(base, "scoped_grants", JsonPrimitive(false)),
+        )
+        assertTrue(explicitFalse is GatewayCapabilityNegotiation.Verified)
+        assertEquals(
+            false,
+            (explicitFalse as GatewayCapabilityNegotiation.Verified)
+                .capabilities.features["scoped_grants"],
+        )
+    }
+
+    @Test
+    fun supportsGatewayFeatureOnlyOnVerifiedContractsAdvertisingTrue() {
+        val families = parseGatewayCapabilities(
+            contractFixture("gateway-capabilities-families-v1.json"),
+        )
+        assertTrue(families.supportsGatewayFeature("trust_center"))
+        assertTrue(families.supportsGatewayFeature("scoped_grants"))
+        assertFalse(families.supportsGatewayFeature("durable_work"))
+
+        val verified = parseGatewayCapabilities(contractFixture("gateway-capabilities-v1.json"))
+        assertTrue(verified.supportsGatewayFeature("baseline_chat"))
+        assertFalse(verified.supportsGatewayFeature("trust_center"))
+
+        assertFalse(GatewayCapabilityNegotiation.Legacy.supportsGatewayFeature("baseline_chat"))
+        assertFalse(GatewayCapabilityNegotiation.Legacy.supportsGatewayFeature("trust_center"))
+        assertFalse(
+            GatewayCapabilityNegotiation.Incompatible(2).supportsGatewayFeature("baseline_chat"),
+        )
+        assertFalse(
+            GatewayCapabilityNegotiation.Invalid("bad").supportsGatewayFeature("baseline_chat"),
+        )
+        assertFalse(GatewayCapabilityNegotiation.Negotiating.supportsGatewayFeature("baseline_chat"))
+    }
+
+    private fun withFeature(payload: JsonObject, name: String, value: JsonElement): JsonObject =
+        buildJsonObject {
+            payload.forEach { (key, element) ->
+                if (key == "features") {
+                    put(
+                        "features",
+                        buildJsonObject {
+                            (element as JsonObject).forEach { (feature, advertised) ->
+                                put(feature, advertised)
+                            }
+                            put(name, value)
+                        },
+                    )
+                } else {
+                    put(key, element)
+                }
+            }
+        }
 
     private fun capabilitiesPayload(
         version: Int = 1,

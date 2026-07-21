@@ -1,0 +1,20 @@
+{
+  "contract": {
+    "name": "fabric.trust",
+    "version": 1,
+    "min_compatible": 1
+  },
+  "cursor": 205,
+  "next_before": null,
+  "entries": [
+    {
+      "entry_id": 205,
+      "at": 1784451840000,
+      "actor": "user",
+      "kind": "node_change",
+      "method": "node.revoke",
+      "node_id": "node-tablet-2",
+      "redacted": true
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "contract": {
+    "name": "fabric.gateway",
+    "version": 1
+  },
+  "baseline_features": {
+    "automation": ["cron.manage"],
+    "background_work": ["session.active_list", "prompt.background", "session.steer"],
+    "baseline_chat": ["session.create", "session.list", "session.resume", "prompt.submit"],
+    "code_session_baseline": ["projects.discover_repos", "session.branch", "session.undo"],
+    "delegation": ["delegation.status", "spawn_tree.list"],
+    "files": ["image.attach_bytes", "pdf.attach", "file.attach"],
+    "handoff": ["handoff.request"],
+    "live_view": ["visual.status", "visual.frame"]
+  },
+  "optional_features": {
+    "artifact_fetch": ["artifact.list", "artifact.fetch"],
+    "connected_nodes": ["node.list", "node.revoke"],
+    "device_node": ["node.enroll"],
+    "durable_work": [
+      "job.create",
+      "job.sync",
+      "job.get",
+      "job.list",
+      "job.events",
+      "job.cancel",
+      "attention.get",
+      "attention.list",
+      "attention.respond"
+    ],
+    "node_invoke": ["node.announce", "node.result", "node.reject"],
+    "push": ["push.register_device", "push.deregister_device"],
+    "session_admin": ["session.rename", "session.archive"],
+    "trust_center": ["trust.audit.list", "grant.list", "grant.create", "grant.revoke"],
+    "workspace_read": ["fs.list", "fs.read"]
+  },
+  "flag_only_optional_features": ["scoped_grants"],
+  "legacy_mobile_methods": [
+    "approval.respond",
+    "clarify.respond",
+    "commands.catalog",
+    "computer.screenshot",
+    "process.kill",
+    "process.list",
+    "prompt.background",
+    "prompt.submit",
+    "secret.respond",
+    "session.active_list",
+    "session.close",
+    "session.create",
+    "session.interrupt",
+    "session.list",
+    "session.resume",
+    "session.steer",
+    "slash.exec",
+    "sudo.respond"
+  ]
+}

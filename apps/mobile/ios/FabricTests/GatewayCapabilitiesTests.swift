@@ -161,6 +161,145 @@ final class GatewayCapabilitiesTests: XCTestCase {
         }
     }
 
+    /// The optional method-backed families introduced alongside durable_work.
+    private let newOptionalFamilies = [
+        "artifact_fetch",
+        "connected_nodes",
+        "device_node",
+        "node_invoke",
+        "push",
+        "session_admin",
+        "trust_center",
+        "workspace_read",
+    ]
+
+    func testRegistryFixtureMatchesCompiledFeatureGovernance() throws {
+        let registry = try fixtureObject("gateway-feature-registry-v1.json")
+
+        let contract = try XCTUnwrap(registry["contract"] as? [String: Any])
+        XCTAssertEqual(contract["name"] as? String, "fabric.gateway")
+        XCTAssertEqual((contract["version"] as? NSNumber)?.intValue, gatewayClientContractVersion)
+
+        let baseline = try XCTUnwrap(registry["baseline_features"] as? [String: [String]])
+        XCTAssertEqual(baseline.mapValues { Set($0) }, gatewayFeatureMethods)
+
+        let optional = try XCTUnwrap(registry["optional_features"] as? [String: [String]])
+        XCTAssertEqual(optional.mapValues { Set($0) }, optionalGatewayFeatureMethods)
+
+        let flags = try XCTUnwrap(registry["flag_only_optional_features"] as? [String])
+        XCTAssertEqual(Set(flags), optionalGatewayFeatureFlags)
+
+        let legacy = try XCTUnwrap(registry["legacy_mobile_methods"] as? [String])
+        XCTAssertEqual(Set(legacy), legacyMobileMethods)
+    }
+
+    func testFamiliesFixtureVerifiesEveryNewFamilyWithDurableWorkDark() throws {
+        let negotiation = GatewayCapabilitiesParser.parse(
+            try fixtureObject("gateway-capabilities-families-v1.json")
+        )
+
+        guard case .verified(let capabilities) = negotiation else {
+            return XCTFail("Expected verified capabilities, got \(negotiation)")
+        }
+        for family in newOptionalFamilies {
+            XCTAssertEqual(capabilities.features[family], true, family)
+        }
+        XCTAssertEqual(capabilities.features["scoped_grants"], true)
+        XCTAssertEqual(capabilities.features["durable_work"], false)
+        XCTAssertFalse(negotiation.supportsDurableWork)
+    }
+
+    func testRejectsFamilyWhoseRequiredMethodSetIsMissing() throws {
+        let negotiation = GatewayCapabilitiesParser.parse(
+            try fixtureObject("gateway-capabilities-family-contradiction.json")
+        )
+
+        guard case .invalid(let reason) = negotiation else {
+            return XCTFail("Expected contradictory family fixture to be invalid")
+        }
+        XCTAssertTrue(reason.contains("trust_center"))
+    }
+
+    func testOriginalFixtureStillVerifiesWithEveryOptionalFamilyFalse() throws {
+        let negotiation = GatewayCapabilitiesParser.parse(
+            try fixtureObject("gateway-capabilities-v1.json")
+        )
+
+        guard case .verified(let capabilities) = negotiation else {
+            return XCTFail("Expected verified capabilities, got \(negotiation)")
+        }
+        for family in newOptionalFamilies {
+            XCTAssertEqual(capabilities.features[family], false, family)
+        }
+        XCTAssertEqual(capabilities.features["scoped_grants"], false)
+        XCTAssertEqual(capabilities.features["durable_work"], false)
+    }
+
+    func testRejectsAdvertisedFalseFamilyWhoseMethodsAreAllPresent() throws {
+        var payload = try fixtureObject("gateway-capabilities-families-v1.json")
+        var features = try XCTUnwrap(payload["features"] as? [String: Any])
+        features["push"] = false
+        payload["features"] = features
+
+        guard case .invalid(let reason) = GatewayCapabilitiesParser.parse(payload) else {
+            return XCTFail("Expected advertised-false push family to be invalid")
+        }
+        XCTAssertTrue(reason.contains("push"))
+    }
+
+    func testScopedGrantsIsAPureFlagWithNoMethodSetCheck() throws {
+        let canonical = try fixtureObject("gateway-capabilities-v1.json")
+
+        var nonBoolean = canonical
+        var features = try XCTUnwrap(nonBoolean["features"] as? [String: Any])
+        features["scoped_grants"] = "yes"
+        nonBoolean["features"] = features
+        guard case .invalid(let reason) = GatewayCapabilitiesParser.parse(nonBoolean) else {
+            return XCTFail("Expected non-boolean scoped_grants to be invalid")
+        }
+        XCTAssertTrue(reason.contains("scoped_grants"))
+
+        var explicitFalse = canonical
+        var falseFeatures = try XCTUnwrap(explicitFalse["features"] as? [String: Any])
+        falseFeatures["scoped_grants"] = false
+        explicitFalse["features"] = falseFeatures
+        let negotiation = GatewayCapabilitiesParser.parse(explicitFalse)
+        guard case .verified(let capabilities) = negotiation else {
+            return XCTFail("Expected explicit-false scoped_grants to remain verified")
+        }
+        XCTAssertEqual(capabilities.features["scoped_grants"], false)
+        XCTAssertFalse(negotiation.supportsGatewayFeature("scoped_grants"))
+    }
+
+    func testSupportsGatewayFeatureOnlyOnVerifiedContractsAdvertisingTrue() throws {
+        let families = GatewayCapabilitiesParser.parse(
+            try fixtureObject("gateway-capabilities-families-v1.json")
+        )
+        XCTAssertTrue(families.supportsGatewayFeature("trust_center"))
+        XCTAssertTrue(families.supportsGatewayFeature("scoped_grants"))
+        XCTAssertFalse(families.supportsGatewayFeature("durable_work"))
+
+        let verified = GatewayCapabilitiesParser.parse(
+            try fixtureObject("gateway-capabilities-v1.json")
+        )
+        XCTAssertTrue(verified.supportsGatewayFeature("baseline_chat"))
+        XCTAssertFalse(verified.supportsGatewayFeature("trust_center"))
+
+        // Legacy gateways advertise every baseline_chat method, but a feature
+        // is only real on a verified contract.
+        XCTAssertFalse(GatewayCapabilityNegotiation.legacy.supportsGatewayFeature("baseline_chat"))
+        XCTAssertFalse(GatewayCapabilityNegotiation.legacy.supportsGatewayFeature("trust_center"))
+        XCTAssertFalse(GatewayCapabilityNegotiation.negotiating.supportsGatewayFeature("baseline_chat"))
+        XCTAssertFalse(
+            GatewayCapabilityNegotiation.incompatible(minimumCompatibleVersion: 2)
+                .supportsGatewayFeature("baseline_chat")
+        )
+        XCTAssertFalse(
+            GatewayCapabilityNegotiation.invalid(reason: "bad")
+                .supportsGatewayFeature("baseline_chat")
+        )
+    }
+
     @MainActor
     func testLiveViewCapabilityChangesStopAndResumeCaptureDynamically() async {
         let probe = ImmediateLiveViewCaptureProbe(outcomes: [

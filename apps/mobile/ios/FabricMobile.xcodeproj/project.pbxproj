@@ -21,6 +21,7 @@
 		281E9F3C240B42B32A80A195 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 114E502998A8CE6CA1C1BC89 /* Assets.xcassets */; };
 		2C2940D3C0550EE4588B5929 /* FabricGoalPortfolio.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA7446C8E083BBFBD1A3EC29 /* FabricGoalPortfolio.swift */; };
 		33B4E2B72D53190870B70C80 /* GatewayStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E788461E2DF03CA0F6128F9 /* GatewayStore.swift */; };
+		35E79F656874E0CB2C427857 /* gateway-feature-registry-v1.json in Resources */ = {isa = PBXBuildFile; fileRef = 2726F0DDBD62FBEAF225DB59 /* gateway-feature-registry-v1.json */; };
 		396A2DA544E0B421A74711BF /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 0D8B19EA1D35CF975801464B /* manifest.json */; };
 		3D62A0F123FA6CE8034FA163 /* FabricWorkContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF5503C200A9D187123A534 /* FabricWorkContract.swift */; };
 		3F984918B9A4D16F35B8F690 /* malformed.json in Resources */ = {isa = PBXBuildFile; fileRef = 10AEFA659FBB938E31BD96F8 /* malformed.json */; };
@@ -34,7 +35,9 @@
 		5C382289748FACDC6BDA4954 /* ConversationHomeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728FF3B5AD846CC75F63A3F3 /* ConversationHomeModel.swift */; };
 		5E926420C1DABB9AD689B4A9 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F55A105AD6902AC6D282B12B /* QRScannerView.swift */; };
 		62664DFEAF6876B11FE2F7CC /* ConversationHomeModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD666BEFE17AC010F380D524 /* ConversationHomeModelTests.swift */; };
+		683A92587C5B62D22B02BE8A /* gateway-capabilities-families-v1.json in Resources */ = {isa = PBXBuildFile; fileRef = CD8F66136B9E71E552EE2822 /* gateway-capabilities-families-v1.json */; };
 		69BE57442CC48B8D911610D2 /* additive-future.json in Resources */ = {isa = PBXBuildFile; fileRef = CFB96B2E1031E6C4519CCB98 /* additive-future.json */; };
+		6CCED2301EA27016EB99B29F /* gateway-capabilities-family-contradiction.json in Resources */ = {isa = PBXBuildFile; fileRef = F17BE53B7E869BFCD0B4E192 /* gateway-capabilities-family-contradiction.json */; };
 		88DC45C1FFD151294158331E /* replaced-ledger.json in Resources */ = {isa = PBXBuildFile; fileRef = A3D8FF63DA666046CAE8A11B /* replaced-ledger.json */; };
 		8CEA98F6B988474EE350B8DE /* FabricWorkSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB978B8F714B72E27A81EFA6 /* FabricWorkSync.swift */; };
 		8F190214F47E426DF730C91A /* legacy-mobile-methods.json in Resources */ = {isa = PBXBuildFile; fileRef = 67B8A44C68F860E47594E46E /* legacy-mobile-methods.json */; };
@@ -81,6 +84,7 @@
 		127EBA51A803EF79CFADA702 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		1311816760BD7CBE12AD28BC /* FabricTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricTheme.swift; sourceTree = "<group>"; };
 		2198E6499B493895E81AF58A /* LiveViewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViewSheet.swift; sourceTree = "<group>"; };
+		2726F0DDBD62FBEAF225DB59 /* gateway-feature-registry-v1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-feature-registry-v1.json"; sourceTree = "<group>"; };
 		29BFBA342706A1D6CB052C0C /* gateway-capabilities-malformed.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-malformed.json"; sourceTree = "<group>"; };
 		2C3A2D35BBEF8CE01D18A16A /* FabricMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricMobileApp.swift; sourceTree = "<group>"; };
 		2D075734769A0025DC152BAB /* delta.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = delta.json; sourceTree = "<group>"; };
@@ -116,6 +120,7 @@
 		B498AEFFE50A8D9D969AE335 /* sensitive-attention.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "sensitive-attention.json"; sourceTree = "<group>"; };
 		CA7446C8E083BBFBD1A3EC29 /* FabricGoalPortfolio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricGoalPortfolio.swift; sourceTree = "<group>"; };
 		CB978B8F714B72E27A81EFA6 /* FabricWorkSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricWorkSync.swift; sourceTree = "<group>"; };
+		CD8F66136B9E71E552EE2822 /* gateway-capabilities-families-v1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-families-v1.json"; sourceTree = "<group>"; };
 		CF2716EFA82EA83E0668BB81 /* terminal.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = terminal.json; sourceTree = "<group>"; };
 		CFB96B2E1031E6C4519CCB98 /* additive-future.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "additive-future.json"; sourceTree = "<group>"; };
 		D4C540BD0C2DD543FE4AB8AE /* WorkContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkContractTests.swift; sourceTree = "<group>"; };
@@ -124,6 +129,7 @@
 		DAF5503C200A9D187123A534 /* FabricWorkContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricWorkContract.swift; sourceTree = "<group>"; };
 		DE3236B367DE48627DE9B7D7 /* bootstrap-page-2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-page-2.json"; sourceTree = "<group>"; };
 		E74DD14448B2A54E9CFD93B0 /* bootstrap-page-1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-page-1.json"; sourceTree = "<group>"; };
+		F17BE53B7E869BFCD0B4E192 /* gateway-capabilities-family-contradiction.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-family-contradiction.json"; sourceTree = "<group>"; };
 		F55A105AD6902AC6D282B12B /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		FACE05AECDAE13F55E07AC81 /* JsonRpcGatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JsonRpcGatewayClient.swift; sourceTree = "<group>"; };
 		FD666BEFE17AC010F380D524 /* ConversationHomeModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationHomeModelTests.swift; sourceTree = "<group>"; };
@@ -261,9 +267,12 @@
 			isa = PBXGroup;
 			children = (
 				6D8F08A60A4586EE5893C3E9 /* fabric-pairing-v2.json */,
+				CD8F66136B9E71E552EE2822 /* gateway-capabilities-families-v1.json */,
+				F17BE53B7E869BFCD0B4E192 /* gateway-capabilities-family-contradiction.json */,
 				7FD48E3CADC1A4F2709D5D66 /* gateway-capabilities-incompatible.json */,
 				29BFBA342706A1D6CB052C0C /* gateway-capabilities-malformed.json */,
 				82269ED2BBD6CF3FEBA37C14 /* gateway-capabilities-v1.json */,
+				2726F0DDBD62FBEAF225DB59 /* gateway-feature-registry-v1.json */,
 				67B8A44C68F860E47594E46E /* legacy-mobile-methods.json */,
 				FF8D969572E83EC9A6326C1C /* fabric-work-v1 */,
 			);
@@ -406,9 +415,12 @@
 				D7BCBDB0C0A661B997F5FE8B /* cursor-expired.json in Resources */,
 				912FE7194FE58376B6E0136B /* delta.json in Resources */,
 				56ED4990736694157DA23A63 /* fabric-pairing-v2.json in Resources */,
+				683A92587C5B62D22B02BE8A /* gateway-capabilities-families-v1.json in Resources */,
+				6CCED2301EA27016EB99B29F /* gateway-capabilities-family-contradiction.json in Resources */,
 				4D7AE628A7A893F692173B96 /* gateway-capabilities-incompatible.json in Resources */,
 				4293BB7B83E71DC14F4C462B /* gateway-capabilities-malformed.json in Resources */,
 				A5C97656CFABB374990C50CA /* gateway-capabilities-v1.json in Resources */,
+				35E79F656874E0CB2C427857 /* gateway-feature-registry-v1.json in Resources */,
 				4D146C379491DBA76D325E25 /* incompatible.json in Resources */,
 				8F190214F47E426DF730C91A /* legacy-mobile-methods.json in Resources */,
 				3F984918B9A4D16F35B8F690 /* malformed.json in Resources */,

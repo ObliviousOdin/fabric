@@ -312,7 +312,7 @@ let legacyMobileMethods: Set<String> = [
 
 // Gateway-host voice RPCs are intentionally absent: they record and play on
 // the gateway machine, not this phone. Phone voice needs its own wire contract.
-private let gatewayFeatureMethods: [String: Set<String>] = [
+let gatewayFeatureMethods: [String: Set<String>] = [
     "automation": ["cron.manage"],
     "background_work": ["session.active_list", "prompt.background", "session.steer"],
     "baseline_chat": ["session.create", "session.list", "session.resume", "prompt.submit"],
@@ -338,6 +338,26 @@ let durableWorkGatewayMethods: Set<String> = [
     "attention.list",
     "attention.respond",
 ]
+
+/// Additive feature gates introduced after the original version-1 fixture.
+/// Their absence means "not advertised" so an older gateway remains a valid
+/// version-1 peer; when present, the same method/feature invariant applies.
+let optionalGatewayFeatureMethods: [String: Set<String>] = [
+    "artifact_fetch": ["artifact.list", "artifact.fetch"],
+    "connected_nodes": ["node.list", "node.revoke"],
+    "device_node": ["node.enroll"],
+    "durable_work": durableWorkGatewayMethods,
+    "node_invoke": ["node.announce", "node.result", "node.reject"],
+    "push": ["push.register_device", "push.deregister_device"],
+    "session_admin": ["session.rename", "session.archive"],
+    "trust_center": ["trust.audit.list", "grant.list", "grant.create", "grant.revoke"],
+    "workspace_read": ["fs.list", "fs.read"],
+]
+
+/// Optional features advertised as a bare boolean with no dedicated methods
+/// (scoped_grants extends approval.respond params), so no method/feature
+/// consistency check applies. Absence still means "not advertised" → false.
+let optionalGatewayFeatureFlags: Set<String> = ["scoped_grants"]
 
 private let requiredMobileSessionMethods = gatewayFeatureMethods["baseline_chat"] ?? []
 
@@ -385,6 +405,16 @@ enum GatewayCapabilityNegotiation: Equatable {
         case .negotiating, .incompatible, .invalid:
             return false
         }
+    }
+
+    /// Whether a feature family is usable on this gateway. Mirrors the
+    /// durable_work precedent: an optional family only exists when a verified
+    /// contract advertises it true — a legacy gateway predates every optional
+    /// family, and a negotiating, incompatible, or invalid contract fails
+    /// closed.
+    func supportsGatewayFeature(_ feature: String) -> Bool {
+        guard case .verified(let capabilities) = self else { return false }
+        return capabilities.features[feature] == true
     }
 
     /// Work has no compatibility fallback. Its optional feature must be
@@ -490,19 +520,37 @@ enum GatewayCapabilitiesParser {
             }
             features[name] = advertised
         }
-        // Unlike the baseline v1 features, durable Work was introduced as an
-        // additive optional key. An omitted key means unavailable; a present
-        // key must still truthfully describe the entire reviewed RPC family.
-        if let durableRaw = featurePayload["durable_work"] {
-            guard let durableAdvertised = strictBoolean(durableRaw) else {
-                return .invalid(reason: "Gateway feature durable_work must be a boolean.")
+        // Unlike the baseline v1 features, the optional families were
+        // introduced as additive keys. An omitted key means unavailable; a
+        // present key must still truthfully describe the entire reviewed RPC
+        // family. Keys are visited in sorted order so a payload contradicting
+        // several families always reports the same deterministic error.
+        for name in optionalGatewayFeatureMethods.keys.sorted() {
+            let requiredMethods = optionalGatewayFeatureMethods[name] ?? []
+            guard let raw = featurePayload[name] else {
+                features[name] = false
+                continue
             }
-            guard durableAdvertised == durableWorkGatewayMethods.isSubset(of: methods) else {
-                return .invalid(reason: "Gateway feature durable_work contradicts its advertised methods.")
+            guard let advertised = strictBoolean(raw) else {
+                return .invalid(reason: "Gateway feature \(name) must be a boolean.")
             }
-            features["durable_work"] = durableAdvertised
-        } else {
-            features["durable_work"] = false
+            guard advertised == requiredMethods.isSubset(of: methods) else {
+                return .invalid(reason: "Gateway feature \(name) contradicts its advertised methods.")
+            }
+            features[name] = advertised
+        }
+        // Pure boolean flags have no method family to cross-check, so a
+        // present boolean is accepted as-is. Sorted for the same deterministic
+        // error precedence as above.
+        for name in optionalGatewayFeatureFlags.sorted() {
+            guard let raw = featurePayload[name] else {
+                features[name] = false
+                continue
+            }
+            guard let advertised = strictBoolean(raw) else {
+                return .invalid(reason: "Gateway feature \(name) must be a boolean.")
+            }
+            features[name] = advertised
         }
 
         if minimumCompatible > gatewayClientContractVersion {

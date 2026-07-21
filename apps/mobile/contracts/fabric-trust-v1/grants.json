@@ -1,0 +1,44 @@
+{
+  "grants": [
+    {
+      "grant_id": "grant-11111111",
+      "capability": "camera.capture",
+      "scope": "scoped",
+      "version": 2,
+      "session_id": "session-mobile-1",
+      "node_id": "node-phone-1",
+      "granted_at": 1784451600000,
+      "expires_at": 1784452500000,
+      "last_used_at": 1784451660000,
+      "use_count": 1,
+      "source": "mobile",
+      "revocable": true
+    },
+    {
+      "grant_id": "grant-22222222",
+      "capability": "microphone.capture",
+      "scope": "session",
+      "version": 3,
+      "session_id": "session-mobile-1",
+      "node_id": null,
+      "granted_at": 1784451780000,
+      "expires_at": null,
+      "last_used_at": null,
+      "use_count": 0,
+      "source": "desktop",
+      "revocable": false
+    },
+    {
+      "grant_id": "grant-33333333",
+      "capability": "location.read",
+      "scope": "geo_fenced",
+      "version": 1,
+      "granted_at": 1784451900000,
+      "expires_at": null,
+      "last_used_at": 1784451420000,
+      "use_count": 2,
+      "source": "cli",
+      "revocable": true
+    }
+  ]
+}

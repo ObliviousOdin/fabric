@@ -1,0 +1,23 @@
+{
+  "classes": [
+    "unsupported",
+    "denied",
+    "transient",
+    "needs_reauth",
+    "reset_required",
+    "contract_invalid",
+    "unknown"
+  ],
+  "rpc_codes": {
+    "-32601": "unsupported",
+    "5040": "unsupported",
+    "-32047": "reset_required"
+  },
+  "transport_kinds": {
+    "aborted": "transient",
+    "closed": "transient",
+    "connect": "transient",
+    "send": "transient",
+    "timeout": "transient"
+  }
+}

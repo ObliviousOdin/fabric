@@ -1,0 +1,33 @@
+{
+  "contract": {
+    "name": "fabric.trust",
+    "version": 2,
+    "min_compatible": 1
+  },
+  "cursor": 302,
+  "next_before": null,
+  "entries": [
+    {
+      "entry_id": 301,
+      "at": 1784452200000,
+      "actor": "user",
+      "kind": "approval",
+      "method": "approval.respond",
+      "session_id": "session-mobile-1",
+      "session_title": "Prepare QA brief",
+      "decision": "allowed",
+      "summary": "Approved a scoped camera grant.",
+      "redacted": true
+    },
+    {
+      "entry_id": 302,
+      "at": 1784452260000,
+      "actor": "user",
+      "kind": "biometric_check",
+      "method": "biometric.verify",
+      "node_id": "node-phone-1",
+      "summary": "A future audit kind this client renders without acting on.",
+      "redacted": true
+    }
+  ]
+}

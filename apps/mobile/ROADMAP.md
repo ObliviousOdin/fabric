@@ -11,6 +11,15 @@ The competitive baseline was refreshed on 2026-07-20 from Anthropic's public
 product and support documentation. Re-check it at the start of every minor
 version; product names and availability change faster than protocol contracts.
 
+**Execution overlay.** The FMB-P0…P4 phases below define *what "shipped" means*.
+The post-v1 capability program — turning the phone into a bidirectional **node**
+the agent can reach through (camera, location, screen, health) rather than a
+remote text box — is executed as small, independently shippable **loops** in
+[`UPGRADE_PLAN.md`](UPGRADE_PLAN.md), against the journey-by-journey gap map in
+[`JOURNEYS.md`](JOURNEYS.md) and the shared-spine architecture in
+[`ARCHITECTURE.md`](ARCHITECTURE.md). The loops build FMB-P2…P4 scope; every one
+of them satisfies the cross-phase gates in this file.
+
 ## Product model
 
 Fabric should not make people choose among separate Chat, Code, Cowork, and
@@ -149,7 +158,7 @@ No phase is complete because a simulator build launches. Every release needs:
 | Phase | State | Evidence / next gate |
 | --- | --- | --- |
 | FMB-P0 | Landed | PR #66 merged as `00c8c2f0`. Xcode Cloud release settings, the merged-SHA archive/upload, and the physical-iPhone smoke pass remain before a reproducible P0 build can be marked shipped. |
-| FMB-P1 | Local candidate verified | Conversation-first is implemented as the `0.2.0` candidate: canonical outcome composer, at-most-once foreground goal launch with duplicate-safe recovery for unknown create outcomes, prioritized live conversation, recent briefing, and recoverable session navigation against the advertised session contract. Same-viewport comparison, the complete state matrix, accessibility review, 12/12 generation tests, 80/80 native tests, unsigned Release packaging, metadata/privacy audit, and final code/design review pass locally. The reviewed fail-closed goal portfolio remains non-production authority while Durable Work is intentionally unadvertised. Hosted checks, physical-device validation, merge, Xcode Cloud archive/upload, and internal TestFlight confirmation remain. |
-| FMB-P2 | Planned | Requires the P1 product shell and push/attachment contracts. |
-| FMB-P3 | Planned | Durable Work must be advertised only after its full client/server contract is verified. |
-| FMB-P4 | Planned | Begins after parity evidence, not feature-count claims. |
+| FMB-P1 | Local candidate verified | Conversation-first is implemented as the `0.2.0` candidate: canonical outcome composer, at-most-once foreground goal launch with duplicate-safe recovery for unknown create outcomes, prioritized live conversation, recent briefing, and recoverable session navigation against the advertised session contract. Subsequent merged slices added QR/pairing hardening (#71), reliable remote controls (#72), lifecycle-safe Live View (#73), rich assistant transcripts (#74), a searchable pinned session library (#75), and the durable-Work foundation kept intentionally dark (#76, #77). Same-viewport comparison, the complete state matrix, accessibility review, generation/native tests, unsigned Release packaging, metadata/privacy audit, and final code/design review pass locally. Hosted checks, physical-device validation, and internal TestFlight confirmation remain. |
+| FMB-P2 | Planned — loops 1–4, 8 | The Claude-Mobile control-parity scope is decomposed in [`UPGRADE_PLAN.md`](UPGRADE_PLAN.md): pairing reliability, a Settings/offboarding shell, rich chat rendering, offline resilience (client-only, ship first), then push + cross-surface approvals (server). Requires the manifest governance in loop 0. |
+| FMB-P3 | Planned — loops 0, 5–7, 9 | The bidirectional-node capability program: manifest governance, the one consent+grant+ledger substrate + node enrollment, the `node.invoke` `camera.capture` magic moment, the Trust Center, then breadth. Durable Work stays advertised only after its full client/server contract is verified end-to-end. |
+| FMB-P4 | Planned | Begins after parity evidence, not feature-count claims. The mission-control, proof-of-work ledger, and multi-agent surfaces reuse the same spine (`ARCHITECTURE.md`). |

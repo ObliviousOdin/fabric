@@ -1,0 +1,60 @@
+{
+  "name": "fabric.trust.fixture-manifest",
+  "version": 1,
+  "cases": [
+    {
+      "id": "audit-page-1",
+      "file": "audit-page-1.json",
+      "kind": "page",
+      "expected": "verified"
+    },
+    {
+      "id": "audit-page-2",
+      "file": "audit-page-2.json",
+      "kind": "page",
+      "expected": "verified"
+    },
+    {
+      "id": "audit-unknown-kind",
+      "file": "audit-unknown-kind.json",
+      "kind": "page",
+      "expected": "verified"
+    },
+    {
+      "id": "audit-unredacted",
+      "file": "audit-unredacted.json",
+      "kind": "page",
+      "expected": "invalid"
+    },
+    {
+      "id": "malformed",
+      "file": "malformed.json",
+      "kind": "page",
+      "expected": "invalid"
+    },
+    {
+      "id": "grants",
+      "file": "grants.json",
+      "kind": "grants",
+      "expected": "verified"
+    },
+    {
+      "id": "grant-revoke-receipt",
+      "file": "grant-revoke-receipt.json",
+      "kind": "revoke_receipt",
+      "expected": "verified"
+    },
+    {
+      "id": "scoped-grant-receipt",
+      "file": "scoped-grant-receipt.json",
+      "kind": "scoped_receipt",
+      "expected": "verified"
+    },
+    {
+      "id": "cursor-expired",
+      "file": "cursor-expired.json",
+      "kind": "reset",
+      "expected": "verified"
+    }
+  ]
+}

@@ -183,6 +183,7 @@ final class WorkInboxModel {
 
     private var context: FabricWorkInboxContext?
     private var projection: FabricWorkProjection?
+    private var latestConnectionGeneration: Int?
     private var refreshGeneration = 0
     private var operationGeneration = 0
     private var cancellationMutations: [String: CancellationMutation] = [:]
@@ -226,6 +227,14 @@ final class WorkInboxModel {
         context requestedContext: FabricWorkInboxContext,
         negotiation: GatewayCapabilityNegotiation
     ) async {
+        // Connection generations are global and monotonic. A delayed callback
+        // from a retired connection must not replace or clear newer authority.
+        if let latestConnectionGeneration,
+           requestedContext.connectionGeneration < latestConnectionGeneration {
+            return
+        }
+        latestConnectionGeneration = requestedContext.connectionGeneration
+
         guard negotiation.supportsDurableWork else {
             becomeUnavailable()
             return

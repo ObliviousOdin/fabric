@@ -98,6 +98,44 @@ final class WorkInboxModelTests: XCTestCase {
         XCTAssertEqual(model.sections.active.map(\.id), [second.jobID])
     }
 
+    func testRetiredConnectionCannotResurrectWorkAfterNewerCapabilityUnavailable() async throws {
+        let running = makeJob(id: workID("job", 30), status: "running", version: 1, updatedAt: 30)
+        let ledger = workID("ledger", 30)
+        let gateway = ScriptedWorkInboxGateway()
+        gateway.syncHandlers = [
+            immediate(.page(bootstrapPage(ledger: ledger, cursor: 30, jobs: [running]))),
+            immediate(.page(bootstrapPage(ledger: ledger, cursor: 30, jobs: [running]))),
+        ]
+        let model = WorkInboxModel()
+        let retiredContext = try context(connectionGeneration: 1)
+        await model.refresh(
+            using: gateway,
+            context: retiredContext,
+            negotiation: durableNegotiation
+        )
+        await model.refresh(
+            using: gateway,
+            context: try context(connectionGeneration: 2),
+            negotiation: .legacy
+        )
+        XCTAssertEqual(model.availability, .unavailable)
+        XCTAssertTrue(model.sections.isEmpty)
+        XCTAssertNil(model.lastUpdated)
+
+        await model.refresh(
+            using: gateway,
+            context: retiredContext,
+            negotiation: durableNegotiation
+        )
+
+        XCTAssertEqual(gateway.syncCalls.count, 1)
+        XCTAssertEqual(model.availability, .unavailable)
+        XCTAssertTrue(model.sections.isEmpty)
+        XCTAssertNil(model.lastUpdated)
+        XCTAssertFalse(model.isRefreshing)
+        XCTAssertNil(model.syncError)
+    }
+
     func testCursorExpiryDiscardsOldLedgerBeforeFreshBootstrap() async throws {
         let oldJob = makeJob(id: workID("job", 3), status: "running", version: 1, updatedAt: 3)
         let newJob = makeJob(id: workID("job", 4), status: "queued", version: 1, updatedAt: 4)

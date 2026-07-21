@@ -56,4 +56,30 @@ final class SavedGatewayTests: XCTestCase {
         XCTAssertEqual(stored, [replacement])
         XCTAssertEqual(GatewayStore.lastActiveId(), replacement.id)
     }
+
+    func testTokenUpsertPersistsOrFailsWithoutPublishingMetadata() throws {
+        let gateway = SavedGateway(
+            id: "pairing-boundary-token",
+            label: "Pairing boundary",
+            baseURL: try XCTUnwrap(URL(string: "https://agent.example.test")),
+            authMode: .token
+        )
+        let credential = "one-time-pairing-credential"
+
+        do {
+            _ = try GatewayStore.upsert(gateway, token: credential)
+
+            XCTAssertEqual(GatewayStore.token(id: gateway.id), credential)
+            XCTAssertTrue(GatewayStore.canAutoConnect(gateway))
+
+            GatewayStore.remove(id: gateway.id)
+            XCTAssertNil(GatewayStore.token(id: gateway.id))
+        } catch GatewayStoreError.credentialStorageUnavailable {
+            // Unsigned simulator runners may deny Keychain writes. The safety
+            // contract in that environment is fail-closed: no metadata row may
+            // advertise a credential that was not protected.
+            XCTAssertFalse(GatewayStore.all().contains { $0.id == gateway.id })
+            XCTAssertNil(GatewayStore.token(id: gateway.id))
+        }
+    }
 }

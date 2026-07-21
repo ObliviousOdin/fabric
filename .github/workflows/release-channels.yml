@@ -166,6 +166,30 @@ jobs:
           import fabric_cli.tools_config;
           subprocess.check_call(['fabric', '--version'])"
 
+  smoke-macos-pr-context:
+    name: Smoke macos-15 package
+    if: github.event_name == 'pull_request'
+    needs: build-candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Preserve required macOS smoke context on PRs
+        run: >-
+          echo "macOS package smoke is cost-gated on pull_request;
+          the real macOS smoke runs on push to main and workflow_dispatch."
+
+  smoke-windows-pr-context:
+    name: Smoke windows-2025 package
+    if: github.event_name == 'pull_request'
+    needs: build-candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Preserve required Windows smoke context on PRs
+        run: >-
+          echo "Windows package smoke is cost-gated on pull_request;
+          the real Windows smoke runs on push to main and workflow_dispatch."
+
   deploy-alpha:
     name: Deploy alpha candidate
     if: >-

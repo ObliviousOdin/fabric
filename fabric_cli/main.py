@@ -295,6 +295,7 @@ from fabric_cli.subcommands.dashboard import build_dashboard_parser
 from fabric_cli.subcommands.mobile import build_mobile_parser
 from fabric_cli.subcommands.gui import build_gui_parser
 from fabric_cli.subcommands.logs import build_logs_parser
+from fabric_cli.subcommands.loom import build_loom_parser
 from fabric_cli.subcommands.prompt_size import build_prompt_size_parser
 from fabric_cli.subcommands.memory import build_memory_parser
 from fabric_cli.subcommands.disk import build_disk_parser
@@ -4253,6 +4254,13 @@ def cmd_cron(args):
     from fabric_cli.cron import cron_command
 
     cron_command(args)
+
+
+def cmd_loom(args):
+    """Loom deployment plane."""
+    from fabric_cli.loom.cli import loom_command
+
+    return loom_command(args)
 
 
 def cmd_webhook(args):
@@ -13402,6 +13410,11 @@ def main():
     # cron command  (parser built in fabric_cli/subcommands/cron.py)
     # =========================================================================
     build_cron_parser(subparsers, cmd_cron=cmd_cron)
+
+    # =========================================================================
+    # loom command  (parser built in fabric_cli/subcommands/loom.py)
+    # =========================================================================
+    build_loom_parser(subparsers, cmd_loom=cmd_loom)
 
     # =========================================================================
     # webhook command  (parser built in fabric_cli/subcommands/webhook.py)

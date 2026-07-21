@@ -1,6 +1,6 @@
 # Dockplane → Fabric integration plan
 
-**Status:** Draft for review · ideation + phased roadmap
+**Status:** Phase 0 + a Phase 1/2 MVP are **implemented** — see [`LOOM_MVP.md`](./LOOM_MVP.md). This document remains the strategic roadmap.
 **Working name for the rebranded plane:** **Loom** (textile-family, fits Fabric; needs legal/namespace clearance — see [Brand](#5-rebrand-working-name-loom))
 **Author:** integration working notes
 **Source pack:** [`source-spec/`](./source-spec/) (Dockplane product spec, goal, agents, rebrand map)

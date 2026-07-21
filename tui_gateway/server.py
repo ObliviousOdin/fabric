@@ -3944,6 +3944,101 @@ def _sync_agent_model_with_config(sid: str, session: dict) -> None:
         )
 
 
+def _config_compression_threshold_target(agent) -> float | None:
+    """Effective ``compression.threshold`` for ``agent``'s live model, or None.
+
+    Reads ONLY config.yaml's ``compression.threshold`` (returns None when the
+    key is absent — "config expresses no preference", mirroring
+    ``_config_model_target``) and resolves the per-model Codex autoraise exactly
+    as agent construction does, so a live reconfigure lands on the same value a
+    full agent rebuild would bake in.
+
+    Boundary (deliberate): because an absent key is "no preference", DELETING
+    ``compression.threshold`` mid-session to revert to the default does not
+    lower the live trigger — the compressor keeps its last applied value until
+    a rebuild (/new, restart). This is narrower than the gateway, which
+    cache-busts and rebuilds to the default, but it matches the established
+    no-clobber semantics of the model sync and never fights an explicit edit.
+    """
+    comp = _load_cfg().get("compression", {})
+    if not isinstance(comp, dict):
+        return None
+    raw = comp.get("threshold")
+    if raw is None:
+        return None
+    try:
+        threshold = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if threshold <= 0:
+        return None
+    try:
+        from agent.agent_init import _resolve_compression_threshold
+        from agent.auxiliary_client import (
+            _compression_threshold_for_model as _cthresh_fn,
+            _is_codex_gpt54_or_gpt55 as _is_codex_gpt54_or_gpt55_fn,
+            _is_codex_spark as _is_codex_spark_fn,
+        )
+
+        allow_autoraise = str(
+            comp.get("codex_gpt55_autoraise", True)
+        ).lower() in {"true", "1", "yes"}
+        model = getattr(agent, "model", "") or ""
+        provider = getattr(agent, "provider", "") or ""
+        model_cthresh = _cthresh_fn(
+            model, provider, allow_codex_gpt55_autoraise=allow_autoraise
+        )
+        threshold, _ = _resolve_compression_threshold(
+            threshold,
+            model_cthresh,
+            model=model,
+            is_codex_autoraise=(
+                _is_codex_gpt54_or_gpt55_fn(model, provider)
+                or _is_codex_spark_fn(model, provider)
+            ),
+        )
+    except Exception:
+        # A resolution failure must never block the turn — fall back to the
+        # raw configured threshold (the compressor still applies its own
+        # small-context floor).
+        pass
+    return threshold
+
+
+def _sync_agent_compression_with_config(sid: str, session: dict) -> None:
+    """Adopt a config.yaml ``compression.threshold`` change at turn start.
+
+    The gateway rebuilds its cached agent when ``compression.threshold`` changes
+    (``_CACHE_BUSTING_CONFIG_KEYS``), but the desktop keeps ONE long-lived
+    AIAgent across turns, so without this the live compressor keeps its
+    construction-time trigger — the stale-threshold half of #61 (a 272K session
+    edited to 85% kept compacting at the old 204,000-token/75% trigger).
+
+    Unlike the model sync this is not gated on ``model_override``: the trigger
+    is a global setting independent of which model the session pinned, and the
+    autoraise is resolved against the agent's live model regardless.
+    """
+    agent = session.get("agent")
+    if agent is None:
+        return
+    compressor = getattr(agent, "context_compressor", None)
+    reconfigure = getattr(compressor, "reconfigure_threshold", None)
+    if not callable(reconfigure):
+        return
+    target = _config_compression_threshold_target(agent)
+    if target is None:
+        return
+    seen = session.get("config_compression_seen")
+    # Record first so a broken edit gets one attempt per change, not per turn.
+    session["config_compression_seen"] = target
+    if target == seen:
+        return
+    try:
+        reconfigure(target)
+    except Exception as e:  # never block the turn on a reconfigure failure
+        logger.debug("compression-threshold sync failed: %s", e)
+
+
 def _compress_session_history(
     session: dict,
     focus_topic: str | None = None,
@@ -10459,6 +10554,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
             # concurrent sessions can inherit no callback or the wrong callback.
             _wire_callbacks(sid)
             _sync_agent_model_with_config(sid, session)
+            _sync_agent_compression_with_config(sid, session)
             cwd = _session_cwd(session)
             _register_session_cwd(session)
             cols = session.get("cols", 80)

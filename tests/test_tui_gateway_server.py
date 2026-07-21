@@ -10611,3 +10611,112 @@ def test_get_usage_clamps_post_compression_sentinel():
     usage = server._get_usage(agent)
     assert "context_used" not in usage
     assert "context_percent" not in usage
+
+
+# ---------------------------------------------------------------------------
+# #61 — live compression.threshold hot-apply on the long-lived desktop agent
+# ---------------------------------------------------------------------------
+
+
+def _compressor_272k(threshold_percent):
+    from unittest.mock import patch as _patch
+
+    from agent.context_compressor import ContextCompressor
+
+    with _patch(
+        "agent.context_compressor.get_model_context_length",
+        return_value=272_000,
+    ):
+        return ContextCompressor(
+            model="test/model",
+            threshold_percent=threshold_percent,
+            quiet_mode=True,
+        )
+
+
+def test_sync_compression_applies_config_threshold_change(monkeypatch):
+    """Editing compression.threshold updates the live compressor at turn start."""
+    compressor = _compressor_272k(0.75)
+    assert compressor.threshold_tokens == 204_000
+
+    agent = types.SimpleNamespace(
+        model="test/model", provider="", context_compressor=compressor
+    )
+    session = {"agent": agent}
+
+    monkeypatch.setattr(server, "_load_cfg", lambda: {"compression": {"threshold": 0.85}})
+    server._sync_agent_compression_with_config("sid", session)
+
+    assert compressor.threshold_tokens == 231_200
+    assert compressor.threshold_percent == pytest.approx(0.85)
+    # Sentinel recorded so subsequent unchanged turns are no-ops.
+    assert session["config_compression_seen"] == pytest.approx(0.85)
+
+
+def test_sync_compression_is_noop_when_unchanged(monkeypatch):
+    compressor = _compressor_272k(0.85)
+    calls = []
+    orig = compressor.reconfigure_threshold
+
+    def _spy(value):
+        calls.append(value)
+        return orig(value)
+
+    compressor.reconfigure_threshold = _spy
+    agent = types.SimpleNamespace(
+        model="test/model", provider="", context_compressor=compressor
+    )
+    session = {"agent": agent}
+    monkeypatch.setattr(server, "_load_cfg", lambda: {"compression": {"threshold": 0.85}})
+
+    server._sync_agent_compression_with_config("sid", session)  # first turn: applies
+    server._sync_agent_compression_with_config("sid", session)  # second: skipped
+    server._sync_agent_compression_with_config("sid", session)  # third: skipped
+
+    assert len(calls) == 1  # reconfigure only invoked on the first (changed) turn
+
+
+def test_sync_compression_reacts_to_later_edit(monkeypatch):
+    compressor = _compressor_272k(0.75)
+    agent = types.SimpleNamespace(
+        model="test/model", provider="", context_compressor=compressor
+    )
+    session = {"agent": agent}
+
+    cfg = {"compression": {"threshold": 0.75}}
+    monkeypatch.setattr(server, "_load_cfg", lambda: cfg)
+    server._sync_agent_compression_with_config("sid", session)
+    assert compressor.threshold_tokens == 204_000
+
+    cfg["compression"]["threshold"] = 0.85  # user edits config mid-session
+    server._sync_agent_compression_with_config("sid", session)
+    assert compressor.threshold_tokens == 231_200
+
+
+def test_sync_compression_noop_when_key_absent(monkeypatch):
+    """No compression.threshold in config -> never touch the live trigger."""
+    compressor = _compressor_272k(0.85)
+    agent = types.SimpleNamespace(
+        model="test/model", provider="", context_compressor=compressor
+    )
+    session = {"agent": agent}
+    monkeypatch.setattr(server, "_load_cfg", lambda: {"model": {"default": "x"}})
+
+    server._sync_agent_compression_with_config("sid", session)
+
+    assert compressor.threshold_tokens == 231_200
+    assert "config_compression_seen" not in session
+
+
+def test_sync_compression_survives_engine_without_reconfigure(monkeypatch):
+    """A context engine lacking reconfigure_threshold must not raise."""
+    engine = types.SimpleNamespace(name="custom-engine")  # no reconfigure_threshold
+    agent = types.SimpleNamespace(
+        model="m", provider="", context_compressor=engine
+    )
+    session = {"agent": agent}
+    monkeypatch.setattr(server, "_load_cfg", lambda: {"compression": {"threshold": 0.85}})
+
+    # Must be a silent no-op, not an AttributeError.
+    server._sync_agent_compression_with_config("sid", session)
+    assert "config_compression_seen" not in session

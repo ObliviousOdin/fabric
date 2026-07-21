@@ -101,6 +101,185 @@ final class ConversationHomeModelTests: XCTestCase {
         XCTAssertNotNil(model.lastUpdated)
     }
 
+    func testSessionLibrarySearchIgnoresCaseAndDiacriticsAcrossServerFields() {
+        let titleMatch = session(
+            id: "title",
+            startedAt: 30,
+            title: "Résumé planning",
+            preview: "Outline",
+            source: "mobile"
+        )
+        let previewMatch = session(
+            id: "preview",
+            startedAt: 20,
+            title: "Launch notes",
+            preview: "Meet at the Café",
+            source: "mobile"
+        )
+        let activeHistory = session(
+            id: "active-source",
+            startedAt: 10,
+            title: "Historical server title",
+            preview: "Older preview",
+            source: "Cöworker"
+        )
+        let live = active(
+            id: "runtime-source",
+            sessionKey: activeHistory.id,
+            status: "working",
+            lastActive: 40,
+            title: "Current server title",
+            preview: "Live preview"
+        )
+        let rows = [titleMatch, previewMatch, activeHistory]
+
+        let titleProjection = SessionLibraryProjection(
+            sessions: rows,
+            activeSessions: [live],
+            pinnedSessionKeys: [],
+            query: "RESUME"
+        )
+        XCTAssertEqual(titleProjection.recent.map(\.durableSessionKey), ["title"])
+        XCTAssertEqual(titleProjection.recent.first?.displayTitle, titleMatch.title)
+
+        let previewProjection = SessionLibraryProjection(
+            sessions: rows,
+            activeSessions: [live],
+            pinnedSessionKeys: [],
+            query: "cafe"
+        )
+        XCTAssertEqual(previewProjection.recent.map(\.durableSessionKey), ["preview"])
+
+        let sourceProjection = SessionLibraryProjection(
+            sessions: rows,
+            activeSessions: [live],
+            pinnedSessionKeys: [],
+            query: "coworker"
+        )
+        XCTAssertEqual(sourceProjection.active.map(\.durableSessionKey), ["active-source"])
+        XCTAssertTrue(sourceProjection.recent.isEmpty)
+        XCTAssertEqual(sourceProjection.active.first?.displayTitle, live.title)
+    }
+
+    func testSessionLibraryPinsFirstThenUsesActivityAndStableIDWithoutDuplicates() {
+        let duplicateHistory = session(
+            id: "duplicate",
+            startedAt: 100,
+            title: "Server title"
+        )
+        let projection = SessionLibraryProjection(
+            sessions: [
+                duplicateHistory,
+                session(id: "recent-b", startedAt: 50),
+                session(id: "recent-a", startedAt: 50),
+                session(id: "pinned-recent", startedAt: 5),
+            ],
+            activeSessions: [
+                active(
+                    id: "runtime-duplicate-old",
+                    sessionKey: duplicateHistory.id,
+                    status: "working",
+                    lastActive: 10,
+                    title: "Stale live title"
+                ),
+                active(
+                    id: "runtime-duplicate-new",
+                    sessionKey: duplicateHistory.id,
+                    status: "working",
+                    lastActive: 20,
+                    title: "Current live title"
+                ),
+                active(
+                    id: "runtime-b",
+                    sessionKey: "active-b",
+                    status: "working",
+                    lastActive: 20
+                ),
+                active(
+                    id: "runtime-a",
+                    sessionKey: "active-a",
+                    status: "working",
+                    lastActive: 20
+                ),
+                active(
+                    id: "runtime-pinned",
+                    sessionKey: "pinned-active",
+                    status: "idle",
+                    lastActive: 6
+                ),
+            ],
+            pinnedSessionKeys: ["pinned-active", "pinned-recent"],
+            query: ""
+        )
+
+        XCTAssertEqual(
+            projection.pinned.map(\.durableSessionKey),
+            ["pinned-active", "pinned-recent"]
+        )
+        XCTAssertEqual(
+            projection.active.map(\.durableSessionKey),
+            ["active-a", "active-b", "duplicate"]
+        )
+        XCTAssertEqual(
+            projection.recent.map(\.durableSessionKey),
+            ["recent-a", "recent-b"]
+        )
+        XCTAssertEqual(
+            projection.active.filter { $0.durableSessionKey == duplicateHistory.id }.count,
+            1
+        )
+        XCTAssertFalse(
+            projection.recent.contains { $0.durableSessionKey == duplicateHistory.id }
+        )
+        XCTAssertEqual(
+            projection.active.last?.displayTitle,
+            "Current live title",
+            "The newest active server row remains the title authority"
+        )
+    }
+
+    func testSessionLibraryWithoutActiveCapabilityStillPublishesRecentAndPins() {
+        let projection = SessionLibraryProjection(
+            sessions: [
+                session(id: "recent", startedAt: 20),
+                session(id: "pinned", startedAt: 10),
+            ],
+            activeSessions: [],
+            pinnedSessionKeys: ["pinned"],
+            query: ""
+        )
+
+        XCTAssertTrue(projection.active.isEmpty)
+        XCTAssertEqual(projection.pinned.map(\.durableSessionKey), ["pinned"])
+        XCTAssertEqual(projection.recent.map(\.durableSessionKey), ["recent"])
+    }
+
+    func testSessionLibraryPinsPersistPerGatewayAndDurableSessionKey() throws {
+        let suiteName = "SessionLibraryPinStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SessionLibraryPinStore(defaults: defaults)
+
+        store.setPinned(true, gatewayID: "gateway-a", sessionKey: "shared-session")
+        store.setPinned(true, gatewayID: "gateway-a", sessionKey: "only-on-a")
+        store.setPinned(true, gatewayID: "gateway-b", sessionKey: "shared-session")
+
+        XCTAssertEqual(
+            store.pinnedSessionKeys(for: "gateway-a"),
+            ["shared-session", "only-on-a"]
+        )
+        XCTAssertEqual(store.pinnedSessionKeys(for: "gateway-b"), ["shared-session"])
+
+        store.setPinned(false, gatewayID: "gateway-a", sessionKey: "shared-session")
+
+        XCTAssertEqual(store.pinnedSessionKeys(for: "gateway-a"), ["only-on-a"])
+        XCTAssertEqual(
+            store.pinnedSessionKeys(for: "gateway-b"),
+            ["shared-session"],
+            "Unpinning one saved gateway must not affect another gateway"
+        )
+    }
+
     func testFailedRecentRequestNeverStartsLiveStatusRequest() async {
         let loader = RecentFailureHomeLoader()
         let model = ConversationHomeModel()
@@ -206,14 +385,20 @@ final class ConversationHomeModelTests: XCTestCase {
         )
     }
 
-    private func session(id: String, startedAt: TimeInterval) -> SessionSummary {
+    private func session(
+        id: String,
+        startedAt: TimeInterval,
+        title: String? = nil,
+        preview: String = "Preview",
+        source: String = "mobile"
+    ) -> SessionSummary {
         SessionSummary(
             id: id,
-            title: "Conversation \(id)",
-            preview: "Preview",
+            title: title ?? "Conversation \(id)",
+            preview: preview,
             startedAt: startedAt,
             messageCount: 3,
-            source: "mobile"
+            source: source
         )
     }
 
@@ -221,13 +406,15 @@ final class ConversationHomeModelTests: XCTestCase {
         id: String,
         sessionKey: String,
         status: String,
-        lastActive: TimeInterval
+        lastActive: TimeInterval,
+        title: String? = nil,
+        preview: String = "Preview"
     ) -> ActiveSession {
         ActiveSession(payload: [
             "id": id,
             "session_key": sessionKey,
-            "title": "Conversation \(id)",
-            "preview": "Preview",
+            "title": title ?? "Conversation \(id)",
+            "preview": preview,
             "status": status,
             "model": "test-model",
             "message_count": 3,

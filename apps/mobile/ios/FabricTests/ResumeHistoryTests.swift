@@ -421,6 +421,23 @@ final class ResumeHistoryTests: XCTestCase {
         )
     }
 
+    func testNativeInlineMarkdownMakesNonWebLinksInert() {
+        let attributed = AssistantMarkdownSafety.attributedString(
+            from: "[web](https://example.test) [pair](fabric://pair?auth=token) "
+                + "[file](file:///private/tmp/item) [relative](/mobile/pair) "
+                + "[mail](mailto:person@example.test)"
+        )
+
+        XCTAssertEqual(
+            String(attributed.characters),
+            "web pair file relative mail"
+        )
+        XCTAssertEqual(
+            attributed.runs.compactMap { $0.link?.absoluteString },
+            ["https://example.test"]
+        )
+    }
+
     func testMarkdownImagesAreNeutralizedBeforeNativeParsing() {
         let source = """
         Before ![diagram](https://images.example.test/private.png)

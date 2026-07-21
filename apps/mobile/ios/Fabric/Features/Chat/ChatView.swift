@@ -815,8 +815,22 @@ enum AssistantMarkdownSafety {
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible
         )
-        return (try? AttributedString(markdown: safe, options: options))
+        var attributed = (try? AttributedString(markdown: safe, options: options))
             ?? AttributedString(safe)
+        // Assistant output is untrusted. In particular, Fabric pairing uses
+        // an app URL scheme, so a model-authored link must never be able to
+        // enter the app's deep-link router behind an innocuous label. Web
+        // links stay explicit and user-initiated; every other scheme (and
+        // every relative URL) is readable text without a link action.
+        let inertLinkRanges = attributed.runs.compactMap { run -> Range<AttributedString.Index>? in
+            guard let link = run.link else { return nil }
+            let scheme = link.scheme?.lowercased()
+            return scheme == "http" || scheme == "https" ? nil : run.range
+        }
+        for range in inertLinkRanges {
+            attributed[range].link = nil
+        }
+        return attributed
     }
 
     private static func removingRawImageTags(from source: String) -> String {

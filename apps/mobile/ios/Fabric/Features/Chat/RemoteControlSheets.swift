@@ -45,6 +45,76 @@ enum ProcessKillFeedback: Equatable {
     }
 }
 
+struct ProcessKillMutationIdentity: Equatable {
+    let generation: Int
+    let sessionId: String
+    let processId: String
+}
+
+struct ProcessKillMutationState: Equatable {
+    private(set) var inFlight: ProcessKillMutationIdentity?
+    private(set) var feedback: ProcessKillFeedback?
+    private var generation = 0
+
+    mutating func begin(
+        sessionId: String,
+        processId: String
+    ) -> ProcessKillMutationIdentity? {
+        guard inFlight == nil else { return nil }
+        generation += 1
+        let identity = ProcessKillMutationIdentity(
+            generation: generation,
+            sessionId: sessionId,
+            processId: processId
+        )
+        inFlight = identity
+        feedback = nil
+        return identity
+    }
+
+    func isCurrent(_ identity: ProcessKillMutationIdentity) -> Bool {
+        inFlight == identity
+    }
+
+    mutating func record(
+        _ feedback: ProcessKillFeedback,
+        for identity: ProcessKillMutationIdentity
+    ) {
+        guard isCurrent(identity) else { return }
+        self.feedback = feedback
+    }
+
+    @discardableResult
+    mutating func finish(_ identity: ProcessKillMutationIdentity) -> Bool {
+        guard isCurrent(identity) else { return false }
+        inFlight = nil
+        return true
+    }
+
+    mutating func reset() {
+        generation += 1
+        inFlight = nil
+        feedback = nil
+    }
+
+    mutating func didLoadAuthoritativeSnapshot() {
+        feedback = nil
+    }
+
+    func canStop(
+        status: String,
+        supportsKill: Bool,
+        loadState: RemoteControlLoadState
+    ) -> Bool {
+        RemoteControlPresentation.canStopProcess(
+            status: status,
+            supportsKill: supportsKill,
+            mutationInFlight: inFlight != nil,
+            hasAuthoritativeSnapshot: loadState == .loaded && feedback == nil
+        )
+    }
+}
+
 enum RemoteControlPresentation {
     static let outputCharacterLimit = 4_000
 
@@ -88,11 +158,13 @@ enum RemoteControlPresentation {
     static func canStopProcess(
         status: String,
         supportsKill: Bool,
-        mutationInFlight: Bool
+        mutationInFlight: Bool,
+        hasAuthoritativeSnapshot: Bool
     ) -> Bool {
         status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "running"
             && supportsKill
             && !mutationInFlight
+            && hasAuthoritativeSnapshot
     }
 
     private static func normalized(_ value: String) -> String {
@@ -280,14 +352,13 @@ struct ProcessListSheet: View {
     @State private var loadState: RemoteControlLoadState = .loading
     @State private var loadGeneration = 0
     @State private var processToKill: BackgroundProcess?
-    @State private var killInFlightId: String?
-    @State private var killFeedback: ProcessKillFeedback?
+    @State private var killMutation = ProcessKillMutationState()
     @State private var killTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
             List {
-                if let killFeedback {
+                if let killFeedback = killMutation.feedback {
                     Section {
                         VStack(alignment: .leading, spacing: 10) {
                             Label(
@@ -374,17 +445,19 @@ struct ProcessListSheet: View {
                     }
                     .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                     .accessibilityLabel("Refresh processes")
-                    .disabled(loadState == .loading || killInFlightId != nil)
+                    .disabled(loadState == .loading || killMutation.inFlight != nil)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
-            .task(id: sessionId) { await reload() }
+            .task(id: sessionId) {
+                resetKillMutation()
+                await reload()
+            }
             .onDisappear {
                 loadGeneration += 1
-                killTask?.cancel()
-                killTask = nil
+                resetKillMutation()
             }
             .confirmationDialog(
                 "Stop this background process?",
@@ -437,10 +510,10 @@ struct ProcessListSheet: View {
                     .buttonStyle(.bordered)
                     .frame(minHeight: FabricTheme.minTarget)
                     .disabled(
-                        !RemoteControlPresentation.canStopProcess(
+                        !killMutation.canStop(
                             status: process.status,
                             supportsKill: supportsMethod("process.kill"),
-                            mutationInFlight: killInFlightId != nil
+                            loadState: loadState
                         )
                     )
                     .accessibilityLabel("Stop \(process.command.isEmpty ? "background process" : process.command)")
@@ -493,7 +566,7 @@ struct ProcessListSheet: View {
                 identity.isCurrent(generation: loadGeneration, sessionId: sessionId)
             else { return }
             processes = result
-            killFeedback = nil
+            killMutation.didLoadAuthoritativeSnapshot()
             loadState = .loaded
         } catch is CancellationError {
             return
@@ -506,9 +579,17 @@ struct ProcessListSheet: View {
     }
 
     private func startKill(_ process: BackgroundProcess) {
-        guard killInFlightId == nil else { return }
         guard supportsMethod("process.kill") else {
-            killFeedback = .rejected
+            // This is not a request receipt. Keep the old snapshot visible but
+            // mutation-ineligible until the user refreshes capabilities/state.
+            if let requestedSessionId = sessionId,
+               let identity = killMutation.begin(
+                   sessionId: requestedSessionId,
+                   processId: process.id
+               ) {
+                killMutation.record(.rejected, for: identity)
+                _ = killMutation.finish(identity)
+            }
             return
         }
         guard let requestedSessionId = sessionId else { return }
@@ -516,38 +597,57 @@ struct ProcessListSheet: View {
         // Claim the mutation synchronously with the confirmation action so a
         // rapid second tap cannot enqueue another non-idempotent stop request
         // before the asynchronous task starts.
-        killInFlightId = process.id
-        killFeedback = nil
+        guard let identity = killMutation.begin(
+            sessionId: requestedSessionId,
+            processId: process.id
+        ) else { return }
         killTask = Task {
-            await kill(process, requestedSessionId: requestedSessionId)
+            await kill(identity)
         }
     }
 
-    private func kill(
-        _ process: BackgroundProcess,
-        requestedSessionId: String
-    ) async {
+    private func kill(_ identity: ProcessKillMutationIdentity) async {
         defer {
-            if sessionId == requestedSessionId {
-                killInFlightId = nil
+            if killMutation.finish(identity) {
                 killTask = nil
             }
         }
 
         do {
-            try await api.killProcess(
-                sessionId: requestedSessionId,
-                processId: process.id
+            let receipt = try await api.killProcess(
+                sessionId: identity.sessionId,
+                processId: identity.processId
             )
-            guard !Task.isCancelled, sessionId == requestedSessionId else { return }
-            await reload()
+            guard
+                !Task.isCancelled,
+                sessionId == identity.sessionId,
+                killMutation.isCurrent(identity)
+            else { return }
+
+            switch receipt {
+            case .killed, .alreadyExited:
+                await reload()
+            case .rejected:
+                killMutation.record(.rejected, for: identity)
+            }
         } catch is CancellationError {
             return
         } catch {
-            guard !Task.isCancelled, sessionId == requestedSessionId else { return }
+            guard
+                !Task.isCancelled,
+                sessionId == identity.sessionId,
+                killMutation.isCurrent(identity)
+            else { return }
             // A timeout or disconnect can happen after the gateway acted. Do
             // not replay this mutation: offer only a read-only refresh.
-            killFeedback = ProcessKillFeedback.classify(error)
+            killMutation.record(ProcessKillFeedback.classify(error), for: identity)
         }
+    }
+
+    private func resetKillMutation() {
+        killTask?.cancel()
+        killTask = nil
+        processToKill = nil
+        killMutation.reset()
     }
 }

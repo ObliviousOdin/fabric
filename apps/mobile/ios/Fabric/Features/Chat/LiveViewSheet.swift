@@ -80,6 +80,7 @@ final class LiveViewModel {
     private(set) var errorText: String?
     private(set) var retryRequired = false
     private(set) var isLoading: Bool
+    private(set) var isCaptureInFlight = false
     private(set) var isPaused = false
     private(set) var captureCapability: LiveViewCaptureCapability
     private(set) var lastVerifiedSupportsCapture: Bool?
@@ -139,10 +140,41 @@ final class LiveViewModel {
         if isUnsupported || retryRequired { return .danger }
         if isPaused { return .muted }
         if isFrameStale { return .warning }
-        if !isConnectionReady || isCaptureCapabilityNegotiating || isLoading {
+        if !isConnectionReady
+            || isCaptureCapabilityNegotiating
+            || isLoading
+            || isCaptureInFlight {
             return .info
         }
         return .live
+    }
+    var statusText: String {
+        if isUnsupported { return "Unavailable" }
+        if isPaused {
+            return isFrameStale ? "Paused · stale frame" : "Paused"
+        }
+        if retryRequired {
+            return frame == nil ? "Unavailable" : "Stale · retry needed"
+        }
+        if !isConnectionReady {
+            return frame == nil ? "Waiting for connection" : "Stale · reconnecting"
+        }
+        if isCaptureCapabilityNegotiating {
+            return frame == nil ? "Checking availability" : "Stale · checking availability"
+        }
+        if isFrameStale {
+            return errorText == nil ? "Stale · refreshing" : "Stale · retrying"
+        }
+        if isCaptureInFlight {
+            return frame == nil ? "Connecting" : "Refreshing · last frame"
+        }
+        if isLoading { return "Connecting" }
+        return "Live"
+    }
+    var frameAccessibilityLabel: String {
+        isFrameStale || isCaptureInFlight
+            ? "Last available screen frame"
+            : "Live screen frame"
     }
     var staleNoticeText: String? {
         guard frame != nil, isFrameStale, let errorText else { return nil }
@@ -196,6 +228,10 @@ final class LiveViewModel {
             requestImmediateRefresh()
         } else {
             isLoading = false
+            // A raw URLSession/POSIX send failure can arrive before the app's
+            // authoritative connection transition. Do not let that transient
+            // error latch a manual Retry across the next successful reconnect.
+            retryRequired = false
             stopPolling()
         }
     }
@@ -303,6 +339,8 @@ final class LiveViewModel {
     }
 
     private func captureOnce() async -> Bool {
+        isCaptureInFlight = true
+        defer { isCaptureInFlight = false }
         if frame == nil { isLoading = true }
 
         do {
@@ -383,13 +421,30 @@ final class LiveViewModel {
     }
 
     private static func isConnectionFailure(_ error: Error) -> Bool {
-        guard let gatewayError = error as? GatewayClientError else { return false }
-        switch gatewayError {
-        case .notConnected, .connectFailed, .socketClosed:
-            return true
-        case .requestTimedOut, .rpc:
-            return false
+        if let gatewayError = error as? GatewayClientError {
+            switch gatewayError {
+            case .notConnected, .connectFailed, .socketClosed:
+                return true
+            case .requestTimedOut, .rpc:
+                return false
+            }
         }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut,
+                 .cannotFindHost,
+                 .cannotConnectToHost,
+                 .networkConnectionLost,
+                 .dnsLookupFailed,
+                 .notConnectedToInternet,
+                 .secureConnectionFailed,
+                 .cannotLoadFromNetwork:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
     }
 
     private func finishPolling(token: UUID) {
@@ -463,7 +518,7 @@ struct LiveViewSheet: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .privacySensitive()
-                    .accessibilityLabel(model.isFrameStale ? "Last available screen frame" : "Live screen frame")
+                    .accessibilityLabel(model.frameAccessibilityLabel)
             }
         } else if model.retryRequired {
             ContentUnavailableView {
@@ -548,7 +603,7 @@ struct LiveViewSheet: View {
                     .fill(statusColor)
                     .frame(width: 8, height: 8)
                     .accessibilityHidden(true)
-                Text(statusText)
+                Text(model.statusText)
                     .font(.caption.weight(.medium))
                 if let dimensions = model.frame?.dimensions {
                     Text(dimensions)
@@ -583,27 +638,6 @@ struct LiveViewSheet: View {
             }
             .disabled(model.retryRequired)
         }
-    }
-
-    private var statusText: String {
-        if model.isUnsupported { return "Unavailable" }
-        if model.isPaused {
-            return model.isFrameStale ? "Paused · stale frame" : "Paused"
-        }
-        if model.retryRequired {
-            return model.frame == nil ? "Unavailable" : "Stale · retry needed"
-        }
-        if !model.isConnectionReady {
-            return model.frame == nil ? "Waiting for connection" : "Stale · reconnecting"
-        }
-        if model.isCaptureCapabilityNegotiating {
-            return model.frame == nil ? "Checking availability" : "Stale · checking availability"
-        }
-        if model.isFrameStale {
-            return model.errorText == nil ? "Stale · refreshing" : "Stale · retrying"
-        }
-        if model.isLoading { return "Connecting" }
-        return "Live"
     }
 
     private var statusColor: Color {

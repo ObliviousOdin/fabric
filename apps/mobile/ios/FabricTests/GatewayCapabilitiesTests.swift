@@ -380,6 +380,102 @@ final class GatewayCapabilitiesTests: XCTestCase {
     }
 
     @MainActor
+    func testRawTransportFailureDoesNotLatchRetryAcrossReconnect() async {
+        let probe = ImmediateLiveViewCaptureProbe(outcomes: [
+            .failure(URLError(.networkConnectionLost)),
+            .capture(makeScreenCapture(width: 6, height: 4, color: .systemMint)),
+        ])
+        let model = LiveViewModel(
+            supportsCapture: true,
+            interval: .seconds(60),
+            capture: probe.capture
+        )
+
+        model.appear(sceneIsActive: true)
+        await assertEventually { probe.callCount == 1 }
+        await assertEventually { !model.isCaptureInFlight }
+        XCTAssertFalse(model.retryRequired)
+        XCTAssertNil(model.frame)
+
+        model.setConnectionReady(false)
+        XCTAssertFalse(model.retryRequired)
+        model.setConnectionReady(true)
+        await assertEventually {
+            probe.callCount == 2 && model.frame?.dimensions == "6×4"
+        }
+        XCTAssertFalse(model.retryRequired)
+        model.setPaused(true)
+    }
+
+    @MainActor
+    func testUnclassifiedTransportRetryLatchClearsOnAuthoritativeReconnect() async {
+        let rawTransportError = NSError(
+            domain: NSPOSIXErrorDomain,
+            code: 5,
+            userInfo: [NSLocalizedDescriptionKey: "raw transport failure"]
+        )
+        let probe = ImmediateLiveViewCaptureProbe(outcomes: [
+            .failure(rawTransportError),
+            .capture(makeScreenCapture(width: 7, height: 5, color: .systemCyan)),
+        ])
+        let model = LiveViewModel(
+            supportsCapture: true,
+            interval: .seconds(60),
+            capture: probe.capture
+        )
+
+        model.appear(sceneIsActive: true)
+        await assertEventually {
+            probe.callCount == 1
+                && model.retryRequired
+                && !model.isCaptureInFlight
+        }
+
+        model.setConnectionReady(false)
+        XCTAssertFalse(model.retryRequired)
+        model.setConnectionReady(true)
+        await assertEventually {
+            probe.callCount == 2 && model.frame?.dimensions == "7×5"
+        }
+        XCTAssertFalse(model.retryRequired)
+        model.setPaused(true)
+    }
+
+    @MainActor
+    func testHungRefreshLabelsRetainedFrameAsLastFrame() async {
+        let probe = RefreshSuspensionLiveViewCaptureProbe(
+            firstCapture: makeScreenCapture(
+                width: 9,
+                height: 6,
+                color: .systemPurple
+            )
+        )
+        let model = LiveViewModel(
+            supportsCapture: true,
+            interval: .milliseconds(1),
+            capture: probe.capture
+        )
+
+        model.appear(sceneIsActive: true)
+        await assertEventually {
+            probe.callCount == 2
+                && model.frame?.dimensions == "9×6"
+                && model.isCaptureInFlight
+        }
+
+        XCTAssertEqual(model.statusText, "Refreshing · last frame")
+        XCTAssertEqual(model.frameAccessibilityLabel, "Last available screen frame")
+        XCTAssertEqual(model.statusTone, .info)
+        XCTAssertFalse(model.isFrameStale)
+        XCTAssertEqual(probe.maximumInFlight, 1)
+
+        model.setPaused(true)
+        probe.succeedPending()
+        await assertEventually { !model.isPolling && !model.isCaptureInFlight }
+        XCTAssertEqual(probe.maximumInFlight, 1)
+    }
+
+    @MainActor
     func testLiveViewMarksTransientFrameStaleAndStopsOnHardFailure() async {
         let firstCapture = makeScreenCapture(width: 5, height: 4, color: .systemOrange)
         let recoveredCapture = makeScreenCapture(width: 7, height: 6, color: .systemIndigo)
@@ -540,6 +636,37 @@ private final class SuspendedLiveViewCaptureProbe {
         let pending = continuation
         continuation = nil
         pending?.resume(returning: captureValue)
+    }
+}
+
+@MainActor
+private final class RefreshSuspensionLiveViewCaptureProbe {
+    private let firstCapture: ScreenCapture
+    private var continuation: CheckedContinuation<ScreenCapture, Error>?
+    private(set) var callCount = 0
+    private(set) var maximumInFlight = 0
+    private var inFlight = 0
+
+    init(firstCapture: ScreenCapture) {
+        self.firstCapture = firstCapture
+    }
+
+    func capture() async throws -> ScreenCapture {
+        callCount += 1
+        inFlight += 1
+        maximumInFlight = max(maximumInFlight, inFlight)
+        defer { inFlight -= 1 }
+
+        if callCount == 1 { return firstCapture }
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func succeedPending() {
+        let pending = continuation
+        continuation = nil
+        pending?.resume(returning: firstCapture)
     }
 }
 

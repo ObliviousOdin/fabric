@@ -34,6 +34,9 @@ export const GATEWAY_FEATURE_METHODS = {
  * version-1 peer; when present, the same method/feature invariant applies.
  */
 export const OPTIONAL_GATEWAY_FEATURE_METHODS = {
+  artifact_fetch: ["artifact.list", "artifact.fetch"],
+  connected_nodes: ["node.list", "node.revoke"],
+  device_node: ["node.enroll"],
   durable_work: [
     "job.create",
     "job.sync",
@@ -45,11 +48,29 @@ export const OPTIONAL_GATEWAY_FEATURE_METHODS = {
     "attention.list",
     "attention.respond",
   ],
+  node_invoke: ["node.announce", "node.result", "node.reject"],
+  push: ["push.register_device", "push.deregister_device"],
+  session_admin: ["session.rename", "session.archive"],
+  trust_center: [
+    "trust.audit.list",
+    "grant.list",
+    "grant.create",
+    "grant.revoke",
+  ],
+  workspace_read: ["fs.list", "fs.read"],
 } as const;
+
+/**
+ * Optional features advertised as a bare boolean with no dedicated methods
+ * (scoped_grants extends approval.respond params), so no method/feature
+ * consistency check applies. Absence still means "not advertised" → false.
+ */
+export const OPTIONAL_GATEWAY_FEATURE_FLAGS = ["scoped_grants"] as const;
 
 export type GatewayFeatureName =
   | keyof typeof GATEWAY_FEATURE_METHODS
-  | keyof typeof OPTIONAL_GATEWAY_FEATURE_METHODS;
+  | keyof typeof OPTIONAL_GATEWAY_FEATURE_METHODS
+  | (typeof OPTIONAL_GATEWAY_FEATURE_FLAGS)[number];
 
 export const LEGACY_MOBILE_METHODS: ReadonlySet<string> = new Set([
   "approval.respond",
@@ -233,6 +254,17 @@ export function parseGatewayCapabilities(raw: unknown): GatewayCompatibility {
     }
     features[feature] = value;
   }
+  for (const feature of OPTIONAL_GATEWAY_FEATURE_FLAGS) {
+    const value = rawFeatures[feature];
+    if (value === undefined) {
+      features[feature] = false;
+      continue;
+    }
+    if (typeof value !== "boolean") {
+      return invalid(`Gateway feature ${feature} must be a boolean.`);
+    }
+    features[feature] = value;
+  }
 
   if (contract.min_compatible > GATEWAY_CLIENT_CONTRACT_VERSION) {
     return { kind: "incompatible", minimum: contract.min_compatible };
@@ -279,6 +311,22 @@ export async function negotiateGatewayCapabilities(
     }
     throw error;
   }
+}
+
+/**
+ * Whether a feature family is usable on this gateway. Mirrors the durable_work
+ * precedent: an optional family only exists when a verified contract advertises
+ * it true — a legacy gateway predates every optional family, and an
+ * incompatible or invalid contract fails closed, even when the raw method
+ * names would appear to overlap.
+ */
+export function supportsGatewayFeature(
+  state: GatewayCompatibility,
+  feature: GatewayFeatureName,
+): boolean {
+  return (
+    state.kind === "verified" && state.capabilities.features[feature] === true
+  );
 }
 
 export function supportsGatewayMethod(

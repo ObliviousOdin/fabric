@@ -1,0 +1,68 @@
+{
+  "contract": {
+    "name": "fabric.trust",
+    "version": 1,
+    "min_compatible": 1
+  },
+  "cursor": 205,
+  "next_before": 201,
+  "entries": [
+    {
+      "entry_id": 201,
+      "at": 1784451600000,
+      "actor": "user",
+      "kind": "approval",
+      "method": "approval.respond",
+      "session_id": "session-mobile-1",
+      "session_title": "Prepare QA brief",
+      "decision": "allowed",
+      "summary": "Approved a bash command for the QA brief session.",
+      "redacted": true
+    },
+    {
+      "entry_id": 202,
+      "at": 1784451660000,
+      "actor": "agent",
+      "kind": "capability_invocation",
+      "method": "camera.capture",
+      "session_id": "session-mobile-1",
+      "session_title": "Prepare QA brief",
+      "node_id": "node-phone-1",
+      "grant_id": "grant-11111111",
+      "decision": "auto",
+      "summary": "Captured one rear-camera frame under an active scoped grant.",
+      "redacted": true
+    },
+    {
+      "entry_id": 203,
+      "at": 1784451720000,
+      "actor": "system",
+      "kind": "auth",
+      "method": "node.enroll",
+      "node_id": "node-phone-1",
+      "summary": "Node enrollment token rotated.",
+      "redacted": true
+    },
+    {
+      "entry_id": 204,
+      "at": 1784451780000,
+      "actor": "user",
+      "kind": "grant_change",
+      "method": "grant.create",
+      "grant_id": "grant-22222222",
+      "decision": "allowed",
+      "summary": "Created a session grant for microphone.capture.",
+      "redacted": true
+    },
+    {
+      "entry_id": 205,
+      "at": 1784451840000,
+      "actor": "user",
+      "kind": "node_change",
+      "method": "node.revoke",
+      "node_id": "node-tablet-2",
+      "summary": "Revoked the tablet node pairing.",
+      "redacted": true
+    }
+  ]
+}

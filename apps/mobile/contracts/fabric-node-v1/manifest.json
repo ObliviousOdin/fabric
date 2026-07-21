@@ -1,0 +1,54 @@
+{
+  "name": "fabric.node.fixture-manifest",
+  "version": 1,
+  "time_unit": "unix_epoch_milliseconds",
+  "cases": [
+    {
+      "id": "announce-result",
+      "file": "announce-result.json",
+      "kind": "announce",
+      "announced": ["camera.capture", "photo.pick"],
+      "expected": "verified"
+    },
+    {
+      "id": "announce-result-excess",
+      "file": "announce-result-excess.json",
+      "kind": "announce",
+      "announced": ["camera.capture", "photo.pick"],
+      "expected": "invalid"
+    },
+    {
+      "id": "announce-result-unroutable",
+      "file": "announce-result-unroutable.json",
+      "kind": "announce",
+      "announced": ["camera.capture", "photo.pick"],
+      "expected": "invalid"
+    },
+    {
+      "id": "invoke-event",
+      "file": "invoke-event.json",
+      "kind": "invocation",
+      "expected": "verified"
+    },
+    {
+      "id": "invoke-event-malformed",
+      "file": "invoke-event-malformed.json",
+      "kind": "invocation",
+      "expected": "invalid"
+    },
+    {
+      "id": "receipt",
+      "file": "receipt.json",
+      "kind": "receipt",
+      "expected_invocation_id": "inv_9f8e7d6c5b4a39281706f5e4d3c2b1a0",
+      "expected": "valid"
+    },
+    {
+      "id": "receipt-mismatch",
+      "file": "receipt-mismatch.json",
+      "kind": "receipt",
+      "expected_invocation_id": "inv_9f8e7d6c5b4a39281706f5e4d3c2b1a0",
+      "expected": "invalid"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "contract": {
+    "name": "fabric.trust",
+    "version": 1,
+    "min_compatible": 1
+  },
+  "cursor": 205,
+  "next_before": null,
+  "entries": [
+    {
+      "entry_id": 196,
+      "at": 1784451300000,
+      "actor": "system",
+      "kind": "auth",
+      "method": "node.enroll",
+      "node_id": "node-tablet-2",
+      "summary": "Tablet node enrolled with limited pairing scope.",
+      "redacted": true
+    },
+    {
+      "entry_id": 197,
+      "at": 1784451360000,
+      "actor": "user",
+      "kind": "approval",
+      "method": "approval.respond",
+      "session_id": "session-mobile-1",
+      "session_title": "Prepare QA brief",
+      "decision": "denied",
+      "summary": "Denied a file write outside the workspace.",
+      "redacted": true
+    },
+    {
+      "entry_id": 198,
+      "at": 1784451420000,
+      "actor": "agent",
+      "kind": "capability_invocation",
+      "method": "location.read",
+      "node_id": "node-phone-1",
+      "grant_id": "grant-33333333",
+      "decision": "auto",
+      "summary": "Read a coarse device location under a standing grant.",
+      "redacted": true
+    },
+    {
+      "entry_id": 199,
+      "at": 1784451480000,
+      "actor": "user",
+      "kind": "grant_change",
+      "method": "grant.revoke",
+      "grant_id": "grant-00000000",
+      "decision": "allowed",
+      "summary": "Revoked a stale clipboard grant.",
+      "redacted": true
+    },
+    {
+      "entry_id": 200,
+      "at": 1784451540000,
+      "actor": "system",
+      "kind": "node_change",
+      "method": "node.list",
+      "summary": "Pruned an expired node enrollment.",
+      "redacted": true
+    }
+  ]
+}

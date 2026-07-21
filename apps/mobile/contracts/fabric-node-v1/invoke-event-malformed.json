@@ -1,0 +1,12 @@
+{
+  "invocation_id": "inv_9f8e7d6c5b4a39281706f5e4d3c2b1a0",
+  "session_id": "session-mobile-1",
+  "capability": "camera.capture",
+  "reason": "Capture the whiteboard so the agent can read the diagram.",
+  "params": {
+    "facing": "rear",
+    "max_edge": 2048,
+    "allow_redaction": true
+  },
+  "expires_at": "2026-07-21T12:01:00Z"
+}

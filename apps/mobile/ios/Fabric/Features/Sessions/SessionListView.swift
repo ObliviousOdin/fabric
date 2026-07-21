@@ -268,6 +268,7 @@ final class SessionLibraryModel {
     private(set) var sessions: [SessionSummary] = []
     private(set) var activeSessions: [ActiveSession] = []
     private(set) var isLoading = false
+    private(set) var isLoadingActiveSessions = false
     private(set) var loadError: String?
     private(set) var activeSessionsUnavailable = false
 
@@ -289,6 +290,7 @@ final class SessionLibraryModel {
             sessions = []
             activeSessions = []
             isLoading = false
+            isLoadingActiveSessions = false
             loadError = nil
             activeSessionsUnavailable = false
         }
@@ -296,6 +298,7 @@ final class SessionLibraryModel {
         requestGeneration += 1
         let request = requestGeneration
         isLoading = true
+        isLoadingActiveSessions = false
         loadError = nil
 
         guard supportsSessionList else {
@@ -303,6 +306,7 @@ final class SessionLibraryModel {
             activeSessions = []
             activeSessionsUnavailable = true
             isLoading = false
+            isLoadingActiveSessions = false
             loadError = unavailableMessage ?? "Session listing is unavailable on this gateway."
             return
         }
@@ -319,21 +323,32 @@ final class SessionLibraryModel {
             activeSessions = []
             activeSessionsUnavailable = !supportsActiveSessions
             isLoading = false
+            isLoadingActiveSessions = supportsActiveSessions
             loadError = nil
 
             guard supportsActiveSessions else { return }
 
             do {
                 let loadedActiveSessions = try await loader.activeSessions(currentSessionId: nil)
-                if finishIfCancelled(request: request, context: requestedContext) { return }
+                if finishIfCancelled(
+                    request: request,
+                    context: requestedContext,
+                    cancelledActiveStatus: true
+                ) { return }
                 guard isCurrent(request: request, context: requestedContext) else { return }
                 activeSessions = loadedActiveSessions
                 activeSessionsUnavailable = false
+                isLoadingActiveSessions = false
             } catch {
-                if finishIfCancelled(request: request, context: requestedContext) { return }
+                if finishIfCancelled(
+                    request: request,
+                    context: requestedContext,
+                    cancelledActiveStatus: true
+                ) { return }
                 guard isCurrent(request: request, context: requestedContext) else { return }
                 activeSessions = []
                 activeSessionsUnavailable = true
+                isLoadingActiveSessions = false
             }
         } catch {
             if finishIfCancelled(request: request, context: requestedContext) { return }
@@ -349,17 +364,24 @@ final class SessionLibraryModel {
         sessions = []
         activeSessions = []
         isLoading = false
+        isLoadingActiveSessions = false
         loadError = nil
         activeSessionsUnavailable = false
     }
 
     private func finishIfCancelled(
         request: Int,
-        context requestedContext: SessionLibraryLoadContext
+        context requestedContext: SessionLibraryLoadContext,
+        cancelledActiveStatus: Bool = false
     ) -> Bool {
         guard Task.isCancelled else { return false }
         if isCurrent(request: request, context: requestedContext) {
             isLoading = false
+            if cancelledActiveStatus {
+                isLoadingActiveSessions = false
+                activeSessions = []
+                activeSessionsUnavailable = true
+            }
         }
         return true
     }
@@ -423,7 +445,14 @@ struct SessionListView: View {
                 }
             }
 
-            if model.activeSessionsUnavailable {
+            if model.isLoadingActiveSessions {
+                Section {
+                    Label("Updating live status…", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.footnote)
+                        .foregroundStyle(FabricTheme.textMuted)
+                        .accessibilityLabel("Updating live session status")
+                }
+            } else if model.activeSessionsUnavailable {
                 Section {
                     Label(
                         "Live status is unavailable. Recent and pinned sessions are still available.",

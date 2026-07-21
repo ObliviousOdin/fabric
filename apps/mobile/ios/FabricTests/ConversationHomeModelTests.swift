@@ -349,6 +349,7 @@ final class ConversationHomeModelTests: XCTestCase {
 
         XCTAssertEqual(model.sessions.map(\.id), [historical.id])
         XCTAssertTrue(model.activeSessions.isEmpty)
+        XCTAssertTrue(model.isLoadingActiveSessions)
         XCTAssertNil(model.loadError)
         XCTAssertFalse(model.isLoading)
 
@@ -356,7 +357,35 @@ final class ConversationHomeModelTests: XCTestCase {
         await request.value
 
         XCTAssertEqual(model.activeSessions.map(\.id), [live.id])
+        XCTAssertFalse(model.isLoadingActiveSessions)
         XCTAssertFalse(model.activeSessionsUnavailable)
+    }
+
+    func testSessionLibraryModelCancelledLiveStatusBecomesExplicitlyUnavailable() async {
+        let historical = session(id: "recent", startedAt: 1)
+        let loader = SuspendedActiveSessionLibraryLoader(sessions: [historical])
+        let model = SessionLibraryModel()
+        let context = SessionLibraryLoadContext(gatewayID: "gateway", connectionGeneration: 1)
+
+        let request = Task {
+            await model.reload(
+                using: loader,
+                context: context,
+                supportsSessionList: true,
+                supportsActiveSessions: true
+            )
+        }
+        await loader.waitUntilActiveSuspended()
+        request.cancel()
+        loader.succeedActive(with: [])
+        await request.value
+
+        XCTAssertEqual(model.sessions.map(\.id), [historical.id])
+        XCTAssertTrue(model.activeSessions.isEmpty)
+        XCTAssertFalse(model.isLoadingActiveSessions)
+        XCTAssertTrue(model.activeSessionsUnavailable)
+        XCTAssertNil(model.loadError)
+        XCTAssertFalse(model.isLoading)
     }
 
     func testSessionLibraryModelKeepsHistoryWhenLiveStatusFails() async {
@@ -376,6 +405,7 @@ final class ConversationHomeModelTests: XCTestCase {
 
         XCTAssertEqual(model.sessions.map(\.id), ["recent"])
         XCTAssertTrue(model.activeSessions.isEmpty)
+        XCTAssertFalse(model.isLoadingActiveSessions)
         XCTAssertTrue(model.activeSessionsUnavailable)
         XCTAssertNil(model.loadError)
         XCTAssertFalse(model.isLoading)

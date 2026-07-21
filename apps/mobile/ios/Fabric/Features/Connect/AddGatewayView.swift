@@ -153,24 +153,36 @@ struct AddGatewayView: View {
     }
 
     private func handleScan(_ raw: String) {
-        guard let payload = PairingPayload.parse(raw) else {
+        switch appModel.pairingOutcome(for: .scan(raw)) {
+        case .invalid:
             probeResult = "Scanned code is not a Fabric pairing QR."
-            return
-        }
-        if payload.enrollment != nil {
+        case .unsupportedEnrollment:
             probeResult = "This QR requires secure device enrollment. Update Fabric Mobile and the gateway together, then scan a new QR."
-            return
-        }
-        urlText = payload.baseURL.absoluteString
-        if let scannedToken = payload.token {
+        case .token(let acceptance):
+            urlText = acceptance.target.baseURL.absoluteString
             mode = .token
-            token = scannedToken
-            Task { await save() }
-        } else {
+            // The machine-issued token moves directly into Keychain instead of
+            // living in observable SwiftUI state. The scanner already delivers
+            // at most once, and this task performs one save + connection.
+            token = ""
+            Task { await connectScannedToken(acceptance) }
+        case .gated(let target):
+            urlText = target.baseURL.absoluteString
             mode = .password
             probeResult = "Server requires sign-in — enter your username and password."
             Task { await resolvePasswordProvider() }
         }
+    }
+
+    private func connectScannedToken(_ acceptance: PairingTokenAcceptance) async {
+        do {
+            try await appModel.connectPairingToken(acceptance)
+        } catch {
+            // Keep credential errors generic: no token or Security status
+            // should enter UI text, analytics, or logs.
+            probeResult = GatewayStoreError.credentialStorageUnavailable.localizedDescription
+        }
+        if appModel.phase == .connected { dismiss() }
     }
 
     private func resolvePasswordProvider() async {

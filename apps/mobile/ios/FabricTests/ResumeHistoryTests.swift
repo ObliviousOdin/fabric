@@ -438,22 +438,61 @@ final class ResumeHistoryTests: XCTestCase {
         )
     }
 
-    func testMarkdownImagesAreNeutralizedBeforeNativeParsing() {
+    func testActiveMarkdownAndRawImagesBecomeInertAltText() {
         let source = """
-        Before ![diagram](https://images.example.test/private.png)
-        <IMG SRC="https://images.example.test/also-private.png" ALT="private">
+        Before ![diagram **v2**](https://images.example.test/private.png)
+        <IMG SRC="https://images.example.test/also-private.png" ALT="private **diagram** & notes">
         after
         """
 
         let sanitized = AssistantMarkdownSafety.sanitizedInline(source)
         let attributed = AssistantMarkdownSafety.attributedString(from: source)
 
-        XCTAssertFalse(sanitized.contains("!["))
+        XCTAssertTrue(sanitized.contains("![diagram **v2**]"))
         XCTAssertFalse(sanitized.lowercased().contains("<img"))
-        XCTAssertTrue(sanitized.contains("Image: [diagram]"))
+        XCTAssertFalse(sanitized.contains("also-private.png"))
+        XCTAssertTrue(attributed.runs.allSatisfy { $0.imageURL == nil })
         XCTAssertEqual(
             String(attributed.characters),
-            "Before Image: diagram\nImage\nafter"
+            "Before Image: diagram v2\nImage: private **diagram** & notes\nafter"
+        )
+    }
+
+    func testImageSanitizerPreservesEscapedAndInlineCodeExamples() {
+        let source = #"""
+        Escaped \![diagram](https://images.example.test/escaped.png)
+        Escaped \<img alt="escaped" src="https://images.example.test/escaped-html.png">
+        Code `![inline](https://images.example.test/code.png)` and `<img alt="inline" src="https://images.example.test/code-html.png">`
+        Double ``literal ` ![nested](https://images.example.test/nested.png) <img alt="nested" src="https://images.example.test/nested-html.png">``
+        """#
+
+        XCTAssertEqual(AssistantMarkdownSafety.sanitizedInline(source), source)
+        XCTAssertTrue(
+            String(AssistantMarkdownSafety.attributedString(from: source).characters)
+                .contains("![inline](https://images.example.test/code.png)")
+        )
+    }
+
+    func testImageSanitizerHandlesReferenceRawAltAndMalformedBoundaries() {
+        let active = "![](https://private.test/empty.png) "
+            + "![apostrophe](https://private.test/a'b.png) "
+            + "![title](https://private.test/x \"title ) still\") "
+            + "<iMg data-alt=wrong ALT='one > two' src=https://private.test/x> <img src=x>"
+        let activeAttributed = AssistantMarkdownSafety.attributedString(from: active)
+
+        XCTAssertEqual(
+            String(activeAttributed.characters),
+            "Image Image: apostrophe Image: title Image: one > two Image"
+        )
+        XCTAssertTrue(activeAttributed.runs.allSatisfy { $0.imageURL == nil })
+        XCTAssertFalse(String(activeAttributed.characters).contains("private.test"))
+
+        let literal = "Reference ![reference][asset] bare ![shortcut] "
+            + "broken ![image](https://private.test/x <img alt='unfinished'"
+        XCTAssertEqual(AssistantMarkdownSafety.sanitizedInline(literal), literal)
+        XCTAssertTrue(
+            AssistantMarkdownSafety.attributedString(from: literal).runs
+                .allSatisfy { $0.imageURL == nil }
         )
     }
 

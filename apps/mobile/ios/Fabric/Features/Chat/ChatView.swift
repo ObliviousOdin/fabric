@@ -800,13 +800,29 @@ struct AssistantTranscriptDocument: Equatable {
     }
 }
 
-/// Neutralize Markdown image constructs before they reach Foundation's
-/// attributed-string parser. Links remain native and user-initiated, while an
-/// image destination is never handed to an image loader or WebView.
+/// Neutralize raw HTML images without rewriting escaped or code-span examples.
+/// Foundation then identifies active Markdown image runs structurally; those
+/// URL attributes are removed before the value reaches SwiftUI.
 enum AssistantMarkdownSafety {
     static func sanitizedInline(_ source: String) -> String {
-        let neutralizedImages = source.replacingOccurrences(of: "![", with: "Image: [")
-        return removingRawImageTags(from: neutralizedImages)
+        guard let rawImagePattern else { return source }
+        let fullRange = NSRange(source.startIndex..<source.endIndex, in: source)
+        let codeRanges = inlineCodeRanges(in: source)
+        var output = ""
+        var cursor = source.startIndex
+
+        for match in rawImagePattern.matches(in: source, options: [], range: fullRange) {
+            guard let range = Range(match.range, in: source),
+                  !isEscaped(range.lowerBound, in: source),
+                  !codeRanges.contains(where: { $0.contains(range.lowerBound) }) else {
+                continue
+            }
+            output += source[cursor..<range.lowerBound]
+            output += inertImageLabel(htmlAltText(in: source, range: range))
+            cursor = range.upperBound
+        }
+        output += source[cursor...]
+        return output
     }
 
     static func attributedString(from source: String) -> AttributedString {
@@ -817,6 +833,21 @@ enum AssistantMarkdownSafety {
         )
         var attributed = (try? AttributedString(markdown: safe, options: options))
             ?? AttributedString(safe)
+        // Parsing is local and does not fetch an image. Foundation marks only
+        // active Markdown image nodes with `imageURL`; escaped syntax, code
+        // spans, reference examples, and malformed nodes remain ordinary text.
+        // Replace those marked runs before the value reaches SwiftUI so no
+        // remote destination survives into presentation.
+        let imageRanges = attributed.runs.compactMap { run in
+            run.imageURL == nil ? nil : run.range
+        }
+        for range in imageRanges.reversed() {
+            let rawAlt = String(attributed[range].characters)
+                .replacingOccurrences(of: "\u{FFFC}", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = rawAlt.isEmpty ? "Image" : "Image: \(rawAlt)"
+            attributed.replaceSubrange(range, with: AttributedString(label))
+        }
         // Assistant output is untrusted. In particular, Fabric pairing uses
         // an app URL scheme, so a model-authored link must never be able to
         // enter the app's deep-link router behind an innocuous label. Web
@@ -833,27 +864,126 @@ enum AssistantMarkdownSafety {
         return attributed
     }
 
-    private static func removingRawImageTags(from source: String) -> String {
-        var output = ""
-        var cursor = source.startIndex
+    private static let rawImagePattern = try? NSRegularExpression(
+        pattern: #"<img(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>"#,
+        options: .caseInsensitive
+    )
 
-        while let start = source.range(
-            of: "<img",
-            options: [.caseInsensitive],
-            range: cursor..<source.endIndex
-        )?.lowerBound {
-            output += source[cursor..<start]
-            guard let close = source[start...].firstIndex(of: ">") else {
-                output += "Image "
-                output += source[source.index(start, offsetBy: 4)...]
-                return output
+    private static let htmlAltPattern = try? NSRegularExpression(
+        pattern: #"(?:^|[\s/])alt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"#,
+        options: .caseInsensitive
+    )
+
+    private static func htmlAltText(
+        in source: String,
+        range: Range<String.Index>
+    ) -> String? {
+        guard let htmlAltPattern else { return nil }
+        let attributes = String(source[range])
+        let fullRange = NSRange(attributes.startIndex..<attributes.endIndex, in: attributes)
+        guard let match = htmlAltPattern.firstMatch(
+            in: attributes,
+            options: [],
+            range: fullRange
+        ) else {
+            return nil
+        }
+        for capture in 1..<match.numberOfRanges {
+            let captureRange = match.range(at: capture)
+            if captureRange.location != NSNotFound,
+               let swiftRange = Range(captureRange, in: attributes) {
+                return String(attributes[swiftRange])
             }
-            output += "Image"
-            cursor = source.index(after: close)
+        }
+        return ""
+    }
+
+    private static func codeSpan(
+        startingAt start: String.Index,
+        in source: String
+    ) -> Range<String.Index>? {
+        guard source[start] == "`", !isEscaped(start, in: source) else { return nil }
+        let openingRun = backtickRun(startingAt: start, in: source)
+        let openingCount = source.distance(from: openingRun.lowerBound, to: openingRun.upperBound)
+        var cursor = openingRun.upperBound
+
+        while cursor < source.endIndex {
+            guard source[cursor] == "`" else {
+                cursor = source.index(after: cursor)
+                continue
+            }
+            let candidate = backtickRun(startingAt: cursor, in: source)
+            let candidateCount = source.distance(from: candidate.lowerBound, to: candidate.upperBound)
+            if candidateCount == openingCount {
+                return start..<candidate.upperBound
+            }
+            cursor = candidate.upperBound
         }
 
-        output += source[cursor...]
+        return nil
+    }
+
+    private static func inlineCodeRanges(in source: String) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        var cursor = source.startIndex
+        while cursor < source.endIndex {
+            if source[cursor] == "`",
+               !isEscaped(cursor, in: source),
+               let range = codeSpan(startingAt: cursor, in: source) {
+                ranges.append(range)
+                cursor = range.upperBound
+            } else {
+                cursor = source.index(after: cursor)
+            }
+        }
+        return ranges
+    }
+
+    private static func backtickRun(
+        startingAt start: String.Index,
+        in source: String
+    ) -> Range<String.Index> {
+        var end = start
+        while end < source.endIndex, source[end] == "`" {
+            end = source.index(after: end)
+        }
+        return start..<end
+    }
+
+    private static func isEscaped(_ index: String.Index, in source: String) -> Bool {
+        var slashCount = 0
+        var cursor = index
+        while cursor > source.startIndex {
+            let previous = source.index(before: cursor)
+            guard source[previous] == "\\" else { break }
+            slashCount += 1
+            cursor = previous
+        }
+        return slashCount.isMultiple(of: 2) == false
+    }
+
+    private static func inertImageLabel(_ altText: String?) -> String {
+        guard let altText else { return "Image" }
+        let trimmed = altText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Image" }
+        return "Image: \(markdownLiteral(trimmed))"
+    }
+
+    private static func markdownLiteral(_ source: String) -> String {
+        var output = ""
+        for character in source {
+            if isASCIIPunctuation(character) { output.append("\\") }
+            output.append(character)
+        }
         return output
+    }
+
+    private static func isASCIIPunctuation(_ character: Character) -> Bool {
+        guard let value = character.asciiValue else { return false }
+        return (33...47).contains(value)
+            || (58...64).contains(value)
+            || (91...96).contains(value)
+            || (123...126).contains(value)
     }
 }
 

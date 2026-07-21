@@ -1,12 +1,43 @@
+import sys
+from types import SimpleNamespace
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
 
 from fabric_cli.mobile_pairing import (
+    _render_qr,
     build_pairing_page_url,
     build_pairing_uri,
     validate_pairing_base_url,
 )
+
+
+def test_rendered_qr_keeps_camera_scannable_quiet_zone(monkeypatch):
+    class FakeQR:
+        def __init__(self, *, border):
+            self.border = border
+
+        def add_data(self, data):
+            assert data == "https://agent.example.test/mobile/pair"
+
+        def make(self, *, fit):
+            assert fit is True
+
+        def print_ascii(self, *, out, invert):
+            assert invert is True
+            out.write("qr")
+
+    created = []
+
+    def make_qr(**kwargs):
+        qr = FakeQR(**kwargs)
+        created.append(qr)
+        return qr
+
+    monkeypatch.setitem(sys.modules, "qrcode", SimpleNamespace(QRCode=make_qr))
+
+    assert _render_qr("https://agent.example.test/mobile/pair") == "qr"
+    assert created[0].border >= 4
 
 
 def test_pairing_page_keeps_token_payload_out_of_http_request():

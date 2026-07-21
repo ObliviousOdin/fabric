@@ -31,6 +31,7 @@ final class AppModel {
     private var reconnectFailures = 0
     private var isForeground = true
     private var permitsAutomaticReconnect = false
+    private let pairingExecutionGate = PairingFlowExecutionGate()
     let api: GatewayAPI
 
     var activeGateway: SavedGateway? {
@@ -96,28 +97,57 @@ final class AppModel {
         gateways = GatewayStore.all()
     }
 
+    /// Classify either native pairing entry point against the current library.
+    /// This is intentionally side-effect free; callers decide how their
+    /// existing surface presents gated auth and errors.
+    func pairingOutcome(for input: PairingFlowInput) -> PairingFlowOutcome {
+        PairingFlowModel(gateways: gateways).accept(input)
+    }
+
+    /// Persist one accepted pairing token and start one connection attempt.
+    /// The credential leaves its redacting wrapper only inside the synchronous
+    /// Keychain write, and is never copied into observable app state.
+    func connectPairingToken(_ acceptance: PairingTokenAcceptance) async throws -> PairingTokenConnectResult {
+        try await pairingExecutionGate.execute(acceptance.target) {
+            let gateway = try acceptance.withUnsafeToken { token in
+                try saveTokenGateway(
+                    label: "",
+                    baseURL: acceptance.target.baseURL,
+                    token: token
+                )
+            }
+            await connectToken(gateway)
+            return .attempted(gateway)
+        }
+    }
+
     /// Accept a native deep link from the browser pairing page. Token-mode
     /// links connect immediately; gated links open the existing sign-in sheet.
     /// An unimplemented v2 handoff fails closed instead of becoming a password
     /// sign-in or persisting its opaque enrollment handle.
     func receivePairingURL(_ url: URL) {
-        guard let payload = PairingPayload.parse(url.absoluteString) else {
+        switch pairingOutcome(for: .deepLink(url)) {
+        case .invalid:
             lastConnectError = "This link is not a valid Fabric pairing link."
-            return
-        }
-        if payload.enrollment != nil {
+        case .unsupportedEnrollment:
             lastConnectError = "This QR requires secure device enrollment. Update Fabric Mobile and the gateway together, then scan a new QR."
-            return
-        }
-        if let token = payload.token {
-            do {
-                let gateway = try saveTokenGateway(label: "", baseURL: payload.baseURL, token: token)
-                Task { await connectToken(gateway) }
-            } catch {
-                lastConnectError = GatewayStoreError.credentialStorageUnavailable.localizedDescription
+        case .token(let acceptance):
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    if try await self.connectPairingToken(acceptance) == .alreadyInFlight {
+                        self.lastConnectError = "Pairing is already in progress for this server."
+                    }
+                } catch {
+                    self.lastConnectError = GatewayStoreError.credentialStorageUnavailable.localizedDescription
+                }
             }
-        } else {
-            pendingSignInGateway = saveGatedGateway(label: "", baseURL: payload.baseURL, username: "")
+        case .gated(let target):
+            pendingSignInGateway = saveGatedGateway(
+                label: "",
+                baseURL: target.baseURL,
+                username: target.existingUsername(in: gateways)
+            )
         }
     }
 
@@ -235,6 +265,7 @@ final class AppModel {
             reconnectFailures = 0
             permitsAutomaticReconnect = true
             connectionGeneration += 1
+            lastConnectError = nil
             phase = .connected
         } catch {
             guard connectionAttempt == attempt else { return }

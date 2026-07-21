@@ -22,6 +22,8 @@ struct AddGatewayView: View {
     @State private var otp = ""
     @State private var providerName: String?
     @State private var requiresTotp = false
+    @State private var scannedGatewayID: String?
+    @State private var pairingAttemptInFlight = false
     @State private var probeResult: String?
     @State private var probing = false
     @State private var showScanner = false
@@ -33,10 +35,28 @@ struct AddGatewayView: View {
     private var canSave: Bool {
         guard parsedURL != nil, appModel.phase != .connecting else { return false }
         switch mode {
-        case .token: return !token.trimmingCharacters(in: .whitespaces).isEmpty
+        case .token:
+            return !token.trimmingCharacters(in: .whitespaces).isEmpty
+                || scannedRetryGateway != nil
         case .password:
             let credsOK = !username.isEmpty && !password.isEmpty
             return credsOK && (!requiresTotp || otp.trimmingCharacters(in: .whitespaces).count >= 6)
+        }
+    }
+
+    /// A scanned token is persisted directly to Keychain. If the network
+    /// handshake fails, retry through that saved credential without copying it
+    /// back into SwiftUI state. Editing the address invalidates this shortcut.
+    private var scannedRetryGateway: SavedGateway? {
+        guard
+            mode == .token,
+            token.trimmingCharacters(in: .whitespaces).isEmpty,
+            let scannedGatewayID,
+            let parsedURL
+        else { return nil }
+        let endpointKey = SavedGateway.endpointKey(for: parsedURL)
+        return appModel.gateways.first {
+            $0.id == scannedGatewayID && $0.endpointKey == endpointKey
         }
     }
 
@@ -49,6 +69,7 @@ struct AddGatewayView: View {
                     } label: {
                         Label("Scan pairing QR", systemImage: "qrcode.viewfinder")
                     }
+                    .disabled(pairingAttemptInFlight || appModel.phase == .connecting)
                 } footer: {
                     Text("On the machine: `fabric mobile` (add `--qr-url` for a tunnel).")
                 }
@@ -114,7 +135,7 @@ struct AddGatewayView: View {
                         if appModel.phase == .connecting {
                             ProgressView()
                         } else {
-                            Text("Save and connect")
+                            Text(scannedRetryGateway == nil ? "Save and connect" : "Retry connection")
                         }
                     }
                     .disabled(!canSave)
@@ -153,24 +174,56 @@ struct AddGatewayView: View {
     }
 
     private func handleScan(_ raw: String) {
-        guard let payload = PairingPayload.parse(raw) else {
+        switch appModel.pairingOutcome(for: .scan(raw)) {
+        case .invalid:
+            scannedGatewayID = nil
             probeResult = "Scanned code is not a Fabric pairing QR."
-            return
-        }
-        if payload.enrollment != nil {
+        case .unsupportedEnrollment:
+            scannedGatewayID = nil
             probeResult = "This QR requires secure device enrollment. Update Fabric Mobile and the gateway together, then scan a new QR."
-            return
-        }
-        urlText = payload.baseURL.absoluteString
-        if let scannedToken = payload.token {
+        case .token(let acceptance):
+            guard !pairingAttemptInFlight else {
+                probeResult = "Pairing is already in progress."
+                return
+            }
+            pairingAttemptInFlight = true
+            scannedGatewayID = nil
+            urlText = acceptance.target.baseURL.absoluteString
             mode = .token
-            token = scannedToken
-            Task { await save() }
-        } else {
+            // The machine-issued token moves directly into Keychain instead of
+            // living in observable SwiftUI state. The scanner already delivers
+            // at most once, and this task performs one save + connection.
+            token = ""
+            Task { await connectScannedToken(acceptance) }
+        case .gated(let target):
+            scannedGatewayID = nil
+            urlText = target.baseURL.absoluteString
             mode = .password
+            username = target.existingUsername(in: appModel.gateways)
+            password = ""
+            otp = ""
+            providerName = nil
+            requiresTotp = false
             probeResult = "Server requires sign-in — enter your username and password."
             Task { await resolvePasswordProvider() }
         }
+    }
+
+    private func connectScannedToken(_ acceptance: PairingTokenAcceptance) async {
+        defer { pairingAttemptInFlight = false }
+        do {
+            switch try await appModel.connectPairingToken(acceptance) {
+            case .attempted(let gateway):
+                scannedGatewayID = gateway.id
+            case .alreadyInFlight:
+                probeResult = "Pairing is already in progress for this server."
+            }
+        } catch {
+            // Keep credential errors generic: no token or Security status
+            // should enter UI text, analytics, or logs.
+            probeResult = GatewayStoreError.credentialStorageUnavailable.localizedDescription
+        }
+        if appModel.phase == .connected { dismiss() }
     }
 
     private func resolvePasswordProvider() async {
@@ -186,17 +239,21 @@ struct AddGatewayView: View {
         guard let url = parsedURL else { return }
         switch mode {
         case .token:
-            do {
-                let gateway = try appModel.saveTokenGateway(
-                    label: label,
-                    baseURL: url,
-                    token: token.trimmingCharacters(in: .whitespaces)
-                )
-                await appModel.connectToken(gateway)
-            } catch {
-                // Keep credential errors generic: no token or Security status
-                // should enter UI text, analytics, or logs.
-                probeResult = GatewayStoreError.credentialStorageUnavailable.localizedDescription
+            if let scannedRetryGateway {
+                await appModel.connectToken(scannedRetryGateway)
+            } else {
+                do {
+                    let gateway = try appModel.saveTokenGateway(
+                        label: label,
+                        baseURL: url,
+                        token: token.trimmingCharacters(in: .whitespaces)
+                    )
+                    await appModel.connectToken(gateway)
+                } catch {
+                    // Keep credential errors generic: no token or Security status
+                    // should enter UI text, analytics, or logs.
+                    probeResult = GatewayStoreError.credentialStorageUnavailable.localizedDescription
+                }
             }
         case .password:
             if providerName == nil { await resolvePasswordProvider() }

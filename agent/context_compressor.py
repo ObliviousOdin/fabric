@@ -945,6 +945,73 @@ class ContextCompressor(ContextEngine):
         self.awaiting_real_usage_after_compression = False
         self._ineffective_compression_count = 0
 
+    def reconfigure_threshold(self, threshold_percent: Any) -> bool:
+        """Hot-apply a changed ``compression.threshold`` to a live compressor.
+
+        The compressor bakes ``compression.threshold`` into
+        ``threshold_percent`` / ``threshold_tokens`` at construction. A
+        long-lived agent that is never rebuilt between turns (the desktop
+        session) would otherwise keep compacting at the construction-time
+        trigger after the user edits the setting — the stale-threshold half of
+        #61, where a 272K session reconfigured to 85% kept firing at the old
+        204,000-token (75%) trigger instead of 231,200.
+
+        Unlike :meth:`update_model`, the model and context window are
+        unchanged, so the provider-usage calibration state
+        (``last_real_prompt_tokens`` etc.) is deliberately preserved — only the
+        trigger arithmetic is recomputed, using the same small-context floor
+        (:meth:`_effective_threshold_percent`) and effective-input-budget
+        derivation (:meth:`_compute_threshold_tokens`) as construction. The
+        per-model Codex autoraise is resolved by the caller before this runs,
+        so the value passed here is already the effective configured percent.
+
+        Returns ``True`` when the effective trigger changed, ``False`` for an
+        invalid value (``<= 0`` or non-numeric) or a no-op re-apply.
+        """
+        try:
+            new_pct = float(threshold_percent)
+        except (TypeError, ValueError):
+            return False
+        if new_pct <= 0:
+            return False
+
+        prev_effective_pct = self.threshold_percent
+        prev_tokens = self.threshold_tokens
+
+        # Always record the newly-configured percent (even when the small-
+        # context floor masks it this turn) so a later switch to a large-window
+        # model re-derives from the value the user actually set — update_model
+        # reads _configured_threshold_percent, not the possibly-floored live one.
+        self._configured_threshold_percent = new_pct
+        self.threshold_percent = self._effective_threshold_percent(
+            self.context_length, new_pct,
+        )
+        self.threshold_tokens = self._compute_threshold_tokens(
+            self.context_length, self.threshold_percent, self.max_tokens,
+        )
+        # tail budget is a ratio of the (now-updated) threshold, so it moves
+        # with it — mirrors the derivation in __init__ / update_model.
+        self.tail_token_budget = int(
+            self.threshold_tokens * self.summary_target_ratio
+        )
+
+        # Report / log the EFFECTIVE trigger movement, not the raw configured
+        # percent: editing 50%->60% under the 75% small-context floor changes
+        # neither the effective percent nor the token trigger, so it is a no-op
+        # rather than a misleading "50% -> 60% (tokens N -> N)" line.
+        changed = (
+            self.threshold_percent != prev_effective_pct
+            or self.threshold_tokens != prev_tokens
+        )
+        if changed and not self.quiet_mode:
+            logger.info(
+                "Context compressor threshold reconfigured: %.0f%% -> %.0f%% "
+                "(threshold_tokens %d -> %d, context_length=%d)",
+                prev_effective_pct * 100, self.threshold_percent * 100,
+                prev_tokens, self.threshold_tokens, self.context_length,
+            )
+        return changed
+
     # When the MINIMUM_CONTEXT_LENGTH floor meets/exceeds a small context
     # window, compacting at the percentage (50% → 32K of a 64K window) wastes
     # half the usable context. Trigger near the top of the window instead so a

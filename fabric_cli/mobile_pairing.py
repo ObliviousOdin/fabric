@@ -166,7 +166,10 @@ def _render_qr(data: str) -> str | None:
     except Exception:
         return None
     try:
-        qr = qrcode.QRCode(border=1)
+        # ISO/IEC 18004 requires a four-module quiet zone. A one-module border
+        # looks compact in a terminal but AVFoundation commonly fails to find
+        # it against neighbouring terminal text or window chrome.
+        qr = qrcode.QRCode(border=4)
         qr.add_data(data)
         qr.make(fit=True)
         buf = io.StringIO()

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Chat transcript + composer for one Fabric session, with the same
 /// dispatch/remote-control surface the TUI composer exposes: slash
@@ -35,6 +36,9 @@ struct ChatView: View {
                 ChatContentView(
                     model: model,
                     draft: $draft,
+                    liveViewCaptureCapability: LiveViewCaptureCapability(
+                        negotiation: appModel.capabilityNegotiation
+                    ),
                     recoveryAction: SessionRecoveryAction(
                         storedSessionId: model.storedSessionId
                     ),
@@ -147,6 +151,7 @@ struct InitialPromptDispatch: Equatable {
 private struct ChatContentView: View {
     @Bindable var model: ChatViewModel
     @Binding var draft: String
+    let liveViewCaptureCapability: LiveViewCaptureCapability
     let recoveryAction: SessionRecoveryAction
     let onRetrySession: () -> Void
     let onReturnToConversations: () -> Void
@@ -155,6 +160,28 @@ private struct ChatContentView: View {
     @State private var showProcesses = false
     @State private var showLiveView = false
     @State private var promptAnswer = ""
+    @State private var liveViewModel: LiveViewModel
+
+    init(
+        model: ChatViewModel,
+        draft: Binding<String>,
+        liveViewCaptureCapability: LiveViewCaptureCapability,
+        recoveryAction: SessionRecoveryAction,
+        onRetrySession: @escaping () -> Void,
+        onReturnToConversations: @escaping () -> Void
+    ) {
+        _model = Bindable(wrappedValue: model)
+        _draft = draft
+        self.liveViewCaptureCapability = liveViewCaptureCapability
+        self.recoveryAction = recoveryAction
+        self.onRetrySession = onRetrySession
+        self.onReturnToConversations = onReturnToConversations
+        _liveViewModel = State(initialValue: LiveViewModel(
+            captureCapability: liveViewCaptureCapability,
+            connectionReady: model.sessionReady,
+            capture: { try await model.api.captureScreen() }
+        ))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -255,7 +282,7 @@ private struct ChatContentView: View {
                     } label: {
                         Label("Live screen view…", systemImage: "display")
                     }
-                    .disabled(!model.supportsGatewayMethod("computer.screenshot"))
+                    .disabled(!liveViewCaptureCapability.isSupported)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -280,27 +307,21 @@ private struct ChatContentView: View {
             )
         }
         .sheet(isPresented: $showLiveView) {
-            LiveViewSheet(api: model.api, supportsMethod: model.supportsGatewayMethod)
+            LiveViewSheet(model: liveViewModel)
+        }
+        .onChange(of: liveViewCaptureCapability, initial: true) { _, capability in
+            liveViewModel.setCaptureCapability(capability)
+        }
+        .onChange(of: model.sessionReady, initial: true) { _, ready in
+            liveViewModel.setConnectionReady(ready)
+        }
+        .onDisappear {
+            liveViewModel.disappear()
         }
     }
 
     private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(model.messages) { message in
-                        MessageBubble(message: message)
-                            .id(message.id)
-                    }
-                }
-                .padding()
-            }
-            .onChange(of: model.messages) {
-                if let lastId = model.messages.last?.id {
-                    proxy.scrollTo(lastId, anchor: .bottom)
-                }
-            }
-        }
+        TranscriptView(messages: model.messages)
     }
 
     /// Waiting-for-approval banner. Status language per the design contract:
@@ -466,8 +487,42 @@ private struct ChatContentView: View {
     }
 }
 
+/// Owns transcript scrolling so a completed assistant row can request one
+/// follow-up scroll after its cached rich layout has a measured height.
+/// Without that second signal, a tall code or list block can grow below the
+/// viewport after the ordinary `messages` change already scrolled the plain
+/// streaming row.
+struct TranscriptView: View {
+    let messages: [TranscriptMessage]
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(messages) { message in
+                        MessageBubble(
+                            message: message,
+                            onRichLayoutReady: message.id == messages.last?.id
+                                ? { proxy.scrollTo(message.id, anchor: .bottom) }
+                                : nil
+                        )
+                        .id(message.id)
+                    }
+                }
+                .padding()
+            }
+            .onChange(of: messages) {
+                if let lastId = messages.last?.id {
+                    proxy.scrollTo(lastId, anchor: .bottom)
+                }
+            }
+        }
+    }
+}
+
 private struct MessageBubble: View {
     let message: TranscriptMessage
+    let onRichLayoutReady: (() -> Void)?
 
     var body: some View {
         switch message.role {
@@ -487,17 +542,15 @@ private struct MessageBubble: View {
                     .accessibilityValue(message.text)
             }
         case .assistant:
-            HStack {
-                Text(message.text.isEmpty && message.streaming ? "…" : message.text)
-                    .font(.subheadline)
+            HStack(alignment: .top) {
+                AssistantMessageBody(
+                    message: message,
+                    onRichLayoutReady: onRichLayoutReady
+                )
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .background(FabricTheme.surfaceRaised)
                     .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radiusLarge))
-                    .accessibilityLabel("Fabric")
-                    .accessibilityValue(
-                        message.text.isEmpty && message.streaming ? "Streaming response" : message.text
-                    )
                 Spacer(minLength: 40)
             }
         // Technical output (slash results, task notices): mono on an inset
@@ -527,5 +580,746 @@ private struct MessageBubble: View {
             .accessibilityLabel("Error")
             .accessibilityValue(message.text)
         }
+    }
+}
+
+/// Rendering policy for assistant rows. A live row deliberately stays on the
+/// cheap verbatim `Text` path for its entire stream. Only that row transitions
+/// to rich presentation when `message.complete` flips `streaming` to false;
+/// completed rows retain their cached document when later deltas arrive.
+enum AssistantTranscriptPresentationMode: Equatable {
+    case streamingPlain
+    case rich
+
+    static func mode(for message: TranscriptMessage) -> Self {
+        message.streaming ? .streamingPlain : .rich
+    }
+}
+
+struct AssistantTranscriptRenderInput: Equatable {
+    let text: String
+    let streaming: Bool
+}
+
+/// Per-row rich presentation state. `reconciled` returns `nil` when a SwiftUI
+/// state write would be redundant: completed rows keep their rendered
+/// document across unrelated transcript updates, while an in-flight row with
+/// no rich document performs no cache mutation at all.
+struct AssistantTranscriptRenderCache: Equatable {
+    let document: AssistantTranscriptDocument?
+
+    init(document: AssistantTranscriptDocument? = nil) {
+        self.document = document
+    }
+
+    func reconciled(
+        for input: AssistantTranscriptRenderInput,
+        documentBuilder: (String) -> AssistantTranscriptDocument = {
+            AssistantTranscriptDocument($0)
+        }
+    ) -> Self? {
+        if input.streaming {
+            // A non-nil document is the authoritative rich-state marker.
+            // Initial and subsequent streaming deltas therefore perform no
+            // write; only a real rich-to-streaming transition clears it.
+            guard document != nil else { return nil }
+            return Self()
+        }
+
+        guard document?.source != input.text else { return nil }
+        return Self(document: documentBuilder(input.text))
+    }
+}
+
+/// A small, deterministic Markdown block model. Foundation's native inline
+/// Markdown parser handles emphasis and links; this layer owns only the block
+/// structure SwiftUI `Text` does not present on its own (headings, lists,
+/// fenced code, and unified diffs).
+struct AssistantTranscriptDocument: Equatable {
+    enum ListMarker: Equatable {
+        case unordered
+        case ordered(String)
+
+        var displayText: String {
+            switch self {
+            case .unordered: return "•"
+            case .ordered(let marker): return marker
+            }
+        }
+    }
+
+    enum Block: Equatable {
+        case paragraph(String)
+        case heading(level: Int, text: String)
+        case listItem(marker: ListMarker, depth: Int, text: String)
+        case code(language: String?, text: String)
+        case diff(String)
+    }
+
+    /// Presentation-ready blocks. Inline Markdown is sanitized and parsed
+    /// while the completed document is created, never from a SwiftUI `body`.
+    /// Keeping the source `blocks` beside these values preserves the small,
+    /// testable block grammar without making later transcript invalidations
+    /// repeat Foundation's inline parser.
+    enum RenderBlock: Equatable {
+        case paragraph(AttributedString)
+        case heading(level: Int, text: AttributedString)
+        case listItem(marker: ListMarker, depth: Int, text: AttributedString)
+        case code(language: String?, text: String)
+        case diff(String)
+    }
+
+    let source: String
+    let blocks: [Block]
+    let renderBlocks: [RenderBlock]
+
+    var containsTechnicalBlock: Bool {
+        blocks.contains { block in
+            switch block {
+            case .code, .diff: return true
+            default: return false
+            }
+        }
+    }
+
+    init(
+        _ source: String,
+        inlineRenderer: (String) -> AttributedString = {
+            AssistantMarkdownSafety.attributedString(from: $0)
+        }
+    ) {
+        self.source = source
+        let parsedBlocks = Self.parse(source)
+        blocks = parsedBlocks
+        renderBlocks = parsedBlocks.map { block in
+            switch block {
+            case .paragraph(let markdown):
+                return .paragraph(inlineRenderer(markdown))
+            case .heading(let level, let markdown):
+                return .heading(level: level, text: inlineRenderer(markdown))
+            case .listItem(let marker, let depth, let markdown):
+                return .listItem(
+                    marker: marker,
+                    depth: depth,
+                    text: inlineRenderer(markdown)
+                )
+            case .code(let language, let text):
+                return .code(language: language, text: text)
+            case .diff(let text):
+                return .diff(text)
+            }
+        }
+    }
+
+    private struct Fence {
+        let marker: Character
+        let count: Int
+        let language: String?
+    }
+
+    private struct ParsedListItem {
+        let marker: ListMarker
+        let depth: Int
+        let text: String
+    }
+
+    private static func parse(_ source: String) -> [Block] {
+        guard !source.isEmpty else { return [.paragraph("")] }
+        if looksLikeUnifiedDiff(source) { return [.diff(source)] }
+
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var result: [Block] = []
+        var paragraph: [String] = []
+        var index = 0
+
+        func flushParagraph() {
+            guard !paragraph.isEmpty else { return }
+            result.append(.paragraph(paragraph.joined(separator: "\n")))
+            paragraph.removeAll(keepingCapacity: true)
+        }
+
+        while index < lines.count {
+            let line = lines[index]
+
+            if let fence = openingFence(in: line) {
+                var closingIndex: Int?
+                var candidate = index + 1
+                while candidate < lines.count {
+                    if closesFence(lines[candidate], fence: fence) {
+                        closingIndex = candidate
+                        break
+                    }
+                    candidate += 1
+                }
+
+                guard let closingIndex else {
+                    // An unfinished fence is prose, not a half-rendered code
+                    // panel. Preserve every byte so malformed model output is
+                    // still readable and copyable.
+                    paragraph.append(contentsOf: lines[index...])
+                    index = lines.count
+                    break
+                }
+
+                flushParagraph()
+                let code = lines[(index + 1)..<closingIndex].joined(separator: "\n")
+                if isDiffLanguage(fence.language) || looksLikeUnifiedDiff(code) {
+                    result.append(.diff(code))
+                } else {
+                    result.append(.code(language: fence.language, text: code))
+                }
+                index = closingIndex + 1
+                continue
+            }
+
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                flushParagraph()
+                index += 1
+                continue
+            }
+
+            if let heading = heading(in: line) {
+                flushParagraph()
+                result.append(.heading(level: heading.level, text: heading.text))
+                index += 1
+                continue
+            }
+
+            if let item = listItem(in: line) {
+                flushParagraph()
+                result.append(.listItem(marker: item.marker, depth: item.depth, text: item.text))
+                index += 1
+                continue
+            }
+
+            paragraph.append(line)
+            index += 1
+        }
+
+        flushParagraph()
+        return result.isEmpty ? [.paragraph(source)] : result
+    }
+
+    private static func openingFence(in line: String) -> Fence? {
+        let characters = Array(line)
+        var offset = 0
+        while offset < characters.count, characters[offset] == " ", offset < 4 {
+            offset += 1
+        }
+        guard offset <= 3, offset < characters.count else { return nil }
+        let marker = characters[offset]
+        guard marker == "`" || marker == "~" else { return nil }
+
+        var end = offset
+        while end < characters.count, characters[end] == marker { end += 1 }
+        let count = end - offset
+        guard count >= 3 else { return nil }
+
+        let info = String(characters[end...]).trimmingCharacters(in: .whitespaces)
+        if marker == "`", info.contains("`") { return nil }
+        return Fence(marker: marker, count: count, language: normalizedLanguage(info))
+    }
+
+    private static func closesFence(_ line: String, fence: Fence) -> Bool {
+        let characters = Array(line)
+        var offset = 0
+        while offset < characters.count, characters[offset] == " ", offset < 4 {
+            offset += 1
+        }
+        guard offset <= 3, offset < characters.count, characters[offset] == fence.marker else {
+            return false
+        }
+
+        var end = offset
+        while end < characters.count, characters[end] == fence.marker { end += 1 }
+        guard end - offset >= fence.count else { return false }
+        return characters[end...].allSatisfy { $0.isWhitespace }
+    }
+
+    private static func normalizedLanguage(_ info: String) -> String? {
+        guard var token = info.split(whereSeparator: { $0.isWhitespace }).first.map(String.init) else {
+            return nil
+        }
+        if token.hasPrefix(".") { token.removeFirst() }
+        let allowed = token.prefix(32).filter { character in
+            character.isLetter || character.isNumber || "+#._-".contains(character)
+        }
+        return allowed.isEmpty ? nil : String(allowed).lowercased()
+    }
+
+    private static func heading(in line: String) -> (level: Int, text: String)? {
+        let characters = Array(line)
+        var offset = 0
+        while offset < characters.count, characters[offset] == " ", offset < 4 {
+            offset += 1
+        }
+        guard offset <= 3, offset < characters.count, characters[offset] == "#" else { return nil }
+
+        var end = offset
+        while end < characters.count, characters[end] == "#", end - offset < 7 { end += 1 }
+        let level = end - offset
+        guard (1...6).contains(level) else { return nil }
+        guard end == characters.count || characters[end].isWhitespace else { return nil }
+        return (level, String(characters[end...]).trimmingCharacters(in: .whitespaces))
+    }
+
+    private static func listItem(in line: String) -> ParsedListItem? {
+        let characters = Array(line)
+        var offset = 0
+        while offset < characters.count, characters[offset] == " " { offset += 1 }
+        guard offset < characters.count else { return nil }
+        let depth = min(offset / 2, 4)
+
+        if "-*+".contains(characters[offset]) {
+            let contentStart = offset + 1
+            guard contentStart < characters.count, characters[contentStart].isWhitespace else { return nil }
+            let text = String(characters[(contentStart + 1)...])
+            return ParsedListItem(marker: .unordered, depth: depth, text: text)
+        }
+
+        var digitEnd = offset
+        while digitEnd < characters.count,
+              characters[digitEnd].isNumber,
+              digitEnd - offset < 9 {
+            digitEnd += 1
+        }
+        guard digitEnd > offset, digitEnd < characters.count else { return nil }
+        let terminator = characters[digitEnd]
+        guard terminator == "." || terminator == ")" else { return nil }
+        let contentStart = digitEnd + 1
+        guard contentStart < characters.count, characters[contentStart].isWhitespace else { return nil }
+        let marker = String(characters[offset...digitEnd])
+        return ParsedListItem(
+            marker: .ordered(marker),
+            depth: depth,
+            text: String(characters[(contentStart + 1)...])
+        )
+    }
+
+    private static func isDiffLanguage(_ language: String?) -> Bool {
+        guard let language else { return false }
+        return ["diff", "patch", "udiff"].contains(language)
+    }
+
+    private static func looksLikeUnifiedDiff(_ source: String) -> Bool {
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
+        guard let firstContent = lines.first(where: {
+            !$0.trimmingCharacters(in: .whitespaces).isEmpty
+        }), firstContent.hasPrefix("diff --git ") || firstContent.hasPrefix("--- ") else {
+            return false
+        }
+        var hasGitHeader = false
+        var hasOldHeader = false
+        var hasHeaderPair = false
+        var hasHunk = false
+
+        for line in lines {
+            if line.hasPrefix("diff --git ") { hasGitHeader = true }
+            if line.hasPrefix("--- ") { hasOldHeader = true }
+            if hasOldHeader, line.hasPrefix("+++ ") { hasHeaderPair = true }
+            if line.hasPrefix("@@ ") || line.hasPrefix("@@-") || line.hasPrefix("@@") {
+                hasHunk = true
+            }
+        }
+        return hasHunk && (hasGitHeader || hasHeaderPair)
+    }
+}
+
+/// Neutralize raw HTML images without rewriting escaped or code-span examples.
+/// Foundation then identifies active Markdown image runs structurally; those
+/// URL attributes are removed before the value reaches SwiftUI.
+enum AssistantMarkdownSafety {
+    static func sanitizedInline(_ source: String) -> String {
+        guard let rawImagePattern else { return source }
+        let fullRange = NSRange(source.startIndex..<source.endIndex, in: source)
+        let codeRanges = inlineCodeRanges(in: source)
+        var output = ""
+        var cursor = source.startIndex
+
+        for match in rawImagePattern.matches(in: source, options: [], range: fullRange) {
+            guard let range = Range(match.range, in: source),
+                  !isEscaped(range.lowerBound, in: source),
+                  !codeRanges.contains(where: { $0.contains(range.lowerBound) }) else {
+                continue
+            }
+            output += source[cursor..<range.lowerBound]
+            output += inertImageLabel(htmlAltText(in: source, range: range))
+            cursor = range.upperBound
+        }
+        output += source[cursor...]
+        return output
+    }
+
+    static func attributedString(from source: String) -> AttributedString {
+        let safe = sanitizedInline(source)
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible
+        )
+        var attributed = (try? AttributedString(markdown: safe, options: options))
+            ?? AttributedString(safe)
+        // Parsing is local and does not fetch an image. Foundation marks only
+        // active Markdown image nodes with `imageURL`; escaped syntax, code
+        // spans, reference examples, and malformed nodes remain ordinary text.
+        // Replace those marked runs before the value reaches SwiftUI so no
+        // remote destination survives into presentation.
+        let imageRanges = attributed.runs.compactMap { run in
+            run.imageURL == nil ? nil : run.range
+        }
+        for range in imageRanges.reversed() {
+            let rawAlt = String(attributed[range].characters)
+                .replacingOccurrences(of: "\u{FFFC}", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = rawAlt.isEmpty ? "Image" : "Image: \(rawAlt)"
+            attributed.replaceSubrange(range, with: AttributedString(label))
+        }
+        // Assistant output is untrusted. In particular, Fabric pairing uses
+        // an app URL scheme, so a model-authored link must never be able to
+        // enter the app's deep-link router behind an innocuous label. Web
+        // links stay explicit and user-initiated; every other scheme (and
+        // every relative URL) is readable text without a link action.
+        let inertLinkRanges = attributed.runs.compactMap { run -> Range<AttributedString.Index>? in
+            guard let link = run.link else { return nil }
+            let scheme = link.scheme?.lowercased()
+            return scheme == "http" || scheme == "https" ? nil : run.range
+        }
+        for range in inertLinkRanges {
+            attributed[range].link = nil
+        }
+        return attributed
+    }
+
+    private static let rawImagePattern = try? NSRegularExpression(
+        pattern: #"<img(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>"#,
+        options: .caseInsensitive
+    )
+
+    private static let htmlAltPattern = try? NSRegularExpression(
+        pattern: #"(?:^|[\s/])alt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"#,
+        options: .caseInsensitive
+    )
+
+    private static func htmlAltText(
+        in source: String,
+        range: Range<String.Index>
+    ) -> String? {
+        guard let htmlAltPattern else { return nil }
+        let attributes = String(source[range])
+        let fullRange = NSRange(attributes.startIndex..<attributes.endIndex, in: attributes)
+        guard let match = htmlAltPattern.firstMatch(
+            in: attributes,
+            options: [],
+            range: fullRange
+        ) else {
+            return nil
+        }
+        for capture in 1..<match.numberOfRanges {
+            let captureRange = match.range(at: capture)
+            if captureRange.location != NSNotFound,
+               let swiftRange = Range(captureRange, in: attributes) {
+                return String(attributes[swiftRange])
+            }
+        }
+        return ""
+    }
+
+    private static func codeSpan(
+        startingAt start: String.Index,
+        in source: String
+    ) -> Range<String.Index>? {
+        guard source[start] == "`", !isEscaped(start, in: source) else { return nil }
+        let openingRun = backtickRun(startingAt: start, in: source)
+        let openingCount = source.distance(from: openingRun.lowerBound, to: openingRun.upperBound)
+        var cursor = openingRun.upperBound
+
+        while cursor < source.endIndex {
+            guard source[cursor] == "`" else {
+                cursor = source.index(after: cursor)
+                continue
+            }
+            let candidate = backtickRun(startingAt: cursor, in: source)
+            let candidateCount = source.distance(from: candidate.lowerBound, to: candidate.upperBound)
+            if candidateCount == openingCount {
+                return start..<candidate.upperBound
+            }
+            cursor = candidate.upperBound
+        }
+
+        return nil
+    }
+
+    private static func inlineCodeRanges(in source: String) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        var cursor = source.startIndex
+        while cursor < source.endIndex {
+            if source[cursor] == "`",
+               !isEscaped(cursor, in: source),
+               let range = codeSpan(startingAt: cursor, in: source) {
+                ranges.append(range)
+                cursor = range.upperBound
+            } else {
+                cursor = source.index(after: cursor)
+            }
+        }
+        return ranges
+    }
+
+    private static func backtickRun(
+        startingAt start: String.Index,
+        in source: String
+    ) -> Range<String.Index> {
+        var end = start
+        while end < source.endIndex, source[end] == "`" {
+            end = source.index(after: end)
+        }
+        return start..<end
+    }
+
+    private static func isEscaped(_ index: String.Index, in source: String) -> Bool {
+        var slashCount = 0
+        var cursor = index
+        while cursor > source.startIndex {
+            let previous = source.index(before: cursor)
+            guard source[previous] == "\\" else { break }
+            slashCount += 1
+            cursor = previous
+        }
+        return slashCount.isMultiple(of: 2) == false
+    }
+
+    private static func inertImageLabel(_ altText: String?) -> String {
+        guard let altText else { return "Image" }
+        let trimmed = altText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Image" }
+        return "Image: \(markdownLiteral(trimmed))"
+    }
+
+    private static func markdownLiteral(_ source: String) -> String {
+        var output = ""
+        for character in source {
+            if isASCIIPunctuation(character) { output.append("\\") }
+            output.append(character)
+        }
+        return output
+    }
+
+    private static func isASCIIPunctuation(_ character: Character) -> Bool {
+        guard let value = character.asciiValue else { return false }
+        return (33...47).contains(value)
+            || (58...64).contains(value)
+            || (91...96).contains(value)
+            || (123...126).contains(value)
+    }
+}
+
+private struct RichTranscriptHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct AssistantMessageBody: View {
+    let message: TranscriptMessage
+    let onRichLayoutReady: (() -> Void)?
+
+    @State private var renderCache = AssistantTranscriptRenderCache()
+
+    private var renderInput: AssistantTranscriptRenderInput {
+        AssistantTranscriptRenderInput(text: message.text, streaming: message.streaming)
+    }
+
+    var body: some View {
+        Group {
+            switch AssistantTranscriptPresentationMode.mode(for: message) {
+            case .streamingPlain:
+                Text(verbatim: message.text.isEmpty ? "…" : message.text)
+                    .font(.subheadline)
+                    .foregroundStyle(FabricTheme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .accessibilityLabel("Fabric")
+                    .accessibilityValue(message.text.isEmpty ? "Streaming response" : message.text)
+            case .rich:
+                if let document = renderCache.document {
+                    AssistantTranscriptView(document: document)
+                        .frame(
+                            maxWidth: document.containsTechnicalBlock ? .infinity : nil,
+                            alignment: .leading
+                        )
+                        .background {
+                            if onRichLayoutReady != nil {
+                                GeometryReader { geometry in
+                                    Color.clear.preference(
+                                        key: RichTranscriptHeightPreferenceKey.self,
+                                        value: geometry.size.height
+                                    )
+                                }
+                            }
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("Fabric response")
+                } else {
+                    // A completed row is parsed once on appearance. This
+                    // verbatim fallback prevents a blank flash and preserves
+                    // malformed text while the state cache is populated.
+                    Text(verbatim: message.text)
+                        .font(.subheadline)
+                        .foregroundStyle(FabricTheme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .accessibilityLabel("Fabric")
+                        .accessibilityValue(message.text)
+                }
+            }
+        }
+        .onAppear { cacheDocument(for: renderInput) }
+        .onChange(of: renderInput) { _, newValue in
+            cacheDocument(for: newValue)
+        }
+        .onPreferenceChange(RichTranscriptHeightPreferenceKey.self) { height in
+            guard height > 0, renderCache.document != nil else { return }
+            onRichLayoutReady?()
+        }
+    }
+
+    private func cacheDocument(for input: AssistantTranscriptRenderInput) {
+        guard let reconciled = renderCache.reconciled(for: input) else { return }
+        renderCache = reconciled
+    }
+}
+
+private struct AssistantTranscriptView: View {
+    let document: AssistantTranscriptDocument
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(document.renderBlocks.indices, id: \.self) { index in
+                blockView(document.renderBlocks[index])
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func blockView(_ block: AssistantTranscriptDocument.RenderBlock) -> some View {
+        switch block {
+        case .paragraph(let attributed):
+            SafeInlineMarkdownText(attributed: attributed, font: .subheadline)
+        case .heading(let level, let attributed):
+            SafeInlineMarkdownText(attributed: attributed, font: headingFont(level))
+                .accessibilityAddTraits(.isHeader)
+        case .listItem(let marker, let depth, let attributed):
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(marker.displayText)
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(FabricTheme.textMuted)
+                SafeInlineMarkdownText(attributed: attributed, font: .subheadline)
+                    .layoutPriority(1)
+            }
+            .padding(.leading, CGFloat(depth) * 12)
+        case .code(let language, let text):
+            TechnicalTranscriptBlock(kind: .code(language: language), text: text)
+        case .diff(let text):
+            TechnicalTranscriptBlock(kind: .diff, text: text)
+        }
+    }
+
+    private func headingFont(_ level: Int) -> Font {
+        switch level {
+        case 1: return .title3.weight(.semibold)
+        case 2: return .headline.weight(.semibold)
+        default: return .subheadline.weight(.semibold)
+        }
+    }
+}
+
+private struct SafeInlineMarkdownText: View {
+    let attributed: AttributedString
+    let font: Font
+
+    var body: some View {
+        Text(attributed)
+            .font(font)
+            .foregroundStyle(FabricTheme.text)
+            .tint(FabricTheme.action)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+    }
+}
+
+private struct TechnicalTranscriptBlock: View {
+    enum Kind {
+        case code(language: String?)
+        case diff
+    }
+
+    let kind: Kind
+    let text: String
+
+    private var title: String {
+        switch kind {
+        case .code(let language):
+            return language.map { "Code · \($0)" } ?? "Code"
+        case .diff:
+            return "Unified diff"
+        }
+    }
+
+    private var isDiff: Bool {
+        if case .diff = kind { return true }
+        return false
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(FabricTheme.textMuted)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Button {
+                    UIPasteboard.general.string = text
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(FabricTheme.action)
+                .accessibilityLabel("Copy \(title.lowercased())")
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 2)
+
+            Divider()
+
+            ScrollView(.horizontal) {
+                Text(verbatim: text.isEmpty ? " " : text)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(FabricTheme.text)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(12)
+                    .textSelection(.enabled)
+            }
+            .scrollIndicators(.visible)
+            .accessibilityLabel(title)
+            .accessibilityValue(text)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(FabricTheme.surfaceInset)
+        .overlay {
+            RoundedRectangle(cornerRadius: FabricTheme.radius)
+                .stroke(FabricTheme.border, lineWidth: 1)
+        }
+        .overlay(alignment: .leading) {
+            if isDiff {
+                Rectangle()
+                    .fill(FabricTheme.thread)
+                    .frame(width: 3)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radius))
+        .accessibilityElement(children: .contain)
     }
 }

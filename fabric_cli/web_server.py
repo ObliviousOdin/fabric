@@ -3227,6 +3227,35 @@ def _loom_service():
         service._store.close()
 
 
+async def _loom_run(fn):
+    """Run a blocking Loom operation in a worker thread with its own service.
+
+    Deploys, rollbacks, and host scans shell out to ``docker``/``ssh`` (up to a
+    multi-minute timeout); running them inline on the event loop would freeze
+    unrelated API, WebSocket, and chat traffic. ``fn`` receives a
+    :class:`LoomService` and returns a JSON-serialisable result. The store is
+    opened *and* closed on the worker thread because SQLite connections are
+    thread-bound, and :class:`LoomError` is mapped onto the matching
+    :class:`HTTPException`.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    def _work():
+        service = open_service()
+        try:
+            return fn(service)
+        finally:
+            service._store.close()
+
+    try:
+        return await run_in_threadpool(_work)
+    except LoomError as exc:
+        raise HTTPException(
+            status_code=_LOOM_ERROR_STATUS.get(exc.code, 400),
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+
 class LoomHostCreate(BaseModel):
     name: str
     kind: str
@@ -3262,6 +3291,10 @@ class LoomRollbackRequest(BaseModel):
     to: str = ""
 
 
+class LoomApplyRequest(BaseModel):
+    allow_destructive: bool = False
+
+
 @app.get("/api/loom/status")
 async def loom_status():
     """Compact deploy-plane summary (host/project/deployment counts + active)."""
@@ -3294,8 +3327,8 @@ async def loom_add_host(body: LoomHostCreate, request: Request):
 @app.post("/api/loom/hosts/{host_id}/scan")
 async def loom_scan_host(host_id: str, request: Request):
     _require_token(request)
-    with _loom_service() as service:
-        return asdict(service.scan_host(host_id))
+    # Scan probes the host over SSH — offload to a worker thread.
+    return await _loom_run(lambda s: asdict(s.scan_host(host_id)))
 
 
 @app.get("/api/loom/projects")
@@ -3336,25 +3369,45 @@ async def loom_plan(body: LoomPlanRequest, request: Request):
         )
 
 
+@app.post("/api/loom/deployments/{deployment_id}/apply")
+async def loom_apply(deployment_id: str, body: LoomApplyRequest, request: Request):
+    """Apply a previously planned deployment by id.
+
+    This is the plan-before-mutation path the dashboard uses: it previews with
+    ``/api/loom/plan`` (which persists a ``PLANNED`` deployment), shows the user
+    the exact plan, then applies *that* deployment here — rather than replanning
+    a fresh one on confirm.
+    """
+    _require_token(request)
+    return await _loom_run(
+        lambda s: asdict(
+            s.apply_deploy(deployment_id, allow_destructive=body.allow_destructive)
+        )
+    )
+
+
 @app.post("/api/loom/deploy")
 async def loom_deploy(body: LoomDeployRequest, request: Request):
+    """Plan and apply in one call (non-interactive convenience)."""
     _require_token(request)
-    with _loom_service() as service:
-        return asdict(
-            service.deploy(
+    return await _loom_run(
+        lambda s: asdict(
+            s.deploy(
                 body.project,
                 body.host,
                 source_ref=body.source_ref,
                 allow_destructive=body.allow_destructive,
             )
         )
+    )
 
 
 @app.post("/api/loom/rollback")
 async def loom_rollback(body: LoomRollbackRequest, request: Request):
     _require_token(request)
-    with _loom_service() as service:
-        return asdict(service.rollback(body.project, body.host, to=body.to))
+    return await _loom_run(
+        lambda s: asdict(s.rollback(body.project, body.host, to=body.to))
+    )
 
 
 @app.get("/api/loom/deployments/{deployment_id}/logs")

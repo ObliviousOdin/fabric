@@ -186,9 +186,21 @@ class SshDriver(RuntimeDriver):
                 env.cleanup()
             except Exception:
                 pass
-        # SSHEnvironment.execute returns a result object or string depending on
-        # the base class; normalise to text.
-        return getattr(result, "output", None) or str(result)
+        # SSHEnvironment.execute (via BaseEnvironment) returns a dict with
+        # "output" and "returncode". Fail closed on a nonzero remote exit so a
+        # failed `docker compose` is never mistaken for a healthy release.
+        if isinstance(result, dict):
+            output = str(result.get("output", ""))
+            returncode = int(result.get("returncode") or 0)
+        else:  # defensive: alternate environments may return an object/string
+            attr_output = getattr(result, "output", None)
+            output = attr_output if attr_output is not None else str(result)
+            returncode = int(getattr(result, "returncode", 0) or 0)
+        if returncode != 0:
+            raise LoomDriverError(
+                f"remote command exited {returncode}: {output.strip()}"
+            )
+        return output
 
     def scan(self) -> ScanResult:
         result = ScanResult()

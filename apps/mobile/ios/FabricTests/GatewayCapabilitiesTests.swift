@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import XCTest
 @testable import Fabric
 
@@ -160,6 +161,180 @@ final class GatewayCapabilitiesTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testUnsupportedLiveViewIssuesNoScreenshotRequests() async {
+        let probe = ImmediateLiveViewCaptureProbe(outcomes: [
+            .capture(makeScreenCapture(width: 2, height: 2, color: .systemPurple)),
+        ])
+        let model = LiveViewModel(
+            supportsCapture: false,
+            interval: .seconds(60),
+            capture: probe.capture
+        )
+
+        model.appear(sceneIsActive: true)
+        model.retry()
+        await Task.yield()
+
+        XCTAssertTrue(model.isUnsupported)
+        XCTAssertFalse(model.isPolling)
+        XCTAssertEqual(probe.callCount, 0)
+        XCTAssertNil(model.frame)
+    }
+
+    @MainActor
+    func testLiveViewKeepsOneCaptureInFlightAcrossCancellationRaces() async {
+        let probe = SuspendedLiveViewCaptureProbe(
+            capture: makeScreenCapture(width: 3, height: 2, color: .systemBlue)
+        )
+        let model = LiveViewModel(
+            supportsCapture: true,
+            interval: .seconds(60),
+            capture: probe.capture
+        )
+
+        model.appear(sceneIsActive: true)
+        await assertEventually { probe.callCount == 1 }
+
+        // Exercise every restart edge while the transport deliberately
+        // ignores cancellation. None may open a second screenshot request.
+        model.setPaused(true)
+        model.setPaused(false)
+        model.setSceneActive(false)
+        model.setSceneActive(true)
+        model.retry()
+        await Task.yield()
+
+        XCTAssertEqual(probe.callCount, 1)
+        XCTAssertEqual(probe.maximumInFlight, 1)
+
+        probe.succeedPending()
+        await assertEventually { probe.callCount == 2 }
+        XCTAssertEqual(probe.maximumInFlight, 1)
+        // The cancelled first result must not become visible while the new
+        // lifecycle generation is waiting for its own frame.
+        XCTAssertNil(model.frame)
+
+        model.setPaused(true)
+        probe.succeedPending()
+        await assertEventually { !model.isPolling }
+        XCTAssertEqual(probe.maximumInFlight, 1)
+    }
+
+    @MainActor
+    func testLiveViewStopsOffscreenAndRefreshesImmediatelyOnResume() async {
+        let capture = makeScreenCapture(width: 4, height: 3, color: .systemGreen)
+        let probe = ImmediateLiveViewCaptureProbe(outcomes: Array(
+            repeating: .capture(capture),
+            count: 4
+        ))
+        let model = LiveViewModel(
+            supportsCapture: true,
+            interval: .seconds(60),
+            capture: probe.capture
+        )
+
+        model.appear(sceneIsActive: true)
+        await assertEventually { probe.callCount == 1 && model.frame != nil }
+
+        model.setPaused(true)
+        await assertEventually { !model.isPolling }
+        XCTAssertTrue(model.isFrameStale)
+        await briefYield()
+        XCTAssertEqual(probe.callCount, 1)
+
+        model.setPaused(false)
+        await assertEventually { probe.callCount == 2 }
+
+        model.setSceneActive(false)
+        await assertEventually { !model.isPolling }
+        await briefYield()
+        XCTAssertEqual(probe.callCount, 2)
+
+        model.setSceneActive(true)
+        await assertEventually { probe.callCount == 3 }
+
+        model.disappear()
+        await assertEventually { !model.isPolling }
+        model.setSceneActive(false)
+        model.setSceneActive(true)
+        await briefYield()
+        XCTAssertEqual(probe.callCount, 3)
+    }
+
+    @MainActor
+    func testLiveViewMarksTransientFrameStaleAndStopsOnHardFailure() async {
+        let firstCapture = makeScreenCapture(width: 5, height: 4, color: .systemOrange)
+        let recoveredCapture = makeScreenCapture(width: 7, height: 6, color: .systemIndigo)
+        let probe = ImmediateLiveViewCaptureProbe(outcomes: [
+            .capture(firstCapture),
+            .failure(GatewayClientError.requestTimedOut(method: "computer.screenshot")),
+            .capture(recoveredCapture),
+            .failure(GatewayClientError.rpc(message: "Screen capture stopped on the host.")),
+        ])
+        let model = LiveViewModel(
+            supportsCapture: true,
+            interval: .seconds(60),
+            capture: probe.capture
+        )
+
+        model.appear(sceneIsActive: true)
+        await assertEventually { probe.callCount == 1 && model.frame != nil }
+        let firstImage = model.frame?.image
+        XCTAssertEqual(model.frame?.dimensions, "5×4")
+        XCTAssertFalse(model.isFrameStale)
+
+        model.retry()
+        await assertEventually {
+            probe.callCount == 2 && model.isFrameStale && model.errorText != nil
+        }
+        XCTAssertFalse(model.retryRequired)
+        XCTAssertTrue(model.frame?.image === firstImage)
+
+        model.retry()
+        await assertEventually {
+            probe.callCount == 3 && !model.isFrameStale && model.frame?.dimensions == "7×6"
+        }
+        let recoveredImage = model.frame?.image
+        XCTAssertFalse(recoveredImage === firstImage)
+
+        model.retry()
+        await assertEventually {
+            probe.callCount == 4 && model.retryRequired && !model.isPolling
+        }
+        XCTAssertTrue(model.isFrameStale)
+        XCTAssertTrue(model.frame?.image === recoveredImage)
+        XCTAssertEqual(model.errorText, "Screen capture stopped on the host.")
+    }
+
+    @MainActor
+    func testInitialLiveViewFailureWaitsForExplicitRetry() async {
+        let probe = ImmediateLiveViewCaptureProbe(outcomes: [
+            .failure(GatewayClientError.rpc(message: "Capture service is unavailable.")),
+            .capture(makeScreenCapture(width: 2, height: 1, color: .systemTeal)),
+        ])
+        let model = LiveViewModel(
+            supportsCapture: true,
+            interval: .seconds(60),
+            capture: probe.capture
+        )
+
+        model.appear(sceneIsActive: true)
+        await assertEventually {
+            probe.callCount == 1 && model.retryRequired && !model.isPolling
+        }
+        await briefYield()
+        XCTAssertEqual(probe.callCount, 1)
+        XCTAssertNil(model.frame)
+        XCTAssertEqual(model.errorText, "Capture service is unavailable.")
+
+        model.retry()
+        await assertEventually {
+            probe.callCount == 2 && model.frame != nil && !model.retryRequired
+        }
+        XCTAssertEqual(model.frame?.dimensions, "2×1")
+    }
+
     private func fixtureObject(_ name: String) throws -> [String: Any] {
         let value = try fixtureValue(name)
         return try XCTUnwrap(value as? [String: Any])
@@ -179,4 +354,106 @@ final class GatewayCapabilitiesTests: XCTestCase {
         let data = try Data(contentsOf: fixtureURL)
         return try JSONSerialization.jsonObject(with: data)
     }
+}
+
+@MainActor
+private enum LiveViewCaptureOutcome {
+    case capture(ScreenCapture)
+    case failure(Error)
+}
+
+@MainActor
+private final class ImmediateLiveViewCaptureProbe {
+    private var outcomes: [LiveViewCaptureOutcome]
+    private(set) var callCount = 0
+    private(set) var maximumInFlight = 0
+    private var inFlight = 0
+
+    init(outcomes: [LiveViewCaptureOutcome]) {
+        self.outcomes = outcomes
+    }
+
+    func capture() async throws -> ScreenCapture {
+        callCount += 1
+        inFlight += 1
+        maximumInFlight = max(maximumInFlight, inFlight)
+        defer { inFlight -= 1 }
+
+        guard !outcomes.isEmpty else {
+            throw GatewayClientError.rpc(message: "Unexpected capture request.")
+        }
+        switch outcomes.removeFirst() {
+        case .capture(let capture):
+            return capture
+        case .failure(let error):
+            throw error
+        }
+    }
+}
+
+@MainActor
+private final class SuspendedLiveViewCaptureProbe {
+    private let captureValue: ScreenCapture
+    private var continuation: CheckedContinuation<ScreenCapture, Error>?
+    private(set) var callCount = 0
+    private(set) var maximumInFlight = 0
+    private var inFlight = 0
+
+    init(capture: ScreenCapture) {
+        captureValue = capture
+    }
+
+    func capture() async throws -> ScreenCapture {
+        callCount += 1
+        inFlight += 1
+        maximumInFlight = max(maximumInFlight, inFlight)
+        defer { inFlight -= 1 }
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func succeedPending() {
+        let pending = continuation
+        continuation = nil
+        pending?.resume(returning: captureValue)
+    }
+}
+
+@MainActor
+private func makeScreenCapture(width: Int, height: Int, color: UIColor) -> ScreenCapture {
+    let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
+    let image = renderer.image { context in
+        color.setFill()
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    }
+    return ScreenCapture(
+        image: image.pngData() ?? Data(),
+        width: width,
+        height: height
+    )
+}
+
+@MainActor
+private func eventually(_ predicate: () -> Bool) async -> Bool {
+    for _ in 0..<500 {
+        if predicate() { return true }
+        try? await Task.sleep(for: .milliseconds(2))
+    }
+    return predicate()
+}
+
+@MainActor
+private func assertEventually(
+    _ predicate: () -> Bool,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    let matched = await eventually(predicate)
+    XCTAssertTrue(matched, "Timed out waiting for condition", file: file, line: line)
+}
+
+@MainActor
+private func briefYield() async {
+    try? await Task.sleep(for: .milliseconds(20))
 }

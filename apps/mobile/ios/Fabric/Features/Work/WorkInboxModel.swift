@@ -602,20 +602,25 @@ final class WorkInboxModel {
 
     private func reconcileMutationFences(with state: FabricWorkProjection) {
         cancellationMutations = cancellationMutations.filter { jobID, mutation in
-            guard let job = state.jobs[jobID] else { return false }
+            // A cursor reset publishes an intentionally empty projection before
+            // the replacement bootstrap. Absence alone cannot prove that an
+            // in-flight or outcome-unknown mutation did not reach the server.
+            guard let job = state.jobs[jobID] else { return true }
             switch mutation.state {
             case .acknowledged(let version):
                 return job.version < version
             case .inFlight, .outcomeUnknown:
+                if job.version < mutation.expectedVersion { return true }
                 return job.version == mutation.expectedVersion && Self.canCancel(job)
             }
         }
         attentionMutations = attentionMutations.filter { attentionID, mutation in
-            guard let attention = state.attention[attentionID] else { return false }
+            guard let attention = state.attention[attentionID] else { return true }
             switch mutation.state {
             case .acknowledged(let version):
                 return attention.version < version
             case .inFlight, .outcomeUnknown:
+                if attention.version < mutation.expectedVersion { return true }
                 return attention.version == mutation.expectedVersion
                     && attention.state == "pending"
             }

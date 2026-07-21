@@ -633,6 +633,158 @@ final class WorkInboxModelTests: XCTestCase {
         XCTAssertEqual(gateway.cancelCalls.map(\.expectedVersion), [3, 3])
     }
 
+    func testCursorResetKeepsUnknownMutationFencesUntilNewerVersionsArrive() async throws {
+        let running = makeJob(
+            id: workID("job", 31),
+            status: "running",
+            version: 3,
+            updatedAt: 31
+        )
+        let newerRunning = makeJob(
+            id: running.jobID,
+            status: "running",
+            version: 4,
+            updatedAt: 34
+        )
+        let pending = makeAttention(
+            id: workID("attn", 31),
+            jobID: nil,
+            kind: "approval",
+            state: "pending",
+            version: 4,
+            updatedAt: 31
+        )
+        let newerPending = makeAttention(
+            id: pending.attentionID,
+            jobID: nil,
+            kind: "approval",
+            state: "pending",
+            version: 5,
+            updatedAt: 35
+        )
+        let ledger = workID("ledger", 31)
+        let gateway = ScriptedWorkInboxGateway()
+        gateway.syncHandlers = [
+            immediate(.page(bootstrapPage(
+                ledger: ledger,
+                cursor: 31,
+                jobs: [running],
+                attention: [pending]
+            ))),
+            immediate(.reset(FabricWorkCursorReset(
+                message: "Cursor expired",
+                data: .init(reason: "retention", ledgerID: ledger, eventFloor: 0, highWater: 33)
+            ))),
+            immediate(.page(bootstrapPage(
+                ledger: ledger,
+                cursor: 33,
+                jobs: [running],
+                attention: [pending]
+            ))),
+            immediate(.page(deltaPage(
+                ledger: ledger,
+                cursor: 35,
+                events: [
+                    jobEvent(34, job: newerRunning),
+                    attentionEvent(35, attention: newerPending),
+                ]
+            ))),
+        ]
+        gateway.cancelHandlers = [
+            failing(FixtureFailure("PRIVATE-CANCEL-TRANSPORT-DETAIL")),
+            { _, _, _, _, _ in
+                throw FabricWorkGatewayError.invalidRequest("Rejected before transport")
+            },
+        ]
+        gateway.attentionHandlers = [
+            { _, _, _, _, _, _, _ in
+                throw FixtureFailure("PRIVATE-ATTENTION-TRANSPORT-DETAIL")
+            },
+            { _, _, _, _, _, _, _ in
+                throw FabricWorkGatewayError.invalidRequest("Rejected before transport")
+            },
+        ]
+        var keys = [
+            "cancel-key-000000000007",
+            "attention-key-0000000007",
+            "cancel-key-000000000008",
+            "attention-key-0000000008",
+        ]
+        let model = WorkInboxModel(makeIdempotencyKey: { keys.removeFirst() })
+        let firstContext = try context(connectionGeneration: 1)
+        await model.refresh(using: gateway, context: firstContext, negotiation: durableNegotiation)
+
+        let unknownCancellation = await model.requestCancellation(
+            for: running.jobID,
+            using: gateway,
+            context: firstContext,
+            negotiation: durableNegotiation
+        )
+        let unknownAttention = await model.respondToAttention(
+            pending.attentionID,
+            action: "once",
+            using: gateway,
+            context: firstContext,
+            negotiation: durableNegotiation
+        )
+        XCTAssertEqual(unknownCancellation, .outcomeUnknown)
+        XCTAssertEqual(unknownAttention, .outcomeUnknown)
+
+        let secondContext = try context(connectionGeneration: 2)
+        await model.refresh(using: gateway, context: secondContext, negotiation: durableNegotiation)
+
+        XCTAssertFalse(try XCTUnwrap(model.sections.active.first).canCancel)
+        XCTAssertFalse(try XCTUnwrap(model.sections.unboundAttention.first).canRespond)
+        let duplicateCancellation = await model.requestCancellation(
+            for: running.jobID,
+            using: gateway,
+            context: secondContext,
+            negotiation: durableNegotiation
+        )
+        let duplicateAttention = await model.respondToAttention(
+            pending.attentionID,
+            action: "once",
+            using: gateway,
+            context: secondContext,
+            negotiation: durableNegotiation
+        )
+        XCTAssertEqual(duplicateCancellation, .reconciliationRequired)
+        XCTAssertEqual(duplicateAttention, .reconciliationRequired)
+        XCTAssertEqual(gateway.cancelCalls.count, 1)
+        XCTAssertEqual(gateway.attentionCalls.count, 1)
+
+        let thirdContext = try context(connectionGeneration: 3)
+        await model.refresh(using: gateway, context: thirdContext, negotiation: durableNegotiation)
+
+        XCTAssertTrue(try XCTUnwrap(model.sections.active.first).canCancel)
+        XCTAssertTrue(try XCTUnwrap(model.sections.unboundAttention.first).canRespond)
+        let newerCancellation = await model.requestCancellation(
+            for: running.jobID,
+            using: gateway,
+            context: thirdContext,
+            negotiation: durableNegotiation
+        )
+        let newerAttention = await model.respondToAttention(
+            pending.attentionID,
+            action: "once",
+            using: gateway,
+            context: thirdContext,
+            negotiation: durableNegotiation
+        )
+        XCTAssertEqual(newerCancellation, .invalidState)
+        XCTAssertEqual(newerAttention, .invalidState)
+        XCTAssertEqual(gateway.cancelCalls.map(\.expectedVersion), [3, 4])
+        XCTAssertEqual(gateway.cancelCalls.map(\.idempotencyKey), [
+            "cancel-key-000000000007",
+            "cancel-key-000000000008",
+        ])
+        XCTAssertEqual(gateway.attentionCalls.map(\.version), [4, 5])
+        XCTAssertEqual(gateway.attentionCalls.map(\.idempotencyKey), [
+            "attention-key-0000000007",
+            "attention-key-0000000008",
+        ])
+    }
+
     func testTerminalCancelReceiptDoesNotClaimARequestWasAccepted() async throws {
         let running = makeJob(id: workID("job", 14), status: "running", version: 4, updatedAt: 14)
         let terminal = makeJob(

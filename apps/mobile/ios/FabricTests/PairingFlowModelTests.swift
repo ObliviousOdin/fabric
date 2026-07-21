@@ -104,6 +104,38 @@ final class PairingFlowModelTests: XCTestCase {
                 )
             )
         )
+        guard case .gated(let target) = outcome else {
+            return XCTFail("Expected gated re-pair")
+        }
+        XCTAssertEqual(target.existingUsername(in: [existing]), "")
+    }
+
+    func testGatedEntryPointsShareSavedUsernameAndClearNewEndpointState() throws {
+        let existing = SavedGateway(
+            id: "existing-gateway",
+            label: "Existing",
+            baseURL: try XCTUnwrap(URL(string: "https://agent.example.test")),
+            authMode: .gated,
+            username: "operator"
+        )
+        let model = PairingFlowModel(gateways: [existing])
+        let raw = gatedPairing()
+
+        guard
+            case .gated(let scanTarget) = model.accept(.scan(raw)),
+            case .gated(let deepLinkTarget) = model.accept(
+                .deepLink(try XCTUnwrap(URL(string: raw)))
+            )
+        else { return XCTFail("Expected gated pairing targets") }
+
+        XCTAssertEqual(scanTarget, deepLinkTarget)
+        XCTAssertEqual(scanTarget.existingUsername(in: [existing]), "operator")
+        XCTAssertEqual(
+            PairingFlowTarget.new(
+                baseURL: try XCTUnwrap(URL(string: "https://new.example.test"))
+            ).existingUsername(in: [existing]),
+            ""
+        )
     }
 
     func testCameraAndDeepLinkUseTheSameClassifier() throws {
@@ -116,7 +148,7 @@ final class PairingFlowModelTests: XCTestCase {
         XCTAssertEqual(cameraOutcome, deepLinkOutcome)
     }
 
-    func testExecutionGateRejectsConcurrentDuplicateEndpointThenAllowsRetry() throws {
+    func testExecutionGateRejectsConcurrentDuplicateEndpointThenAllowsRetry() async throws {
         let target = PairingFlowTarget.new(
             baseURL: try XCTUnwrap(URL(string: "https://agent.example.test"))
         )
@@ -124,13 +156,57 @@ final class PairingFlowModelTests: XCTestCase {
             existingGatewayID: "existing",
             baseURL: try XCTUnwrap(URL(string: "HTTPS://AGENT.EXAMPLE.TEST:443/"))
         )
-        var gate = PairingFlowExecutionGate()
+        let gateway = SavedGateway(
+            label: "Agent",
+            baseURL: target.baseURL,
+            authMode: .token
+        )
+        let gate = PairingFlowExecutionGate()
+        var nestedResult: PairingTokenConnectResult?
 
-        XCTAssertTrue(gate.begin(target))
-        XCTAssertFalse(gate.begin(cosmeticDuplicate))
+        let outerResult = await gate.execute(target) {
+            nestedResult = await gate.execute(cosmeticDuplicate) {
+                XCTFail("Duplicate endpoint operation must not execute")
+                return .attempted(gateway)
+            }
+            return .attempted(gateway)
+        }
+        XCTAssertEqual(outerResult, .attempted(gateway))
+        XCTAssertEqual(nestedResult, .alreadyInFlight)
 
-        gate.finish(target)
-        XCTAssertTrue(gate.begin(cosmeticDuplicate))
+        let retryResult = await gate.execute(cosmeticDuplicate) {
+            .attempted(gateway)
+        }
+        XCTAssertEqual(retryResult, .attempted(gateway))
+    }
+
+    func testExecutionGateCleanupAllowsRetryAfterFailure() async throws {
+        enum ExpectedFailure: Error { case storage }
+
+        let target = PairingFlowTarget.new(
+            baseURL: try XCTUnwrap(URL(string: "https://agent.example.test"))
+        )
+        let gateway = SavedGateway(
+            label: "Agent",
+            baseURL: target.baseURL,
+            authMode: .token
+        )
+        let gate = PairingFlowExecutionGate()
+
+        do {
+            _ = try await gate.execute(target) {
+                throw ExpectedFailure.storage
+            }
+            XCTFail("Expected storage failure")
+        } catch ExpectedFailure.storage {
+            // Expected. The retry below proves the production defer released
+            // the endpoint permit on the throwing path.
+        }
+
+        let retryResult = await gate.execute(target) {
+            .attempted(gateway)
+        }
+        XCTAssertEqual(retryResult, .attempted(gateway))
     }
 
     private func tokenPairing(token: String) -> String {

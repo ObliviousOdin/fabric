@@ -31,7 +31,7 @@ final class AppModel {
     private var reconnectFailures = 0
     private var isForeground = true
     private var permitsAutomaticReconnect = false
-    private var pairingExecutionGate = PairingFlowExecutionGate()
+    private let pairingExecutionGate = PairingFlowExecutionGate()
     let api: GatewayAPI
 
     var activeGateway: SavedGateway? {
@@ -107,18 +107,18 @@ final class AppModel {
     /// Persist one accepted pairing token and start one connection attempt.
     /// The credential leaves its redacting wrapper only inside the synchronous
     /// Keychain write, and is never copied into observable app state.
-    func connectPairingToken(_ acceptance: PairingTokenAcceptance) async throws {
-        guard pairingExecutionGate.begin(acceptance.target) else { return }
-        defer { pairingExecutionGate.finish(acceptance.target) }
-
-        let gateway = try acceptance.withUnsafeToken { token in
-            try saveTokenGateway(
-                label: "",
-                baseURL: acceptance.target.baseURL,
-                token: token
-            )
+    func connectPairingToken(_ acceptance: PairingTokenAcceptance) async throws -> PairingTokenConnectResult {
+        try await pairingExecutionGate.execute(acceptance.target) {
+            let gateway = try acceptance.withUnsafeToken { token in
+                try saveTokenGateway(
+                    label: "",
+                    baseURL: acceptance.target.baseURL,
+                    token: token
+                )
+            }
+            await connectToken(gateway)
+            return .attempted(gateway)
         }
-        await connectToken(gateway)
     }
 
     /// Accept a native deep link from the browser pairing page. Token-mode
@@ -135,19 +135,18 @@ final class AppModel {
             Task { [weak self] in
                 guard let self else { return }
                 do {
-                    try await self.connectPairingToken(acceptance)
+                    if try await self.connectPairingToken(acceptance) == .alreadyInFlight {
+                        self.lastConnectError = "Pairing is already in progress for this server."
+                    }
                 } catch {
                     self.lastConnectError = GatewayStoreError.credentialStorageUnavailable.localizedDescription
                 }
             }
         case .gated(let target):
-            let username = target.existingGatewayID
-                .flatMap { existingID in gateways.first { $0.id == existingID }?.username }
-                ?? ""
             pendingSignInGateway = saveGatedGateway(
                 label: "",
                 baseURL: target.baseURL,
-                username: username
+                username: target.existingUsername(in: gateways)
             )
         }
     }
@@ -266,6 +265,7 @@ final class AppModel {
             reconnectFailures = 0
             permitsAutomaticReconnect = true
             connectionGeneration += 1
+            lastConnectError = nil
             phase = .connected
         } catch {
             guard connectionAttempt == attempt else { return }

@@ -43,6 +43,14 @@ enum PairingFlowTarget: Equatable {
         guard case .rePair(let existingGatewayID, _) = self else { return nil }
         return existingGatewayID
     }
+
+    /// Reuse saved gated metadata for both scanner and deep-link entry. A new
+    /// endpoint deliberately returns an empty value so stale form state cannot
+    /// leak from a previously edited server.
+    func existingUsername(in gateways: [SavedGateway]) -> String {
+        guard let existingGatewayID else { return "" }
+        return gateways.first { $0.id == existingGatewayID }?.username ?? ""
+    }
 }
 
 /// An accepted token-mode pairing. The token is intentionally private and
@@ -70,6 +78,14 @@ struct PairingTokenAcceptance: Equatable, CustomStringConvertible, CustomDebugSt
     }
 
     var debugDescription: String { description }
+}
+
+/// Observable result of attempting the token-pairing boundary. Duplicate
+/// entry is explicit instead of silently discarding a newly delivered QR or
+/// deep link while the same endpoint is already connecting.
+enum PairingTokenConnectResult: Equatable {
+    case attempted(SavedGateway)
+    case alreadyInFlight
 }
 
 /// Complete, fail-closed result of classifying a native pairing input.
@@ -135,14 +151,22 @@ struct PairingFlowModel {
 /// Prevents the camera and universal-link entry points from executing the
 /// same endpoint pairing concurrently. The key is derived only from the
 /// non-secret endpoint; no token or enrollment handle is retained.
-struct PairingFlowExecutionGate {
+final class PairingFlowExecutionGate {
     private var endpointKeysInFlight = Set<String>()
 
-    mutating func begin(_ target: PairingFlowTarget) -> Bool {
-        endpointKeysInFlight.insert(SavedGateway.endpointKey(for: target.baseURL)).inserted
-    }
+    /// Run the complete storage + connection boundary while holding the
+    /// endpoint permit. Keeping acquire/defer/release here makes cleanup after
+    /// either storage or network failure directly testable.
+    func execute(
+        _ target: PairingFlowTarget,
+        operation: () async throws -> PairingTokenConnectResult
+    ) async rethrows -> PairingTokenConnectResult {
+        let endpointKey = SavedGateway.endpointKey(for: target.baseURL)
+        guard endpointKeysInFlight.insert(endpointKey).inserted else {
+            return .alreadyInFlight
+        }
+        defer { endpointKeysInFlight.remove(endpointKey) }
 
-    mutating func finish(_ target: PairingFlowTarget) {
-        endpointKeysInFlight.remove(SavedGateway.endpointKey(for: target.baseURL))
+        return try await operation()
     }
 }

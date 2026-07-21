@@ -1216,3 +1216,325 @@ def test_unsupported_job_kind_has_stable_typed_error(tmp_path: Path) -> None:
         "message": "Unsupported job kind",
         "data": {"code": "unsupported_job_kind"},
     }
+
+
+def test_job_create_replays_same_job_after_detach_and_reconnect(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The same idempotency_key re-issued after a transport detach and reconnect
+    returns the same durable Job with no duplicate Run, row, or event, and no
+    raw prompt on disk."""
+    session, _first_transport = _install_session(tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+    calls: list[str] = []
+
+    def runner(spec, _control):
+        calls.append(spec.prompt)
+        started.set()
+        assert release.wait(timeout=5)
+        return {"final_response": "done"}
+
+    monkeypatch.setattr(server, "_run_durable_background_agent", runner)
+    base = {
+        "session_id": "mobile-session",
+        "kind": "background_prompt",
+        "idempotency_key": "reconnect-create-key-0001",
+        "title": "Reconnecting job",
+    }
+    first = _rpc("job.create", {**base, "text": "FIRST-RECONNECT-PROMPT"}, "first")[
+        "result"
+    ]
+    job_id = first["job"]["job_id"]
+    assert started.wait(timeout=5)
+
+    # The phone drops its socket; the runtime keeps executing on the gateway.
+    session["transport"] = server._detached_ws_transport
+    release.set()
+    _wait_for_job(session, job_id, "succeeded")
+
+    # The phone reconnects on a fresh transport and retries the SAME create.
+    session["transport"] = RecordingTransport()
+    replay = _rpc("job.create", {**base, "text": "SECOND-RECONNECT-PROMPT"}, "replay")[
+        "result"
+    ]
+
+    assert replay["job"]["job_id"] == job_id
+    assert replay["replayed"] is True
+    assert replay["runtime_started"] is False
+    # The runner executed exactly once and only ever saw the first prompt.
+    assert calls == ["FIRST-RECONNECT-PROMPT"]
+
+    profile = Path(session["profile_home"])
+    conn = sqlite3.connect(profile / "work.db")
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM job_runs").fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM idempotency_keys WHERE operation='job.create'"
+            ).fetchone()[0]
+            == 1
+        )
+        dump = "\n".join(conn.iterdump())
+    finally:
+        conn.close()
+    assert "FIRST-RECONNECT-PROMPT" not in dump
+    assert "SECOND-RECONNECT-PROMPT" not in dump
+
+
+def test_cross_profile_list_and_mutation_isolation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Profile B can never list, read, or cancel profile A's work, and its
+    scope id never crosses."""
+    session_a, _ = _install_session(tmp_path, "gateway-a")
+    _session_b, _ = _install_session(tmp_path, "gateway-b")
+    release = threading.Event()
+    monkeypatch.setattr(
+        server,
+        "_run_durable_background_agent",
+        lambda _spec, _control: release.wait(timeout=5) or {"final_response": "done"},
+    )
+    created = _rpc(
+        "job.create",
+        {
+            "session_id": "gateway-a",
+            "kind": "background_prompt",
+            "text": "profile-a-work",
+            "idempotency_key": "cross-profile-key-000001",
+        },
+    )["result"]
+    job_id = created["job"]["job_id"]
+    b_created = _rpc(
+        "job.create",
+        {
+            "session_id": "gateway-b",
+            "kind": "background_prompt",
+            "text": "profile-b-work",
+            "idempotency_key": "cross-profile-key-b00001",
+        },
+    )["result"]
+    b_job_id = b_created["job"]["job_id"]
+
+    # Each profile's list contains only its own job -> the absence check below
+    # operates over a genuinely non-empty page on both sides.
+    a_job_ids = {job["job_id"] for job in _rpc("job.list", {"session_id": "gateway-a"})["result"]["jobs"]}
+    b_result = _rpc("job.list", {"session_id": "gateway-b"})["result"]
+    b_job_ids = {job["job_id"] for job in b_result["jobs"]}
+    a_result = _rpc("job.list", {"session_id": "gateway-a"})["result"]
+    assert job_id in a_job_ids and b_job_id not in a_job_ids
+    assert b_job_id in b_job_ids and job_id not in b_job_ids
+    assert b_result["work_profile_id"] != a_result["work_profile_id"]
+
+    b_attention = _rpc("attention.list", {"session_id": "gateway-b"})["result"]
+    assert b_attention["work_profile_id"] == b_result["work_profile_id"]
+
+    # B cannot read or cancel A's Job by id: both resolve within B's own ledger.
+    assert (
+        _rpc("job.get", {"session_id": "gateway-b", "job_id": job_id})["error"]["data"][
+            "code"
+        ]
+        == "not_found"
+    )
+    b_cancel = _rpc(
+        "job.cancel",
+        {
+            "session_id": "gateway-b",
+            "job_id": job_id,
+            "expected_version": 1,
+            "idempotency_key": "cross-profile-cancel-0001",
+        },
+    )
+    assert b_cancel["error"]["data"]["code"] == "not_found"
+
+    # A's Job is untouched by B's attempts.
+    assert server._work_service_for_session(session_a).ledger.get_job(job_id)[
+        "status"
+    ] in {"queued", "claimed", "running"}
+    release.set()
+
+
+def test_job_sync_delta_cursor_expires_after_retention_prune(tmp_path: Path) -> None:
+    """A delta cursor below the pruned event floor fails closed through the RPC
+    with a bootstrap-signalling cursor_expired error."""
+    session, _ = _install_session(tmp_path)
+    service = server._work_service_for_session(session)
+    service.ledger.create_job(
+        kind="background_prompt",
+        title="Prunable",
+        source="mobile",
+        owner=service.owner,
+        idempotency_key="cursor-expiry-key-000001",
+        source_session_key="conversation-mobile-session",
+        runtime_session_id="runtime-cursor",
+        runtime_summary={"kind": "in_process_agent"},
+        run_runtime={"kind": "in_process_agent"},
+    )
+    ledger_id = service.ledger_id
+    ok = _rpc(
+        "job.sync",
+        {"session_id": "mobile-session", "ledger_id": ledger_id, "after": 0},
+    )
+    assert "error" not in ok
+
+    # Prune events far in the future so the event floor rises above the cursor.
+    result = service.ledger.run_retention(
+        now=time.time() + 31 * 24 * 60 * 60,
+        retention_seconds=30 * 24 * 60 * 60,
+    )
+    # The floor moved strictly past the held cursor (after=0), and the durable
+    # Job survived the prune, so the expiry below is genuine, not a deletion.
+    assert result["event_floor"] > 1
+    assert result["jobs_deleted"] == 0
+
+    expired = _rpc(
+        "job.sync",
+        {"session_id": "mobile-session", "ledger_id": ledger_id, "after": 0},
+    )
+    assert expired["error"]["code"] == server._WORK_ERROR_NUMBERS["cursor_expired"]
+    assert expired["error"]["data"]["code"] == "cursor_expired"
+    assert expired["error"]["data"]["bootstrap"] is True
+
+
+def test_sudo_password_never_enters_work_db_or_wal(tmp_path: Path) -> None:
+    """A successfully submitted sudo password is delivered in-process only and
+    never lands in work.db, its WAL, or the durable receipt."""
+    session, _ = _install_session(tmp_path)
+    service = server._work_service_for_session(session)
+    sentinel = "SUDO-PASSWORD-" + "p" * 40
+    delivered: list[object] = []
+    attention = service.create_attention_waiter(
+        source_session_key="conversation-mobile-session",
+        runtime_session_id="mobile-session",
+        request_id="sudo-secret-request-0001",
+        kind="sudo",
+        title="Elevate privileges",
+        public_payload={"command": "deploy"},
+        sensitive=True,
+        deliver=lambda value: delivered.append(value) or True,
+    )
+    response = _rpc(
+        "attention.respond",
+        {
+            "session_id": "mobile-session",
+            "attention_id": attention["attention_id"],
+            "expected_version": 1,
+            "idempotency_key": "sudo-secret-response-0001",
+            "action": "submit",
+            "value": sentinel,
+        },
+    )
+    assert "error" not in response
+    assert delivered == [sentinel]
+
+    db_path = Path(session["profile_home"]) / "work.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        dump = "\n".join(conn.iterdump())
+    finally:
+        conn.close()
+    assert sentinel not in dump
+    assert sentinel.encode() not in db_path.read_bytes()
+    wal = db_path.with_name("work.db-wal")
+    if wal.exists():
+        assert sentinel.encode() not in wal.read_bytes()
+    assert sentinel not in repr(response)
+
+
+def test_job_create_prompt_never_persists_in_work_db_or_wal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A secret-bearing prompt never lands in committed pages or an
+    un-checkpointed WAL frame of work.db."""
+    session, _ = _install_session(tmp_path)
+    sentinel = "PROMPT-SECRET-" + "q" * 40
+    monkeypatch.setattr(
+        server,
+        "_run_durable_background_agent",
+        lambda _spec, _control: {"final_response": "finished"},
+    )
+    created = _rpc(
+        "job.create",
+        {
+            "session_id": "mobile-session",
+            "kind": "background_prompt",
+            "text": sentinel,
+            "idempotency_key": "prompt-wal-key-000001",
+        },
+    )["result"]
+    _wait_for_job(session, created["job"]["job_id"], "succeeded")
+
+    db_path = Path(session["profile_home"]) / "work.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        conn.close()
+    assert sentinel.encode() not in db_path.read_bytes()
+    wal = db_path.with_name("work.db-wal")
+    if wal.exists():
+        assert sentinel.encode() not in wal.read_bytes()
+
+
+def test_tool_output_callbacks_never_enter_durable_work_events(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Tool-output and thinking callbacks that echo raw text never reach the
+    durable work_events store."""
+    session, _ = _install_session(tmp_path)
+    sentinel = "TOOL-OUTPUT-" + "r" * 40
+
+    def runner(spec, control):
+        callbacks = server._background_agent_callbacks(spec, control)
+        callbacks["tool_start_callback"]("tool-id", "terminal", {"value": sentinel})
+        callbacks["thinking_callback"](sentinel)
+        return {"final_response": "ok"}
+
+    monkeypatch.setattr(server, "_run_durable_background_agent", runner)
+    created = _rpc(
+        "job.create",
+        {
+            "session_id": "mobile-session",
+            "kind": "background_prompt",
+            "text": "safe prompt",
+            "idempotency_key": "tool-events-key-000001",
+        },
+    )["result"]
+    _wait_for_job(session, created["job"]["job_id"], "succeeded")
+
+    service = server._work_service_for_session(session)
+    assert sentinel not in json.dumps(service.ledger.list_events())
+    conn = sqlite3.connect(Path(session["profile_home"]) / "work.db")
+    try:
+        dump = "\n".join(conn.iterdump())
+    finally:
+        conn.close()
+    assert sentinel not in dump
+
+
+def test_work_methods_stay_registered_but_forward_proof_unadvertised(
+    tmp_path: Path,
+) -> None:
+    """durable_work stays unadvertised in a forward-proof way: no job.*/
+    attention.* method is advertised however it is later named, even though the
+    handlers are registered, and the restart-honesty flag stays truthful."""
+    import re
+
+    _install_session(tmp_path)
+    caps = _rpc("gateway.capabilities", {})["result"]
+    advertised = set(caps["methods"])
+    work_pattern = re.compile(r"^(job|attention)\.")
+
+    # Not a hardcoded denylist: NO advertised method matches the work namespace.
+    assert not any(work_pattern.match(name) for name in advertised)
+    # The durable backend really is wired up, yet every method stays hidden.
+    registered_work = {name for name in server._methods if work_pattern.match(name)}
+    assert registered_work
+    assert registered_work.isdisjoint(advertised)
+    # No feature key hints at durable work.
+    assert "durable_work" not in caps["features"]
+    assert not any("durable" in key for key in caps["features"])
+    # Restart honesty: in-process work does not survive a gateway restart.
+    assert caps["execution"]["survives_gateway_restart"] is False

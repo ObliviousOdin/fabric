@@ -1740,3 +1740,110 @@ def test_service_shutdown_cleans_only_its_profile_runtime_waiters_and_queue(
     second_reservation.release()
     service_two.shutdown()
     scheduler.shutdown()
+
+
+def test_startup_reconcile_survives_concurrent_race_and_reconciles_the_rest(
+    tmp_path: Path, runtime_owner: OwnerProof
+) -> None:
+    """A peer gateway may reconcile the same lost owner first.
+
+    ``reconcile_startup`` runs inside ``__init__``; a benign compare-and-swap
+    race on one owner must not fail service construction, and every remaining
+    proven-lost owner must still be reconciled.
+    """
+    from fabric_cli.work_ledger import VersionConflict
+
+    class RacingLedger(FakeLedger):
+        def __init__(self) -> None:
+            super().__init__()
+            self.attempts: list[tuple[object, str]] = []
+
+        def reconcile_owner(self, *, owner: object, classification: str):
+            self.attempts.append((owner, classification))
+            if classification == "different_boot":
+                # Another process won the transition for this owner first.
+                raise VersionConflict("owner already reconciled by a peer")
+            self.reconciled.append((owner, classification))
+            return {"has_more": False}
+
+    ledger = RacingLedger()
+    different_boot = replace(runtime_owner, boot_token="instantiation:old", pid=10)
+    dead = replace(runtime_owner, pid=11, start_token="dead-start", generation="dead")
+    ledger.candidates = [
+        {"owner": proof, "run_count": 1, "attention_count": 0}
+        for proof in (different_boot, dead)
+    ]
+    alive = {10: True, 11: False}
+
+    # auto_reconcile=True drives reconciliation from __init__; before the guard
+    # this construction raised VersionConflict for the racing owner.
+    service = WorkService(
+        tmp_path,
+        ledger=ledger,
+        scheduler=GlobalWorkScheduler(SchedulerLimits(1, 1)),
+        owner=runtime_owner,
+        pid_exists=lambda pid: alive[pid],
+        start_token_probe=lambda pid: None,
+        auto_reconcile=True,
+    )
+    try:
+        assert (different_boot, "different_boot") in ledger.attempts
+        # The racing owner is attempted exactly once then skipped (break, not
+        # a retry loop up to the batch cap), and the proven-dead owner is reconciled.
+        assert sum(1 for _, c in ledger.attempts if c == "different_boot") == 1
+        assert ledger.reconciled == [(dead, "dead")]
+    finally:
+        service.shutdown()
+        service.scheduler.shutdown()
+
+
+def test_ledger_race_replay_receipt_reports_no_runtime_started(
+    tmp_path: Path, runtime_owner: OwnerProof
+) -> None:
+    """A create the ledger dedupes as a concurrent duplicate must return the
+    same truthful shape as the preflight replay: ``replayed`` True and
+    ``runtime_started`` False, so a client never attaches to a Run it did not
+    schedule."""
+
+    class ReplayingCreateLedger(FakeLedger):
+        def get_idempotency(self, *, operation: str, idempotency_key: str):
+            return None
+
+        def create_job(self, **_kwargs):
+            return {
+                "replayed": True,
+                "mutation_id": "mut_ledger_race",
+                "job": {
+                    "job_id": "job_" + "1" * 32,
+                    "current_run": {"run_id": "run_" + "1" * 32},
+                },
+            }
+
+    ledger = ReplayingCreateLedger()
+    scheduler = GlobalWorkScheduler(SchedulerLimits(1, 1))
+    service = WorkService(
+        tmp_path,
+        ledger=ledger,
+        scheduler=scheduler,
+        owner=runtime_owner,
+        auto_reconcile=False,
+    )
+    ran: list[str] = []
+    try:
+        receipt = service.create_background_job(
+            runtime_session_id="runtime-race",
+            source_session_key="session-race",
+            text="prompt race",
+            title="Background race",
+            idempotency_key="ledger-race-key-00000001",
+            agent_inputs={"model": "test"},
+            runner=lambda spec, control: ran.append(spec.run_id),
+        )
+    finally:
+        service.shutdown()
+        scheduler.shutdown()
+
+    assert receipt["replayed"] is True
+    assert receipt["runtime_started"] is False
+    # The ledger already owned the durable Job, so no second runtime was started.
+    assert ran == []

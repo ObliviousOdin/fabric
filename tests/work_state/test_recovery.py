@@ -140,3 +140,29 @@ def test_reconcile_exact_owner_does_not_touch_foreign_owner(
     assert result["runs_reconciled"] == 1
     assert ledger.get_job(local_job["job_id"])["status"] == "interrupted"
     assert ledger.get_job(foreign_job["job_id"])["status"] == "queued"
+
+
+def test_running_job_without_attention_interrupts_under_dead_owner(
+    ledger: WorkLedger, owner: RuntimeOwner, create_job
+) -> None:
+    """A plain running Run with no open Attention, owned by a proven-dead
+    owner, reconciles to a truthful interrupted terminal state."""
+    job = create_job()["job"]
+    job_id = job["job_id"]
+    claimed = ledger.transition_job(job_id, expected_version=1, next_status="claimed")
+    ledger.transition_job(
+        job_id, expected_version=claimed["version"], next_status="running"
+    )
+    assert ledger.list_nonterminal_owners() == [
+        {"owner": owner, "run_count": 1, "attention_count": 0}
+    ]
+
+    result = ledger.reconcile_owner(owner, "dead")
+
+    assert result["runs_reconciled"] == 1
+    assert result["attention_reconciled"] == 0
+    interrupted = ledger.get_job(job_id)
+    assert interrupted["status"] == "interrupted"
+    assert interrupted["error"]["code"] == "runtime_owner_lost"
+    assert interrupted["open_attention_count"] == 0
+    assert ledger.list_nonterminal_owners() == []

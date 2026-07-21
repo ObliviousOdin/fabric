@@ -9,6 +9,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "fabric_cli/main.py"
+      - "fabric_cli/work_ledger.py"
       - "fabric_cli/mobile_*.py"
       - "fabric_cli/subcommands/dashboard.py"
       - "fabric_cli/subcommands/mobile.py"
@@ -16,6 +17,9 @@ on:
       - "fabric_cli/dashboard_auth/middleware.py"
       - "tui_gateway/**"
       - "tools/approval.py"
+      - "tests/work_state/**"
+      - "tests/tui_gateway/test_work_ledger_e2e.py"
+      - "tests/tui_gateway/test_work_ledger_rpc.py"
       - "tests/test_tui_gateway_server.py"
       - "tests/fabric_cli/test_dashboard_unified_launch.py"
       - "tests/fabric_cli/test_mobile_*.py"
@@ -30,6 +34,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "fabric_cli/main.py"
+      - "fabric_cli/work_ledger.py"
       - "fabric_cli/mobile_*.py"
       - "fabric_cli/subcommands/dashboard.py"
       - "fabric_cli/subcommands/mobile.py"
@@ -37,6 +42,9 @@ on:
       - "fabric_cli/dashboard_auth/middleware.py"
       - "tui_gateway/**"
       - "tools/approval.py"
+      - "tests/work_state/**"
+      - "tests/tui_gateway/test_work_ledger_e2e.py"
+      - "tests/tui_gateway/test_work_ledger_rpc.py"
       - "tests/test_tui_gateway_server.py"
       - "tests/fabric_cli/test_dashboard_unified_launch.py"
       - "tests/fabric_cli/test_mobile_*.py"
@@ -230,13 +238,16 @@ jobs:
           npm test --workspace apps/mobile-web -- --run
           npm run build --workspace apps/mobile-web
 
-      - name: Test Python mobile delivery and gateway contracts
+      - name: Test Python mobile delivery and durable gateway contracts
         run: >-
           scripts/run_tests.sh
           tests/fabric_cli/test_mobile_command.py
           tests/fabric_cli/test_dashboard_unified_launch.py
           tests/fabric_cli/test_mobile_pairing.py
           tests/fabric_cli/test_mobile_web_server.py
+          tests/work_state
+          tests/tui_gateway/test_work_ledger_e2e.py
+          tests/tui_gateway/test_work_ledger_rpc.py
           tests/test_tui_gateway_server.py
           -q
 

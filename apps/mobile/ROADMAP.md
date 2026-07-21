@@ -68,7 +68,7 @@ Scope:
 - One obvious goal composer plus running and recent work.
 - Existing sessions, steering, approvals, background work, commands, processes,
   and live view become discoverable without an overflow-menu scavenger hunt.
-- Deterministic light/dark/loading/empty/error/offline screenshot fixtures,
+- Deterministic light/dark/running/typed-enabled/loading/empty/error/offline screenshot fixtures,
   Dynamic Type checks, VoiceOver navigation checks, and 44-point targets.
 
 Exit evidence:
@@ -148,8 +148,8 @@ No phase is complete because a simulator build launches. Every release needs:
 
 | Phase | State | Evidence / next gate |
 | --- | --- | --- |
-| FMB-P0 | Ready to land | PR #66 passes every native/mobile/web/release/public-history check after the stale branch was rewritten without changing its tip tree. Required review, merge, Xcode Cloud release settings, merged-SHA archive, and physical-iPhone smoke remain. |
-| FMB-P1 | Core reviewed | Draft PR #67 passes the complete hosted matrix. Its fail-closed native goal portfolio derives needs-attention, active, outcome, unsupported, and standalone-Attention state from durable Work; 68 native tests and the unsigned Release package pass. Three visual directions are ready, and screen implementation still starts only after one is selected. |
+| FMB-P0 | Landed | PR #66 merged as `00c8c2f0`. Xcode Cloud release settings, the merged-SHA archive/upload, and the physical-iPhone smoke pass remain before a reproducible P0 build can be marked shipped. |
+| FMB-P1 | Local candidate verified | Conversation-first is implemented as the `0.2.0` candidate: canonical outcome composer, at-most-once foreground goal launch with duplicate-safe recovery for unknown create outcomes, prioritized live conversation, recent briefing, and recoverable session navigation against the advertised session contract. Same-viewport comparison, the complete state matrix, accessibility review, 12/12 generation tests, 80/80 native tests, unsigned Release packaging, metadata/privacy audit, and final code/design review pass locally. The reviewed fail-closed goal portfolio remains non-production authority while Durable Work is intentionally unadvertised. Hosted checks, physical-device validation, merge, Xcode Cloud archive/upload, and internal TestFlight confirmation remain. |
 | FMB-P2 | Planned | Requires the P1 product shell and push/attachment contracts. |
 | FMB-P3 | Planned | Durable Work must be advertised only after its full client/server contract is verified. |
 | FMB-P4 | Planned | Begins after parity evidence, not feature-count claims. |

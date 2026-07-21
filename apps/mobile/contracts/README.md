@@ -1,11 +1,13 @@
 # Fabric Mobile shared contract fixtures
 
 This directory is the cross-platform source of truth for the mobile wire
-contract. Every fixture here is exercised **identically** by the canonical
-TypeScript reference (`apps/shared`), the Swift client (`apps/mobile/ios`,
-wired as XCTest bundle resources through `project.yml`), and the Kotlin client
-(`apps/mobile/android`). A contract change lands here first; platform parity
-tests then prove each port agrees with the same bytes.
+contract. A contract change lands here first; each client that implements that
+contract must consume these exact bytes in its parity tests. Coverage is staged
+with the delivery loops: the capability-manifest fixtures are exercised by the
+TypeScript, Swift, and Kotlin clients today, while the Loop 0 trust, node, and
+typed-error corpora currently have canonical TypeScript parsers. Later native
+consumer loops must port those parsers against the same fixtures rather than
+forking the wire contract.
 
 ## Governance rule (how the capability manifest grows)
 

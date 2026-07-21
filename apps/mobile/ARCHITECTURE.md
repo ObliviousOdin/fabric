@@ -88,10 +88,12 @@ map; they do not invent a new gating mechanism.
 The governance rules a new family must follow:
 
 1. **One feature key, one method set.** Add `feature ⇔ requiredMethods` to the
-   client's map and to the gateway manifest. The client exposes a
-   `supports<Family>` computed property on `GatewayCapabilityNegotiation`
-   modeled exactly on `supportsDurableWork` (`verified && features[key] == true
-   && requiredMethods.isSubset(of: methods)`).
+   client's map and to the gateway manifest. The client checks it through the
+   generic `supportsGatewayFeature` gate modeled exactly on
+   `supportsDurableWork` (`verified && features[key] == true &&
+   requiredMethods.isSubset(of: methods)`). A named `supports<Family>`
+   convenience property may be added with the loop that first consumes that
+   family; it must delegate to the same gate rather than creating new logic.
 2. **Additive-optional parsing.** An omitted key means *unavailable* (`false`),
    never legacy. A present key that contradicts its methods invalidates the
    *entire* contract (`.invalid`), because a lying manifest is a bug, not a
@@ -524,6 +526,10 @@ contract is verified end-to-end (ROADMAP FMB-P3).
 ---
 
 ## Appendix A — capability manifest table
+
+Loop 0 exposes the new families through `supportsGatewayFeature`. The named
+gates below are convenience accessors planned for the loops that first consume
+each family; they do not define separate negotiation behavior.
 
 | Feature | Client gate (`GatewayCapabilityNegotiation`) | Required methods | Notes |
 | --- | --- | --- | --- |

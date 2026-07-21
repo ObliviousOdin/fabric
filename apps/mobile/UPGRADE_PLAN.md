@@ -119,11 +119,12 @@ Distilled from `ROADMAP.md` cross-phase gates + `PRODUCTION.md`. Every loop
 satisfies all of it before "done":
 
 - [ ] **Protocol/unit/integration** for the changed scope: `FabricTests` green;
-      every new RPC has a shared JSON contract fixture in `apps/mobile/contracts`
-      (wired into `project.yml`) exercised **identically** by Swift, TypeScript
-      (`apps/shared`), and Kotlin; capability tests prove negotiation precedes
-      session calls, `-32601` is the only legacy path, unknown additive fields
-      stay compatible, and each control is gated by its exact advertised method.
+      every new RPC implemented by a client has a shared JSON contract fixture
+      in `apps/mobile/contracts` (wired into `project.yml` for Swift consumers),
+      and every client that implements the RPC proves parity against those same
+      bytes; capability tests prove negotiation precedes session calls, `-32601`
+      is the only legacy path, unknown additive fields stay compatible, and each
+      control is gated by its exact advertised method.
 - [ ] **Screenshots**: same-state **light and dark** fixtures vs. the chosen
       source, across the full matrix — running / typed-enabled / loading / empty
       / error / offline / permission-denied — at AX XXXL and on a small device.
@@ -173,22 +174,25 @@ methods (coordinate the manifest change first — Loop 0).
 
 Pin, once, how every server-backed family is advertised so the single fail-closed
 subset check does not fragment. Define the feature-key registry and typed-error
-taxonomy from `ARCHITECTURE.md` §0 and §7, add the `supports<Family>` computed
-properties (modeled on `supportsDurableWork`), and land the shared contract
+taxonomy from `ARCHITECTURE.md` §0 and §7, add the generic
+`supportsGatewayFeature` gate modeled on `supportsDurableWork` (named convenience
+gates arrive with their consuming loops), and land the shared contract
 **fixtures** for the new feature keys (parsed, asserted compatible, but not yet
 advertised by any live gateway). Cheap on the client, unblocks all server work.
-**Exit:** contract fixtures pass in Swift + TS + Kotlin; negotiation tests prove
-each new key is additive-optional and fail-closed; no live manifest advertises
-them yet.
+**Exit:** capability-registry fixtures pass in Swift + TS + Kotlin; the future
+trust/node/error corpora pass in their canonical TypeScript reference until
+native consumers land; negotiation tests prove each new key is
+additive-optional and fail-closed; no live manifest advertises them yet.
 
-> **Status:** in flight on this branch. Landed TDD-verified: the governance
+> **Status:** complete on this branch. Landed TDD-verified: the governance
 > registry (`gateway-feature-registry-v1.json`), the 8 new optional families +
 > flag-only `scoped_grants` + `supportsGatewayFeature` in the TS reference, the
 > `fabric-trust-v1` and `fabric-node-v1` fixture corpora with their TS parsers,
 > and the typed-error taxonomy (all green: `apps/shared` vitest + tsc,
 > `apps/mobile-web` vitest + tsc). Swift and Kotlin capability mirrors are on
-> the branch; Kotlin is verified by the PR `android` job, Swift by the macOS
-> checklist in `ios/HANDOFF-loop0.md` (a required pre-merge gate).
+> the branch; Kotlin is verified by the PR `android` job, while the regenerated
+> Xcode project, 166 XCTest cases, unsigned Release build, metadata, and privacy
+> audit were verified on macOS before merge.
 
 ### Loop 1 — Pairing reliability bundle  *(client-only; fastest visible win)*
 

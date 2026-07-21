@@ -544,6 +544,36 @@ struct AssistantTranscriptRenderInput: Equatable {
     let streaming: Bool
 }
 
+/// Per-row rich presentation state. `reconciled` returns `nil` when a SwiftUI
+/// state write would be redundant: completed rows keep their rendered
+/// document across unrelated transcript updates, while an in-flight row with
+/// no rich document performs no cache mutation at all.
+struct AssistantTranscriptRenderCache: Equatable {
+    let document: AssistantTranscriptDocument?
+
+    init(document: AssistantTranscriptDocument? = nil) {
+        self.document = document
+    }
+
+    func reconciled(
+        for input: AssistantTranscriptRenderInput,
+        documentBuilder: (String) -> AssistantTranscriptDocument = {
+            AssistantTranscriptDocument($0)
+        }
+    ) -> Self? {
+        if input.streaming {
+            // A non-nil document is the authoritative rich-state marker.
+            // Initial and subsequent streaming deltas therefore perform no
+            // write; only a real rich-to-streaming transition clears it.
+            guard document != nil else { return nil }
+            return Self()
+        }
+
+        guard document?.source != input.text else { return nil }
+        return Self(document: documentBuilder(input.text))
+    }
+}
+
 /// A small, deterministic Markdown block model. Foundation's native inline
 /// Markdown parser handles emphasis and links; this layer owns only the block
 /// structure SwiftUI `Text` does not present on its own (headings, lists,
@@ -569,8 +599,22 @@ struct AssistantTranscriptDocument: Equatable {
         case diff(String)
     }
 
+    /// Presentation-ready blocks. Inline Markdown is sanitized and parsed
+    /// while the completed document is created, never from a SwiftUI `body`.
+    /// Keeping the source `blocks` beside these values preserves the small,
+    /// testable block grammar without making later transcript invalidations
+    /// repeat Foundation's inline parser.
+    enum RenderBlock: Equatable {
+        case paragraph(AttributedString)
+        case heading(level: Int, text: AttributedString)
+        case listItem(marker: ListMarker, depth: Int, text: AttributedString)
+        case code(language: String?, text: String)
+        case diff(String)
+    }
+
     let source: String
     let blocks: [Block]
+    let renderBlocks: [RenderBlock]
 
     var containsTechnicalBlock: Bool {
         blocks.contains { block in
@@ -581,9 +625,33 @@ struct AssistantTranscriptDocument: Equatable {
         }
     }
 
-    init(_ source: String) {
+    init(
+        _ source: String,
+        inlineRenderer: (String) -> AttributedString = {
+            AssistantMarkdownSafety.attributedString(from: $0)
+        }
+    ) {
         self.source = source
-        blocks = Self.parse(source)
+        let parsedBlocks = Self.parse(source)
+        blocks = parsedBlocks
+        renderBlocks = parsedBlocks.map { block in
+            switch block {
+            case .paragraph(let markdown):
+                return .paragraph(inlineRenderer(markdown))
+            case .heading(let level, let markdown):
+                return .heading(level: level, text: inlineRenderer(markdown))
+            case .listItem(let marker, let depth, let markdown):
+                return .listItem(
+                    marker: marker,
+                    depth: depth,
+                    text: inlineRenderer(markdown)
+                )
+            case .code(let language, let text):
+                return .code(language: language, text: text)
+            case .diff(let text):
+                return .diff(text)
+            }
+        }
     }
 
     private struct Fence {
@@ -990,7 +1058,7 @@ enum AssistantMarkdownSafety {
 private struct AssistantMessageBody: View {
     let message: TranscriptMessage
 
-    @State private var document: AssistantTranscriptDocument?
+    @State private var renderCache = AssistantTranscriptRenderCache()
 
     private var renderInput: AssistantTranscriptRenderInput {
         AssistantTranscriptRenderInput(text: message.text, streaming: message.streaming)
@@ -1008,7 +1076,7 @@ private struct AssistantMessageBody: View {
                     .accessibilityLabel("Fabric")
                     .accessibilityValue(message.text.isEmpty ? "Streaming response" : message.text)
             case .rich:
-                if let document {
+                if let document = renderCache.document {
                     AssistantTranscriptView(document: document)
                         .frame(
                             maxWidth: document.containsTechnicalBlock ? .infinity : nil,
@@ -1037,12 +1105,8 @@ private struct AssistantMessageBody: View {
     }
 
     private func cacheDocument(for input: AssistantTranscriptRenderInput) {
-        guard !input.streaming else {
-            document = nil
-            return
-        }
-        guard document?.source != input.text else { return }
-        document = AssistantTranscriptDocument(input.text)
+        guard let reconciled = renderCache.reconciled(for: input) else { return }
+        renderCache = reconciled
     }
 }
 
@@ -1051,26 +1115,26 @@ private struct AssistantTranscriptView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(document.blocks.indices, id: \.self) { index in
-                blockView(document.blocks[index])
+            ForEach(document.renderBlocks.indices, id: \.self) { index in
+                blockView(document.renderBlocks[index])
             }
         }
     }
 
     @ViewBuilder
-    private func blockView(_ block: AssistantTranscriptDocument.Block) -> some View {
+    private func blockView(_ block: AssistantTranscriptDocument.RenderBlock) -> some View {
         switch block {
-        case .paragraph(let markdown):
-            SafeInlineMarkdownText(markdown: markdown, font: .subheadline)
-        case .heading(let level, let markdown):
-            SafeInlineMarkdownText(markdown: markdown, font: headingFont(level))
+        case .paragraph(let attributed):
+            SafeInlineMarkdownText(attributed: attributed, font: .subheadline)
+        case .heading(let level, let attributed):
+            SafeInlineMarkdownText(attributed: attributed, font: headingFont(level))
                 .accessibilityAddTraits(.isHeader)
-        case .listItem(let marker, let depth, let markdown):
+        case .listItem(let marker, let depth, let attributed):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(marker.displayText)
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(FabricTheme.textMuted)
-                SafeInlineMarkdownText(markdown: markdown, font: .subheadline)
+                SafeInlineMarkdownText(attributed: attributed, font: .subheadline)
                     .layoutPriority(1)
             }
             .padding(.leading, CGFloat(depth) * 12)
@@ -1091,11 +1155,11 @@ private struct AssistantTranscriptView: View {
 }
 
 private struct SafeInlineMarkdownText: View {
-    let markdown: String
+    let attributed: AttributedString
     let font: Font
 
     var body: some View {
-        Text(AssistantMarkdownSafety.attributedString(from: markdown))
+        Text(attributed)
             .font(font)
             .foregroundStyle(FabricTheme.text)
             .tint(FabricTheme.action)

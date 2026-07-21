@@ -549,6 +549,103 @@ final class ResumeHistoryTests: XCTestCase {
         XCTAssertEqual(AssistantTranscriptPresentationMode.mode(for: completed), .rich)
     }
 
+    func testCompletedTranscriptCachesInlineRenderingAcrossLaterStreamingDeltas() {
+        let completedInput = AssistantTranscriptRenderInput(
+            text: "# Earlier **answer**\n\n- Read the [runbook](https://example.test/runbook)",
+            streaming: false
+        )
+        var documentBuildCount = 0
+        var inlineParseCount = 0
+        var stateWriteCount = 0
+        var cache = AssistantTranscriptRenderCache()
+
+        func buildDocument(_ source: String) -> AssistantTranscriptDocument {
+            documentBuildCount += 1
+            return AssistantTranscriptDocument(source) { markdown in
+                inlineParseCount += 1
+                return AssistantMarkdownSafety.attributedString(from: markdown)
+            }
+        }
+
+        func reconcile(_ input: AssistantTranscriptRenderInput) {
+            guard let updated = cache.reconciled(
+                for: input,
+                documentBuilder: buildDocument
+            ) else { return }
+            stateWriteCount += 1
+            cache = updated
+        }
+
+        reconcile(completedInput)
+        XCTAssertEqual(documentBuildCount, 1)
+        XCTAssertEqual(inlineParseCount, 2, "Heading and list item render once at completion")
+        XCTAssertEqual(stateWriteCount, 1)
+        XCTAssertEqual(cache.document?.renderBlocks.count, 2)
+
+        var liveCache = AssistantTranscriptRenderCache()
+        var liveStateWriteCount = 0
+        for delta in ["# N", "# Ne", "# New answer"] {
+            // A later row's delta rebuilds the visible transcript, but this
+            // completed row still reconciles against its unchanged input.
+            if let updated = liveCache.reconciled(
+                for: AssistantTranscriptRenderInput(text: delta, streaming: true)
+            ) {
+                liveStateWriteCount += 1
+                liveCache = updated
+            }
+            reconcile(completedInput)
+            _ = cache.document?.renderBlocks
+        }
+
+        XCTAssertEqual(documentBuildCount, 1)
+        XCTAssertEqual(inlineParseCount, 2)
+        XCTAssertEqual(stateWriteCount, 1)
+        XCTAssertEqual(liveStateWriteCount, 0, "Streaming deltas never mutate an empty rich cache")
+    }
+
+    func testStreamingCacheClearsRichStateOnlyOnActualTransition() {
+        var documentBuildCount = 0
+        var stateWriteCount = 0
+        var cache = AssistantTranscriptRenderCache()
+
+        func buildDocument(_ source: String) -> AssistantTranscriptDocument {
+            documentBuildCount += 1
+            return AssistantTranscriptDocument(source)
+        }
+
+        func reconcile(_ input: AssistantTranscriptRenderInput) {
+            guard let updated = cache.reconciled(
+                for: input,
+                documentBuilder: buildDocument
+            ) else { return }
+            stateWriteCount += 1
+            cache = updated
+        }
+
+        reconcile(AssistantTranscriptRenderInput(text: "Earlier answer", streaming: false))
+        XCTAssertNotNil(cache.document)
+        XCTAssertEqual(documentBuildCount, 1)
+        XCTAssertEqual(stateWriteCount, 1)
+
+        reconcile(AssistantTranscriptRenderInput(text: "N", streaming: true))
+        XCTAssertNil(cache.document)
+        XCTAssertEqual(stateWriteCount, 2, "Rich-to-streaming clears the cached document once")
+
+        reconcile(AssistantTranscriptRenderInput(text: "Ne", streaming: true))
+        reconcile(AssistantTranscriptRenderInput(text: "New", streaming: true))
+        XCTAssertEqual(documentBuildCount, 1)
+        XCTAssertEqual(stateWriteCount, 2, "Later deltas do not write the same nil state")
+
+        reconcile(AssistantTranscriptRenderInput(text: "New answer", streaming: false))
+        XCTAssertNotNil(cache.document)
+        XCTAssertEqual(documentBuildCount, 2)
+        XCTAssertEqual(stateWriteCount, 3)
+
+        reconcile(AssistantTranscriptRenderInput(text: "New answer", streaming: false))
+        XCTAssertEqual(documentBuildCount, 2)
+        XCTAssertEqual(stateWriteCount, 3, "Unchanged rich input is already cached")
+    }
+
     func testLongCodeAndMultilingualProseRemainLossless() {
         let longLine = String(repeating: "x", count: 20_000)
         let code = "  indented\tvalue  \n\(longLine)"

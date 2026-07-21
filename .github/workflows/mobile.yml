@@ -105,6 +105,10 @@ jobs:
 
   ios:
     name: iOS unit and release build
+    # Cost control: macOS runners bill at 10x Linux minutes. Skip the iOS build on
+    # pull_request (the ubuntu android and web jobs still give PR signal); it still
+    # runs on push to main so full coverage is preserved off the every-PR path.
+    if: github.event_name != 'pull_request'
     runs-on: macos-15
     timeout-minutes: 30
     defaults:

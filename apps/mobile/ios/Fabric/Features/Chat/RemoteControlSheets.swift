@@ -85,6 +85,16 @@ enum RemoteControlPresentation {
         }
     }
 
+    static func canStopProcess(
+        status: String,
+        supportsKill: Bool,
+        mutationInFlight: Bool
+    ) -> Bool {
+        status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "running"
+            && supportsKill
+            && !mutationInFlight
+    }
+
     private static func normalized(_ value: String) -> String {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -387,7 +397,7 @@ struct ProcessListSheet: View {
             ) { process in
                 Button("Stop process", role: .destructive) {
                     processToKill = nil
-                    killTask = Task { await kill(process) }
+                    startKill(process)
                 }
                 Button("Cancel", role: .cancel) {
                     processToKill = nil
@@ -419,15 +429,19 @@ struct ProcessListSheet: View {
                     .accessibilityElement(children: .combine)
                 }
                 Spacer(minLength: 8)
-                if process.status.lowercased() == "running" {
+                if process.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    == "running" {
                     Button("Stop", role: .destructive) {
                         processToKill = process
                     }
                     .buttonStyle(.bordered)
                     .frame(minHeight: FabricTheme.minTarget)
                     .disabled(
-                        !supportsMethod("process.kill")
-                            || killInFlightId != nil
+                        !RemoteControlPresentation.canStopProcess(
+                            status: process.status,
+                            supportsKill: supportsMethod("process.kill"),
+                            mutationInFlight: killInFlightId != nil
+                        )
                     )
                     .accessibilityLabel("Stop \(process.command.isEmpty ? "background process" : process.command)")
                 }
@@ -491,15 +505,28 @@ struct ProcessListSheet: View {
         }
     }
 
-    private func kill(_ process: BackgroundProcess) async {
+    private func startKill(_ process: BackgroundProcess) {
+        guard killInFlightId == nil else { return }
         guard supportsMethod("process.kill") else {
             killFeedback = .rejected
             return
         }
         guard let requestedSessionId = sessionId else { return }
 
+        // Claim the mutation synchronously with the confirmation action so a
+        // rapid second tap cannot enqueue another non-idempotent stop request
+        // before the asynchronous task starts.
         killInFlightId = process.id
         killFeedback = nil
+        killTask = Task {
+            await kill(process, requestedSessionId: requestedSessionId)
+        }
+    }
+
+    private func kill(
+        _ process: BackgroundProcess,
+        requestedSessionId: String
+    ) async {
         defer {
             if sessionId == requestedSessionId {
                 killInFlightId = nil

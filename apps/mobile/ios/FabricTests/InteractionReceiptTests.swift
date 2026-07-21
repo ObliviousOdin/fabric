@@ -93,6 +93,37 @@ final class InteractionReceiptTests: XCTestCase {
         XCTAssertEqual(RemoteControlPresentation.statusLabel(""), "Unknown")
     }
 
+    func testProcessStopRequiresRunningCapabilityAndAnIdleMutationGate() {
+        XCTAssertTrue(
+            RemoteControlPresentation.canStopProcess(
+                status: " RUNNING ",
+                supportsKill: true,
+                mutationInFlight: false
+            )
+        )
+        XCTAssertFalse(
+            RemoteControlPresentation.canStopProcess(
+                status: "running",
+                supportsKill: false,
+                mutationInFlight: false
+            )
+        )
+        XCTAssertFalse(
+            RemoteControlPresentation.canStopProcess(
+                status: "running",
+                supportsKill: true,
+                mutationInFlight: true
+            )
+        )
+        XCTAssertFalse(
+            RemoteControlPresentation.canStopProcess(
+                status: "exited",
+                supportsKill: true,
+                mutationInFlight: false
+            )
+        )
+    }
+
     func testAmbiguousKillFailureRequiresReadOnlyRefreshInsteadOfReplay() {
         XCTAssertEqual(
             ProcessKillFeedback.classify(

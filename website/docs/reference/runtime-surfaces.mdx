@@ -54,6 +54,7 @@ as [`runtime-surfaces.json`](https://obliviousodin.github.io/fabric/api/runtime-
 | Security and Access | `/admin/security-access` | admin | `/pairing`, `/admin/security-access/pairing` | page | no |
 | Keys | `/admin/security-access/secrets` | admin | `/env` | page | no |
 | System | `/admin/system` | admin | `/system` | page | no |
+| Deploy | `/admin/deploy` | admin | — | page | no |
 | Advanced | `/admin/advanced` | admin | `/config`, `/admin/advanced/config` | page | no |
 | Logs | `/admin/advanced/logs` | admin | `/logs` | page | no |
 | Help | `/admin/help` | admin | `/docs` | page | no |
@@ -100,6 +101,7 @@ Default route: `/workspace/home`.
 | `fabric kanban` | — | Multi-profile collaboration board (tasks, links, comments) | `fabric_cli/kanban.py` |
 | `fabric logout` | — | Clear authentication for an inference provider | `fabric_cli/subcommands/logout.py` |
 | `fabric logs` | — | View and filter Fabric log files | `fabric_cli/subcommands/logs.py` |
+| `fabric loom` | — | Deployment plane (hosts, projects, deploys) | `fabric_cli/subcommands/loom.py` |
 | `fabric lsp` | — | Language Server Protocol management | `agent/lsp/cli.py` |
 | `fabric mcp` | — | Manage MCP servers and run Fabric as an MCP server | `fabric_cli/subcommands/mcp.py` |
 | `fabric memory` | — | Configure and audit persistent memory | `fabric_cli/subcommands/memory.py` |
@@ -356,6 +358,7 @@ separately and can be narrower than this registry scope.
 | `homeassistant` | canonical | Home Assistant smart home control and monitoring | 4 | — |
 | `image_gen` | canonical | Creative generation tools (images) | 1 | — |
 | `kanban` | canonical | Kanban multi-agent coordination — only active when the agent is spawned by the kanban dispatcher. The dispatcher runs inside the gateway by default; see `kanban.dispatch_in_gateway` in config.yaml. Lets workers mark tasks done with structured handoffs, block for human input, heartbeat during long ops, comment on threads, and (for orchestrators) list, unblock, and fan out tasks. | 9 | — |
+| `loom` | canonical | Loom deployment plane: inspect hosts/projects/deployments, plan, deploy, and roll back. | 1 | — |
 | `memory` | canonical | Persistent memory across sessions (personal notes + user profile) | 1 | — |
 | `project` | canonical | Desktop Projects — create/switch named workspaces (GUI sessions only) | 3 | — |
 | `safe` | canonical | Safe toolkit without terminal access | 0 | web, vision, image_gen |

@@ -62,6 +62,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric cron` | Inspect and tick the cron scheduler. |
 | `fabric kanban` | Multi-profile collaboration board (tasks, links, dispatcher). |
 | `fabric project` | Manage named, multi-folder workspaces (projects). Anchors desktop session grouping and, when bound to a kanban board, gives tasks a deterministic worktree + branch convention. State is per-profile. |
+| `fabric loom` | Deployment plane — register hosts (this machine or an SSH host), define projects, and deploy/roll back with a plan-before-mutation confirmation. State is per-profile. |
 | `fabric webhook` | Manage dynamic webhook subscriptions for event-driven activation. |
 | `fabric hooks` | Inspect, approve, or remove shell-script hooks declared in `config.yaml`. |
 | `fabric doctor` | Diagnose config and dependency issues. |
@@ -314,6 +315,33 @@ Options:
 | `--reconfigure` | Backwards-compat alias — bare `fabric setup` on an existing install now does this by default. |
 | `--portal` | One-shot Nous Portal setup: log in via OAuth, set Nous as the inference provider, and opt into the [Tool Gateway](../user-guide/features/tool-gateway.md). Skips the rest of the wizard. First-time login also requires `--client-id <registered-client-id>`. |
 | `--client-id <id>` | Registered Nous OAuth client ID used by `--portal`; required for first-time login. |
+
+## `fabric loom`
+
+Loom is Fabric's built-in deployment plane: it takes a source (a Docker Compose
+project or the built-in "host Fabric itself" template) and runs it on a
+destination you choose — this machine, or a Linux host over SSH — with a plan
+you confirm before anything changes, health-gated activation, and rollback.
+
+```bash
+fabric loom setup                       # register "this-machine" and print next steps
+fabric loom status                      # hosts / projects / active deployments
+fabric loom host add <name> --kind ssh --address <ip> --user <user> --key <path>
+fabric loom host scan <name>            # read-only adoption scan (OS/arch/docker)
+fabric loom host list
+fabric loom project add <name> --kind compose --source <dir> --compose-file docker-compose.yml
+fabric loom project list
+fabric loom deploy <project> <host>     # shows the plan, asks to confirm, then deploys
+fabric loom rollback <project> <host>   # reactivate the previous release
+fabric loom logs <deployment-id>
+```
+
+`deploy` prints the plan and prompts before mutating; pass `--yes` to skip the
+prompt (for scripts) and `--allow-destructive` to approve destructive steps. A
+candidate that fails to build, start, or pass its health check never displaces
+the currently healthy release. The same operations are available in the
+dashboard's [Deploy page](../user-guide/features/web-dashboard.md) and, for
+agents, through the opt-in `loom` [toolset](./toolsets-reference.md).
 
 ## `fabric portal`
 

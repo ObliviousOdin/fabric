@@ -91,6 +91,11 @@ jobs:
 
   package:
     name: Package ${{ matrix.label }}
+    # Cost control: this matrix packages on macOS (10x) and Windows (2x) runners.
+    # Skip the OS-specific packaging on pull_request; the cheap ubuntu brand-contract
+    # job still runs for PR signal. Full matrix runs on push to main and
+    # workflow_dispatch.
+    if: github.event_name != 'pull_request'
     needs: brand-contract
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60

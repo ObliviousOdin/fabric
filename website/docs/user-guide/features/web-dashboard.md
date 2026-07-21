@@ -533,6 +533,28 @@ provider is configured. Authentication is not a substitute for TLS, network
 controls, or the future resource-level enterprise authorization model.
 :::
 
+### Admin / Deploy
+
+A guided, plain-language front end for Fabric's [Loom](../../reference/cli-commands.md#fabric-loom)
+deployment plane, designed so a non-technical operator can put something online
+in a few clicks:
+
+- **Status header** — counts of machines (hosts), projects, and deployments,
+  plus a "live now" list of active deployments with their state.
+- **Step 1 — choose where to run it** — your registered hosts, with a one-click
+  **Use this machine** button that registers a local host.
+- **Step 2 — choose what to deploy** — your projects, with an **Add a project**
+  form (a Docker Compose app, or "host Fabric itself").
+- **Step 3 — deploy** — Loom shows the plan first (what it will do, flagging any
+  destructive step), then a confirm button deploys and streams the resulting
+  state and logs. A failed candidate never displaces the running release.
+- **Deployments ledger** — release history with state badges and a **Roll back**
+  button for any project with a prior release.
+
+Every action calls the same `/api/loom/*` backend that the `fabric loom` CLI and
+the agent `loom` toolset use, so the dashboard, desktop app, CLI, and agents stay
+in agreement. The desktop app serves this page from the same backend.
+
 ## `/reload` Slash Command
 
 Fabric also provides a `/reload` slash command in the interactive CLI. After

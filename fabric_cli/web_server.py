@@ -18,7 +18,7 @@ import base64
 import binascii
 import concurrent.futures
 import functools
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
 import hmac
@@ -81,6 +81,7 @@ from fabric_cli.work_backup import (
     WORK_STORE_PRIVATE_BASENAMES,
     is_work_store_private_basename,
 )
+from fabric_cli.loom import LoomError, open_service
 from gateway.status import (
     derive_gateway_busy,
     derive_gateway_drainable,
@@ -3185,6 +3186,234 @@ async def run_debug_share_endpoint(body: DebugShareRequest | None = None):
         "redacted": result.redacted,
         "auto_delete_seconds": result.auto_delete_seconds,
     }
+
+
+# ---------------------------------------------------------------------------
+# Loom deployment plane (/api/loom/*)
+#
+# Thin HTTP surface over ``LoomService`` — the single source of product truth
+# for Fabric's deploy plane. Every handler opens a short-lived service for the
+# request and closes its store in a ``finally`` (via ``_loom_service``), and
+# maps typed ``LoomError`` codes onto HTTP statuses. Read-only GETs ride the
+# blanket ``auth_middleware``; mutating routes gate on ``_require_token``.
+# ---------------------------------------------------------------------------
+
+# Typed LoomError code -> HTTP status. Any other/base code falls back to 400.
+_LOOM_ERROR_STATUS = {
+    "validation": 400,
+    "not-found": 404,
+    "conflict": 409,
+    "driver": 502,
+}
+
+
+@contextmanager
+def _loom_service():
+    """Open a :class:`LoomService` for one request.
+
+    Closes the underlying store in ``finally`` and translates any raised
+    :class:`LoomError` into the matching :class:`HTTPException` so handlers can
+    stay one-liners. Responses carry ``{"code", "message"}`` in ``detail``.
+    """
+    service = open_service()
+    try:
+        yield service
+    except LoomError as exc:
+        raise HTTPException(
+            status_code=_LOOM_ERROR_STATUS.get(exc.code, 400),
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    finally:
+        service._store.close()
+
+
+async def _loom_run(fn):
+    """Run a blocking Loom operation in a worker thread with its own service.
+
+    Deploys, rollbacks, and host scans shell out to ``docker``/``ssh`` (up to a
+    multi-minute timeout); running them inline on the event loop would freeze
+    unrelated API, WebSocket, and chat traffic. ``fn`` receives a
+    :class:`LoomService` and returns a JSON-serialisable result. The store is
+    opened *and* closed on the worker thread because SQLite connections are
+    thread-bound, and :class:`LoomError` is mapped onto the matching
+    :class:`HTTPException`.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    def _work():
+        service = open_service()
+        try:
+            return fn(service)
+        finally:
+            service._store.close()
+
+    try:
+        return await run_in_threadpool(_work)
+    except LoomError as exc:
+        raise HTTPException(
+            status_code=_LOOM_ERROR_STATUS.get(exc.code, 400),
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+
+class LoomHostCreate(BaseModel):
+    name: str
+    kind: str
+    address: str = ""
+    user: str = ""
+    port: int = 22
+    ssh_key_path: str = ""
+
+
+class LoomProjectCreate(BaseModel):
+    name: str
+    kind: str
+    source: str = ""
+    config: Dict[str, Any] = {}
+
+
+class LoomPlanRequest(BaseModel):
+    project: str
+    host: str
+    source_ref: str = ""
+
+
+class LoomDeployRequest(BaseModel):
+    project: str
+    host: str
+    source_ref: str = ""
+    allow_destructive: bool = False
+
+
+class LoomRollbackRequest(BaseModel):
+    project: str
+    host: str
+    to: str = ""
+
+
+class LoomApplyRequest(BaseModel):
+    allow_destructive: bool = False
+
+
+@app.get("/api/loom/status")
+async def loom_status():
+    """Compact deploy-plane summary (host/project/deployment counts + active)."""
+    with _loom_service() as service:
+        return service.status()
+
+
+@app.get("/api/loom/hosts")
+async def loom_list_hosts():
+    with _loom_service() as service:
+        return [asdict(h) for h in service.list_hosts()]
+
+
+@app.post("/api/loom/hosts")
+async def loom_add_host(body: LoomHostCreate, request: Request):
+    _require_token(request)
+    with _loom_service() as service:
+        return asdict(
+            service.add_host(
+                body.name,
+                body.kind,
+                address=body.address,
+                user=body.user,
+                port=body.port,
+                ssh_key_path=body.ssh_key_path,
+            )
+        )
+
+
+@app.post("/api/loom/hosts/{host_id}/scan")
+async def loom_scan_host(host_id: str, request: Request):
+    _require_token(request)
+    # Scan probes the host over SSH — offload to a worker thread.
+    return await _loom_run(lambda s: asdict(s.scan_host(host_id)))
+
+
+@app.get("/api/loom/projects")
+async def loom_list_projects():
+    with _loom_service() as service:
+        return [asdict(p) for p in service.list_projects()]
+
+
+@app.post("/api/loom/projects")
+async def loom_add_project(body: LoomProjectCreate, request: Request):
+    _require_token(request)
+    with _loom_service() as service:
+        return asdict(
+            service.add_project(
+                body.name,
+                body.kind,
+                source=body.source,
+                config=body.config,
+            )
+        )
+
+
+@app.get("/api/loom/deployments")
+async def loom_list_deployments(project: str = ""):
+    with _loom_service() as service:
+        return [
+            asdict(d)
+            for d in service.list_deployments(project_ref=project or "")
+        ]
+
+
+@app.post("/api/loom/plan")
+async def loom_plan(body: LoomPlanRequest, request: Request):
+    _require_token(request)
+    with _loom_service() as service:
+        return asdict(
+            service.plan_deploy(body.project, body.host, source_ref=body.source_ref)
+        )
+
+
+@app.post("/api/loom/deployments/{deployment_id}/apply")
+async def loom_apply(deployment_id: str, body: LoomApplyRequest, request: Request):
+    """Apply a previously planned deployment by id.
+
+    This is the plan-before-mutation path the dashboard uses: it previews with
+    ``/api/loom/plan`` (which persists a ``PLANNED`` deployment), shows the user
+    the exact plan, then applies *that* deployment here — rather than replanning
+    a fresh one on confirm.
+    """
+    _require_token(request)
+    return await _loom_run(
+        lambda s: asdict(
+            s.apply_deploy(deployment_id, allow_destructive=body.allow_destructive)
+        )
+    )
+
+
+@app.post("/api/loom/deploy")
+async def loom_deploy(body: LoomDeployRequest, request: Request):
+    """Plan and apply in one call (non-interactive convenience)."""
+    _require_token(request)
+    return await _loom_run(
+        lambda s: asdict(
+            s.deploy(
+                body.project,
+                body.host,
+                source_ref=body.source_ref,
+                allow_destructive=body.allow_destructive,
+            )
+        )
+    )
+
+
+@app.post("/api/loom/rollback")
+async def loom_rollback(body: LoomRollbackRequest, request: Request):
+    _require_token(request)
+    return await _loom_run(
+        lambda s: asdict(s.rollback(body.project, body.host, to=body.to))
+    )
+
+
+@app.get("/api/loom/deployments/{deployment_id}/logs")
+async def loom_logs(deployment_id: str):
+    with _loom_service() as service:
+        return {"logs": service.logs(deployment_id)}
 
 
 # ---------------------------------------------------------------------------

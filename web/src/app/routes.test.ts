@@ -73,6 +73,7 @@ describe("application route catalog", () => {
       "AI Runtime",
       "Security and Access",
       "System",
+      "Deploy",
       "Advanced",
       "Help",
     ]);

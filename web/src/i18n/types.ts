@@ -209,6 +209,7 @@ export interface Translations {
       automations: string;
       channelsEvents: string;
       conversations: string;
+      deploy?: string;
       design?: string;
       experience: string;
       help: string;

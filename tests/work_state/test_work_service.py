@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import logging
 import queue
+import sqlite3
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import FrozenInstanceError, replace
@@ -13,6 +14,7 @@ import pytest
 
 from fabric_cli.work_ledger import (
     RuntimeOwnerMismatch as LedgerRuntimeOwnerMismatch,
+    VersionConflict,
     WorkLedger,
 )
 from tui_gateway import work_service as work_service_module
@@ -1742,59 +1744,52 @@ def test_service_shutdown_cleans_only_its_profile_runtime_waiters_and_queue(
     scheduler.shutdown()
 
 
-def test_startup_reconcile_survives_concurrent_race_and_reconciles_the_rest(
+def test_startup_reconcile_propagates_unexpected_version_conflict(
     tmp_path: Path, runtime_owner: OwnerProof
 ) -> None:
-    """A peer gateway may reconcile the same lost owner first.
-
-    ``reconcile_startup`` runs inside ``__init__``; a benign compare-and-swap
-    race on one owner must not fail service construction, and every remaining
-    proven-lost owner must still be reconciled.
-    """
-    from fabric_cli.work_ledger import VersionConflict
-
-    class RacingLedger(FakeLedger):
-        def __init__(self) -> None:
-            super().__init__()
-            self.attempts: list[tuple[object, str]] = []
-
-        def reconcile_owner(self, *, owner: object, classification: str):
-            self.attempts.append((owner, classification))
-            if classification == "different_boot":
-                # Another process won the transition for this owner first.
-                raise VersionConflict("owner already reconciled by a peer")
-            self.reconciled.append((owner, classification))
-            return {"has_more": False}
-
-    ledger = RacingLedger()
-    different_boot = replace(runtime_owner, boot_token="instantiation:old", pid=10)
-    dead = replace(runtime_owner, pid=11, start_token="dead-start", generation="dead")
-    ledger.candidates = [
-        {"owner": proof, "run_count": 1, "attention_count": 0}
-        for proof in (different_boot, dead)
-    ]
-    alive = {10: True, 11: False}
-
-    # auto_reconcile=True drives reconciliation from __init__; before the guard
-    # this construction raised VersionConflict for the racing owner.
-    service = WorkService(
-        tmp_path,
-        ledger=ledger,
-        scheduler=GlobalWorkScheduler(SchedulerLimits(1, 1)),
-        owner=runtime_owner,
-        pid_exists=lambda pid: alive[pid],
-        start_token_probe=lambda pid: None,
-        auto_reconcile=True,
+    """An unexpected ledger invariant conflict must fail service construction."""
+    profile = tmp_path / "profile"
+    ledger = WorkLedger(profile)
+    old_owner = replace(
+        runtime_owner,
+        boot_token="instantiation:previous-boot",
+        generation="gen_previous",
     )
+    created = ledger.create_job(
+        kind="background_prompt",
+        title="Must remain fail closed",
+        source="test",
+        owner=old_owner,  # type: ignore[arg-type]
+        idempotency_key="unexpected-reconcile-conflict-0001",
+        runtime_summary={"kind": "in_process_agent"},
+        run_runtime={"kind": "in_process_agent"},
+    )["job"]
+    conn = sqlite3.connect(ledger.path)
     try:
-        assert (different_boot, "different_boot") in ledger.attempts
-        # The racing owner is attempted exactly once then skipped (break, not
-        # a retry loop up to the batch cap), and the proven-dead owner is reconciled.
-        assert sum(1 for _, c in ledger.attempts if c == "different_boot") == 1
-        assert ledger.reconciled == [(dead, "dead")]
+        conn.execute(
+            "CREATE TRIGGER force_reconcile_version_conflict "
+            "BEFORE UPDATE OF status ON jobs WHEN OLD.status='queued' "
+            "BEGIN SELECT RAISE(IGNORE); END"
+        )
+        conn.commit()
     finally:
-        service.shutdown()
-        service.scheduler.shutdown()
+        conn.close()
+
+    scheduler = GlobalWorkScheduler(SchedulerLimits(1, 1))
+    try:
+        with pytest.raises(VersionConflict):
+            WorkService(
+                profile,
+                ledger=ledger,
+                scheduler=scheduler,
+                owner=runtime_owner,
+                auto_reconcile=True,
+            )
+        assert ledger.get_job(created["job_id"])["status"] == "queued"
+        assert ledger.list_nonterminal_owners()
+    finally:
+        ledger.close()
+        scheduler.shutdown()
 
 
 def test_ledger_race_replay_receipt_reports_no_runtime_started(

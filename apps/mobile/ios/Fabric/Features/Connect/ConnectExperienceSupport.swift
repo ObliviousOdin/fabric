@@ -13,9 +13,12 @@ enum ConnectGatewayAvailability: Equatable {
     init(
         authMode: GatewayAuthMode,
         canAutoConnect: Bool,
-        allowsTokenCredential: Bool = true
+        allowsTokenCredential: Bool = true,
+        hasStoredPassword: Bool = false
     ) {
         switch authMode {
+        case .gated where hasStoredPassword:
+            self = .ready
         case .gated:
             self = .savedSignIn
         case .token where !allowsTokenCredential:

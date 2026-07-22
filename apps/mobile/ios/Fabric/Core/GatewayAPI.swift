@@ -31,11 +31,15 @@ struct SessionTranscriptMessage: Equatable {
     let role: Role
     let text: String
     let reasoning: String?
+    /// Server-reported tool name for `role == .tool` rows; `text` then holds
+    /// the compact call context (`_tool_ctx` in `tui_gateway/server.py`).
+    let toolName: String?
 
-    init(role: Role, text: String, reasoning: String? = nil) {
+    init(role: Role, text: String, reasoning: String? = nil, toolName: String? = nil) {
         self.role = role
         self.text = text
         self.reasoning = reasoning
+        self.toolName = toolName
     }
 
     init?(payload: [String: Any]) {
@@ -70,6 +74,7 @@ struct SessionTranscriptMessage: Equatable {
         self.role = role
         self.text = text
         self.reasoning = reasoning
+        self.toolName = role == .tool ? payload["name"] as? String : nil
     }
 
     private static func firstReasoning(in payload: [String: Any], keys: [String]) -> String? {
@@ -1844,6 +1849,111 @@ struct GatewayAPI {
             params: ["session_id": storedSessionId, "cols": 96, "source": "mobile"]
         )
         return LiveSession(resumePayload: result, storedSessionId: storedSessionId)
+    }
+
+    /// Rename a live session (its runtime id, not the stored key). The typed
+    /// `session.title` RPC is preferred whenever the negotiated contract
+    /// advertises it; today's mobile contract instead carries the gateway's
+    /// registered `/title` slash command, which persists the same
+    /// stored-session title (`_session_title_in_db` and the `/title` handler
+    /// share the title write in `tui_gateway/server.py`).
+    func setSessionTitle(
+        sessionId: String,
+        title: String,
+        preferTypedMethod: Bool
+    ) async throws -> String {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            throw GatewayClientError.rpc(message: "A conversation title is required.")
+        }
+        if preferTypedMethod {
+            let result = try await client.requestObject(
+                "session.title",
+                params: ["session_id": sessionId, "title": title]
+            )
+            guard let confirmed = result["title"] as? String,
+                  !confirmed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw GatewayClientError.rpc(message: "The gateway did not confirm the new title.")
+            }
+            return confirmed
+        }
+        _ = try await client.request(
+            "slash.exec",
+            params: ["session_id": sessionId, "command": "/title \(title)"]
+        )
+        return title
+    }
+
+    // MARK: - Prompt attachments (`files` feature)
+
+    /// Queue image bytes for the next prompt (`image.attach_bytes`). PNG,
+    /// JPEG, GIF, WebP, and BMP pass through byte-identical — the server
+    /// sniffs magic bytes. Returns the server-authored placeholder line for
+    /// the queued image.
+    func attachImageBytes(
+        sessionId: String,
+        data: Data,
+        filename: String
+    ) async throws -> String {
+        let result = try await client.requestObject(
+            "image.attach_bytes",
+            params: [
+                "session_id": sessionId,
+                "content_base64": data.base64EncodedString(),
+                "filename": filename,
+            ]
+        )
+        guard result["attached"] as? Bool == true else {
+            throw GatewayClientError.rpc(message: "The image was not attached.")
+        }
+        return result["text"] as? String ?? "[User attached image: \(filename)]"
+    }
+
+    /// Queue a PDF for the next prompt (`pdf.attach`) — the gateway renders
+    /// each page for the model's vision pipeline. Returns the placeholder
+    /// line naming the attached document.
+    func attachPDF(
+        sessionId: String,
+        data: Data,
+        filename: String
+    ) async throws -> String {
+        let result = try await client.requestObject(
+            "pdf.attach",
+            params: [
+                "session_id": sessionId,
+                "content_base64": data.base64EncodedString(),
+                "filename": filename,
+            ]
+        )
+        guard result["attached"] as? Bool == true else {
+            throw GatewayClientError.rpc(message: "The PDF was not attached.")
+        }
+        return result["text"] as? String ?? "[User attached PDF: \(filename)]"
+    }
+
+    /// Stage a non-image file in the session workspace (`file.attach`).
+    /// Returns the server's `@file:` reference, which must appear in the
+    /// prompt text so the agent's file tools can find the upload.
+    func attachFile(
+        sessionId: String,
+        data: Data,
+        filename: String,
+        mimeType: String
+    ) async throws -> String {
+        let result = try await client.requestObject(
+            "file.attach",
+            params: [
+                "session_id": sessionId,
+                "data_url": "data:\(mimeType);base64,\(data.base64EncodedString())",
+                "name": filename,
+            ]
+        )
+        guard result["attached"] as? Bool == true,
+              let ref = result["ref_text"] as? String,
+              !ref.isEmpty else {
+            throw GatewayClientError.rpc(message: "The file was not attached.")
+        }
+        return ref
     }
 
     // MARK: - Turns

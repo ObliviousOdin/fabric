@@ -59,32 +59,93 @@ final class ResumeHistoryTests: XCTestCase {
             [
                 SessionTranscriptMessage(role: .user, text: "Hello from the phone"),
                 SessionTranscriptMessage(role: .assistant, text: "Hello from Fabric"),
-                SessionTranscriptMessage(role: .tool, text: "terminal · pwd"),
+                SessionTranscriptMessage(role: .tool, text: "terminal · pwd", toolName: "terminal"),
                 SessionTranscriptMessage(role: .system, text: "Conversation restored"),
                 SessionTranscriptMessage(role: .assistant, text: "", reasoning: "Considering the options"),
                 SessionTranscriptMessage(role: .assistant, text: "", reasoning: "Structured thought"),
             ]
         )
 
+        // Stored tool rows restore as completed activity cards inside an
+        // assistant turn (the shape a live stream produces) and stored
+        // reasoning restores as the turn's disclosure — not mono info rows.
         let transcript = ChatViewModel.restoredMessages(from: live)
         XCTAssertEqual(
             transcript.map(\.role),
-            [.user, .assistant, .info, .info, .info, .info, .user, .assistant]
+            [.user, .assistant, .assistant, .info, .assistant, .user, .assistant]
         )
         XCTAssertEqual(
             transcript.map(\.text),
             [
                 "Hello from the phone",
                 "Hello from Fabric",
-                "terminal · pwd",
+                "",
                 "Conversation restored",
-                "Thinking…\nConsidering the options",
-                "Thinking…\nStructured thought",
+                "",
                 "Follow-up question",
                 "Partial answer",
             ]
         )
-        XCTAssertEqual(transcript.map(\.streaming), [false, false, false, false, false, false, false, true])
+        XCTAssertEqual(
+            transcript.map(\.streaming),
+            [false, false, false, false, false, false, true]
+        )
+
+        guard case .tool(let tool) = transcript[2].assistantParts.first?.content else {
+            return XCTFail("Expected the stored tool row to restore as an activity card")
+        }
+        XCTAssertEqual(tool.name, "terminal")
+        XCTAssertEqual(tool.detail, "terminal · pwd")
+        XCTAssertEqual(tool.state, .complete)
+
+        let reasoningTexts = transcript[4].assistantParts.compactMap { part -> String? in
+            guard case .reasoning(let reasoning) = part.content else { return nil }
+            return reasoning.text
+        }
+        XCTAssertEqual(reasoningTexts, ["Considering the options", "Structured thought"])
+    }
+
+    func testRestoredToolRowsFoldIntoTheFollowingAssistantTurn() {
+        let live = LiveSession(
+            sessionId: "runtime-123",
+            storedSessionId: "stored-456",
+            messages: [
+                SessionTranscriptMessage(role: .user, text: "Check the build"),
+                SessionTranscriptMessage(
+                    role: .tool,
+                    text: "terminal · xcodebuild test",
+                    toolName: "terminal"
+                ),
+                SessionTranscriptMessage(
+                    role: .tool,
+                    text: "read_file · Package.swift",
+                    toolName: "read_file"
+                ),
+                SessionTranscriptMessage(
+                    role: .assistant,
+                    text: "All 128 tests pass.",
+                    reasoning: "Verified the log tail."
+                ),
+            ]
+        )
+
+        let transcript = ChatViewModel.restoredMessages(from: live)
+
+        XCTAssertEqual(transcript.map(\.role), [.user, .assistant])
+        XCTAssertEqual(transcript[1].text, "All 128 tests pass.")
+        let kinds = transcript[1].assistantParts.map { part -> String in
+            switch part.content {
+            case .tool: return "tool"
+            case .reasoning: return "reasoning"
+            case .text: return "text"
+            }
+        }
+        XCTAssertEqual(kinds, ["tool", "tool", "reasoning", "text"])
+        XCTAssertEqual(
+            Set(transcript[1].assistantParts.map(\.id)).count,
+            transcript[1].assistantParts.count,
+            "Restored part identifiers must be unique for SwiftUI identity"
+        )
     }
 
     func testResumePayloadFallsBackToStoredSessionId() {

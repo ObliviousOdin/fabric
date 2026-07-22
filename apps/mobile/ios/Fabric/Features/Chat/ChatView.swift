@@ -191,6 +191,7 @@ struct InitialPromptDispatch: Equatable {
 private struct ChatContentView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(AppModel.self) private var appModel
+    @Environment(\.scenePhase) private var scenePhase
 
     @Bindable var model: ChatViewModel
     @Binding var draft: String
@@ -209,6 +210,8 @@ private struct ChatContentView: View {
     @State private var showFileImporter = false
     @State private var photoSelection: [PhotosPickerItem] = []
     @State private var attachmentSequence = 0
+    @State private var voice = DeviceVoiceController()
+    @State private var dictationBaseDraft = ""
     @AccessibilityFocusState private var focusedInteractionIdentity: String?
 
     init(
@@ -383,7 +386,37 @@ private struct ChatContentView: View {
         ) { result in
             ingestFileImporterResult(result)
         }
+        .alert(item: voiceIssueBinding) { issue in
+            if issue.canOpenSettings {
+                return Alert(
+                    title: Text(issue.title),
+                    message: Text(issue.message),
+                    primaryButton: .default(Text("Open Settings")) {
+                        voice.clearIssue()
+                        Self.openSystemSettings()
+                    },
+                    secondaryButton: .cancel(Text("Not now"), action: voice.clearIssue)
+                )
+            }
+            return Alert(
+                title: Text(issue.title),
+                message: Text(issue.message),
+                dismissButton: .default(Text("OK"), action: voice.clearIssue)
+            )
+        }
+        .onChange(of: voice.transcript) { _, transcript in
+            draft = VoiceDraftComposer.merging(
+                baseDraft: dictationBaseDraft,
+                transcript: transcript
+            )
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Privacy sheets may make the scene temporarily inactive. Only a
+            // real background transition cancels the permission run.
+            if phase == .background { voice.stopAll() }
+        }
         .onDisappear {
+            voice.stopAll()
             liveViewModel.disappear()
             // Reap Quick Look temp files, including any orphaned by an app
             // kill mid-preview in an earlier session of this surface.
@@ -484,7 +517,13 @@ private struct ChatContentView: View {
     }
 
     private var transcript: some View {
-        TranscriptView(messages: model.messages)
+        TranscriptView(
+            messages: model.messages,
+            speakingMessageID: voice.speakingMessageID,
+            onReadAloud: { message in
+                voice.toggleReadAloud(messageID: message.id, text: message.text)
+            }
+        )
             // Decorative companion docked below the transcript's safe area so it
             // never covers the newest message (follow mode anchors content to the
             // bottom), the composer, or a blocking approval/prompt.
@@ -577,15 +616,17 @@ private struct ChatContentView: View {
         if !advertisedActions.isEmpty {
             ChatActionStrip(
                 advertised: advertisedActions,
-                commandsEnabled: model.sessionReady,
+                commandsEnabled: model.sessionReady && voice.dictationState == .idle,
                 backgroundEnabled: model.sessionReady
                     && model.unknownSendOutcome == nil
+                    && voice.dictationState == .idle
                     && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     && model.canSendInBackground,
                 processesEnabled: model.sessionReady,
                 liveViewEnabled: model.sessionReady,
                 onCommands: { showCommandCatalog = true },
                 onBackground: {
+                    guard voice.dictationState == .idle else { return }
                     let text = draft
                     draft = ""
                     Task { await model.sendInBackground(text) }
@@ -614,8 +655,32 @@ private struct ChatContentView: View {
             hasStagedAttachments: !model.pendingAttachments.isEmpty,
             uploadLocked: model.isUploadingAttachments,
             onAttachPhotos: { showPhotoPicker = true },
-            onAttachFiles: { showFileImporter = true }
+            onAttachFiles: { showFileImporter = true },
+            showsDictationControl: true,
+            dictationState: voice.dictationState,
+            onToggleDictation: toggleDictation
         )
+    }
+
+    private var voiceIssueBinding: Binding<DeviceVoiceIssue?> {
+        Binding(
+            get: { voice.issue },
+            set: { issue in
+                if issue == nil { voice.clearIssue() }
+            }
+        )
+    }
+
+    private func toggleDictation() {
+        if voice.dictationState == .idle {
+            dictationBaseDraft = draft
+        }
+        Task { await voice.toggleDictation() }
+    }
+
+    private static func openSystemSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     @ViewBuilder
@@ -942,6 +1007,9 @@ private struct ChatComposerBar: View {
     var uploadLocked = false
     var onAttachPhotos: () -> Void = {}
     var onAttachFiles: () -> Void = {}
+    var showsDictationControl = false
+    var dictationState: DeviceDictationState = .idle
+    var onToggleDictation: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 8) {
@@ -980,8 +1048,38 @@ private struct ChatComposerBar: View {
             .disabled(
                 !sessionReady
                     || hasUnknownSendOutcome
+                    || dictationState.locksDraft
                     || !supportsMethod(draftDispatchMethod)
             )
+
+            if showsDictationControl {
+                Button(action: onToggleDictation) {
+                    Group {
+                        if dictationState == .requestingPermission
+                            || dictationState == .finalizing {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(
+                                systemName: dictationState.isListening
+                                    ? "waveform.circle.fill"
+                                    : "mic.circle"
+                            )
+                            .font(.title2)
+                            .foregroundStyle(
+                                dictationState.isListening
+                                    ? FabricTheme.danger
+                                    : FabricTheme.action
+                            )
+                        }
+                    }
+                    .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
+                }
+                .accessibilityLabel(dictationAccessibilityLabel)
+                .accessibilityHint(dictationAccessibilityHint)
+                .accessibilityIdentifier("chat-dictation-button")
+                .disabled(dictationControlDisabled)
+            }
 
             if busy {
                 Button(action: submitDraft) {
@@ -992,8 +1090,10 @@ private struct ChatComposerBar: View {
                 }
                 .accessibilityLabel("Steer running turn")
                 .disabled(
-                    trimmedDraft.isEmpty
+                    !sessionReady
+                        || trimmedDraft.isEmpty
                         || hasUnknownSendOutcome
+                        || dictationState.locksDraft
                         || !supportsMethod("session.steer")
                 )
 
@@ -1003,7 +1103,7 @@ private struct ChatComposerBar: View {
                         .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                 }
                 .accessibilityLabel("Interrupt running turn")
-                .disabled(!supportsMethod("session.interrupt"))
+                .disabled(!sessionReady || !supportsMethod("session.interrupt"))
             } else {
                 Button(action: submitDraft) {
                     Image(systemName: "arrow.up.circle.fill")
@@ -1015,6 +1115,7 @@ private struct ChatComposerBar: View {
                     !sessionReady
                         || hasUnknownSendOutcome
                         || uploadLocked
+                        || dictationState.locksDraft
                         || (trimmedDraft.isEmpty && !hasStagedAttachments)
                         || !supportsMethod(draftDispatchMethod)
                 )
@@ -1022,8 +1123,35 @@ private struct ChatComposerBar: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
-        .disabled(!sessionReady)
         .layoutPriority(3)
+    }
+
+    private var dictationControlDisabled: Bool {
+        if dictationState == .finalizing { return true }
+        if dictationState.isActive { return false }
+        return !sessionReady || hasUnknownSendOutcome
+    }
+
+    private var dictationAccessibilityLabel: String {
+        switch dictationState {
+        case .idle: return "Start dictation"
+        case .requestingPermission: return "Cancel dictation request"
+        case .listening: return "Stop dictation"
+        case .finalizing: return "Finishing dictation"
+        }
+    }
+
+    private var dictationAccessibilityHint: String {
+        switch dictationState {
+        case .idle:
+            return "Uses this iPhone's microphone to add speech to the message draft"
+        case .requestingPermission:
+            return "Cancels this dictation request after the iOS permission prompt closes"
+        case .listening:
+            return "Stops listening and keeps the final transcript in the message draft"
+        case .finalizing:
+            return "Finishes processing accepted audio without recording more"
+        }
     }
 
     private var trimmedDraft: String {
@@ -1228,6 +1356,8 @@ struct ChatExperienceDebugFixtureView: View {
     @State private var draft = "Prepare the verified build notes"
     @State private var fixtureStatus: String?
     @State private var messages: [TranscriptMessage]
+    @State private var dictationState: DeviceDictationState = .idle
+    @State private var speakingMessageID: UUID?
 
     init() {
         _messages = State(initialValue: Self.makeMessages())
@@ -1288,7 +1418,19 @@ struct ChatExperienceDebugFixtureView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                TranscriptView(messages: messages)
+                TranscriptView(
+                    messages: messages,
+                    speakingMessageID: speakingMessageID,
+                    onReadAloud: { message in
+                        if speakingMessageID == message.id {
+                            speakingMessageID = nil
+                            fixtureStatus = "Read-aloud stopped"
+                        } else {
+                            speakingMessageID = message.id
+                            fixtureStatus = "Read-aloud started"
+                        }
+                    }
+                )
                 controlDock
             }
             .background(FabricTheme.surface)
@@ -1342,8 +1484,9 @@ struct ChatExperienceDebugFixtureView: View {
                 supportsDurableWork: false,
                 liveViewSupported: true
             ),
-            commandsEnabled: true,
-            backgroundEnabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            commandsEnabled: dictationState == .idle,
+            backgroundEnabled: dictationState == .idle
+                && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             processesEnabled: true,
             liveViewEnabled: true,
             onCommands: { fixtureStatus = "Command catalog opened" },
@@ -1369,7 +1512,22 @@ struct ChatExperienceDebugFixtureView: View {
                 ))
                 fixtureStatus = "Message submitted"
             },
-            onInterrupt: {}
+            onInterrupt: {},
+            showsDictationControl: true,
+            dictationState: dictationState,
+            onToggleDictation: {
+                if dictationState.isListening {
+                    dictationState = .idle
+                    fixtureStatus = "Dictation stopped; draft ready"
+                } else {
+                    dictationState = .listening
+                    draft = VoiceDraftComposer.merging(
+                        baseDraft: draft,
+                        transcript: "with dictated release context"
+                    )
+                    fixtureStatus = "Dictation added to draft without submitting"
+                }
+            }
         )
     }
 
@@ -1509,6 +1667,8 @@ struct TranscriptFollowState: Equatable {
 /// state so neither can steal the reading position.
 struct TranscriptView: View {
     let messages: [TranscriptMessage]
+    var speakingMessageID: UUID? = nil
+    var onReadAloud: ((TranscriptMessage) -> Void)? = nil
 
     @State private var follow = TranscriptFollowState()
     @State private var contentFrame: CGRect = .zero
@@ -1524,6 +1684,10 @@ struct TranscriptView: View {
                     ForEach(messages) { message in
                         MessageBubble(
                             message: message,
+                            isSpeaking: speakingMessageID == message.id,
+                            onReadAloud: onReadAloud.map { action in
+                                { action(message) }
+                            },
                             onRichLayoutReady: message.id == messages.last?.id
                                 ? {
                                     if follow.richLayoutReadyShouldScroll() {
@@ -1652,6 +1816,8 @@ private struct JumpToLatestButton: View {
 
 private struct MessageBubble: View {
     let message: TranscriptMessage
+    let isSpeaking: Bool
+    let onReadAloud: (() -> Void)?
     let onRichLayoutReady: (() -> Void)?
 
     var body: some View {
@@ -1680,6 +1846,8 @@ private struct MessageBubble: View {
             HStack(alignment: .top) {
                 AssistantTurnBody(
                     message: message,
+                    isSpeaking: isSpeaking,
+                    onReadAloud: onReadAloud,
                     onRichLayoutReady: onRichLayoutReady
                 )
                     .padding(.horizontal, 12)
@@ -1720,6 +1888,8 @@ private struct MessageBubble: View {
 
 private struct AssistantTurnBody: View {
     let message: TranscriptMessage
+    let isSpeaking: Bool
+    let onReadAloud: (() -> Void)?
     let onRichLayoutReady: (() -> Void)?
 
     var body: some View {
@@ -1770,6 +1940,26 @@ private struct AssistantTurnBody: View {
                         }
                     }
                 }
+            }
+            if !message.streaming,
+               !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let onReadAloud {
+                Button(action: onReadAloud) {
+                    Label(
+                        isSpeaking ? "Stop speaking" : "Read aloud",
+                        systemImage: isSpeaking ? "stop.circle.fill" : "speaker.wave.2"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .frame(minHeight: FabricTheme.minTarget)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(isSpeaking ? FabricTheme.danger : FabricTheme.action)
+                .accessibilityHint(
+                    isSpeaking
+                        ? "Stops reading this response"
+                        : "Reads this completed response with an installed iPhone voice"
+                )
+                .accessibilityIdentifier("assistant-read-aloud")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

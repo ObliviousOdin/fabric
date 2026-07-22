@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Speech
 import XCTest
 @testable import Fabric
 
@@ -143,7 +144,7 @@ final class SettingsExperiencePresentationTests: XCTestCase {
         XCTAssertEqual(invalid.contractVersion, "Invalid response")
     }
 
-    func testPermissionInventoryMapsCameraAndDoesNotGuessLocalNetworkStatus() {
+    func testPermissionInventoryMapsCameraVoicePermissionsAndDoesNotGuessLocalNetworkStatus() {
         let allowed = SettingsPermissionInventory.cameraPermission(.authorized)
         let denied = SettingsPermissionInventory.cameraPermission(.denied)
         let notRequested = SettingsPermissionInventory.cameraPermission(.notDetermined)
@@ -154,6 +155,23 @@ final class SettingsExperiencePresentationTests: XCTestCase {
         XCTAssertTrue(denied.detail.contains("iOS Settings"))
         XCTAssertEqual(notRequested.state, .notRequested)
         XCTAssertTrue(notRequested.detail.contains("asks only"))
+
+        XCTAssertEqual(
+            SettingsPermissionInventory.microphonePermission(.granted).state,
+            .allowed
+        )
+        XCTAssertEqual(
+            SettingsPermissionInventory.microphonePermission(.denied).state,
+            .denied
+        )
+        XCTAssertEqual(
+            SettingsPermissionInventory.speechRecognitionPermission(.authorized).state,
+            .allowed
+        )
+        XCTAssertEqual(
+            SettingsPermissionInventory.speechRecognitionPermission(.restricted).state,
+            .restricted
+        )
 
         let inventory = SettingsPermissionInventory.current()
         XCTAssertEqual(inventory.localNetwork.state, .notInspectable)
@@ -281,14 +299,16 @@ final class SettingsExperiencePresentationTests: XCTestCase {
         XCTAssertFalse(unavailable.showsControls)
     }
 
-    func testVoicePresentationIsInformationalAndNamesTheGatewayHostTruth() {
-        let voice = SettingsVoicePresentation.make()
+    func testVoicePresentationNamesNativePhoneVoiceAndSelectedVoice() {
+        let voice = SettingsVoicePresentation.make(selectedVoiceName: "Samantha · en-US")
 
         XCTAssertEqual(voice.title, "Voice")
         XCTAssertEqual(voice.systemImage, "waveform")
-        XCTAssertEqual(voice.tone, .info)
-        XCTAssertTrue(voice.detail.contains("gateway host"))
-        XCTAssertTrue(voice.detail.contains("doesn't advertise yet"))
+        XCTAssertEqual(voice.tone, .success)
+        XCTAssertTrue(voice.detail.contains("this iPhone"))
+        XCTAssertTrue(voice.detail.contains("on-device recognition"))
+        XCTAssertTrue(voice.detail.contains("Samantha · en-US"))
+        XCTAssertFalse(voice.detail.contains("gateway host"))
     }
 
     func testLocalDataAlertReusesTheThrownErrorCopyForForgetFailures() {

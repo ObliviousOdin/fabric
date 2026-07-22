@@ -74,6 +74,8 @@ struct SettingsExperienceContent: View {
     @State private var localDataAlert: SettingsLocalDataAlert?
     @State private var showPetPicker = false
     @State private var petActionError: String?
+    @AppStorage(DeviceVoicePreferences.selectedVoiceIdentifierKey)
+    private var selectedVoiceIdentifier = ""
 
     var body: some View {
         ScrollView {
@@ -351,31 +353,51 @@ struct SettingsExperienceContent: View {
     }
 
     private var voiceRow: some View {
-        let voice = SettingsVoicePresentation.make()
-        return HStack(alignment: .top, spacing: 12) {
-            Image(systemName: voice.systemImage)
-                .foregroundStyle(voice.tone.color)
-                .frame(width: 24, height: 24)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(voice.title)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(FabricTheme.text)
-                Text(voice.detail)
-                    .font(.footnote)
+        let voice = SettingsVoicePresentation.make(
+            selectedVoiceName: DeviceVoicePreferences.displayName(
+                for: selectedVoiceIdentifier
+            )
+        )
+        return NavigationLink {
+            DeviceVoiceSettingsView()
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: voice.systemImage)
+                    .foregroundStyle(voice.tone.color)
+                    .frame(width: 24, height: 24)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(voice.title)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(FabricTheme.text)
+                    Text(voice.detail)
+                        .font(.footnote)
+                        .foregroundStyle(FabricTheme.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(FabricTheme.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .padding(.vertical, 12)
-        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("settings-voice-row")
+        .accessibilityHint("Choose a read-aloud voice and review dictation privacy")
     }
 
     private var permissionsSection: some View {
         SettingsExperienceSection(title: "iPhone permissions") {
             VStack(alignment: .leading, spacing: 0) {
                 SettingsPermissionRow(permission: permissions.camera)
+                Divider().overlay(FabricTheme.border)
+                SettingsPermissionRow(permission: permissions.microphone)
+                Divider().overlay(FabricTheme.border)
+                SettingsPermissionRow(permission: permissions.speechRecognition)
+                Divider().overlay(FabricTheme.border)
                 Text("Local Network access: status not exposed by iOS.")
                     .font(.footnote)
                     .foregroundStyle(FabricTheme.textMuted)
@@ -598,6 +620,100 @@ struct SettingsExperienceContent: View {
                 localDataAlert = .resetFailed
             }
         }
+    }
+}
+
+private struct DeviceVoiceSettingsView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(DeviceVoicePreferences.selectedVoiceIdentifierKey)
+    private var selectedVoiceIdentifier = ""
+    @State private var previewVoice = DeviceVoiceController()
+
+    private static let previewMessageID = UUID()
+
+    var body: some View {
+        Form {
+            Section("Speech to text") {
+                Label("Dictate into the Chat composer", systemImage: "mic.fill")
+                Text("Fabric asks for Microphone and Speech Recognition access only after you tap the microphone. Audio is not sent to your Fabric gateway or stored by Fabric.")
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.textMuted)
+                Text("Fabric requires on-device recognition whenever the current Apple Speech recognizer supports it. For other languages or devices, iOS may use Apple's speech service.")
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.textMuted)
+            }
+
+            Section("Read aloud") {
+                Picker("Voice", selection: normalizedVoiceSelection) {
+                    Text("Best installed voice").tag("")
+                    ForEach(DeviceVoicePreferences.options()) { option in
+                        Text(option.displayName).tag(option.identifier)
+                    }
+                }
+
+                Button {
+                    previewVoice.toggleReadAloud(
+                        messageID: Self.previewMessageID,
+                        text: "Fabric voice is ready on this iPhone."
+                    )
+                } label: {
+                    Label(
+                        previewVoice.isSpeaking ? "Stop preview" : "Preview voice",
+                        systemImage: previewVoice.isSpeaking
+                            ? "stop.circle.fill"
+                            : "speaker.wave.2.fill"
+                    )
+                }
+                .accessibilityHint("Plays a short sample using the selected installed voice")
+
+                Text("Read-aloud uses AVSpeechSynthesizer and an installed iPhone voice. Add enhanced or premium voices in iOS Accessibility settings if your device offers them.")
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.textMuted)
+            }
+        }
+        .navigationTitle("Voice")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert(item: previewIssueBinding) { issue in
+            Alert(
+                title: Text(issue.title),
+                message: Text(issue.message),
+                dismissButton: .default(Text("OK"), action: previewVoice.clearIssue)
+            )
+        }
+        .onChange(of: selectedVoiceIdentifier) { _, _ in
+            previewVoice.stopSpeaking()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { previewVoice.stopAll() }
+        }
+        .onAppear {
+            let voiceOptions = DeviceVoicePreferences.options()
+            selectedVoiceIdentifier = DeviceVoicePreferences.normalizedIdentifier(
+                selectedVoiceIdentifier,
+                options: voiceOptions
+            )
+        }
+        .onDisappear {
+            previewVoice.stopAll()
+        }
+    }
+
+    private var normalizedVoiceSelection: Binding<String> {
+        Binding(
+            get: {
+                DeviceVoicePreferences.normalizedIdentifier(selectedVoiceIdentifier)
+            },
+            set: { selectedVoiceIdentifier = $0 }
+        )
+    }
+
+    private var previewIssueBinding: Binding<DeviceVoiceIssue?> {
+        Binding(
+            get: { previewVoice.issue },
+            set: { newValue in
+                if newValue == nil { previewVoice.clearIssue() }
+            }
+        )
     }
 }
 

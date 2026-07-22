@@ -1,22 +1,16 @@
 /**
- * Social Studio prompt builder.
+ * Social Studio shared logic — the prompt builder and the artifact parser,
+ * used by every front-end (web dashboard, desktop, mobile) so the "compose a
+ * post" handoff and the "read the post back out of a conversation" convention
+ * stay identical across surfaces. This mirrors how `design.ts` (`buildDesignPrompt`)
+ * is shared between the web and desktop Design surfaces.
  *
- * The composer collects a short brief plus a few structured choices and turns
- * them into a single chat prompt, the same handoff shape the Design surface uses
- * (`apps/shared/src/design.ts` -> `buildDesignPrompt`): the dashboard drops a
- * prepared prompt into a fresh Chat so the user can review before sending.
- *
- * Two conventions make the result readable back by the Library gallery:
- *   1. The agent is told to emit the final, paste-ready post inside a fenced
- *      block tagged `linkedin-post`, with nothing else in the block. The parser
- *      (`social-artifacts.ts`) keys off that fence, so the "copy exactly this"
- *      text is unambiguous.
- *   2. If it produces an image, it lists the workspace-relative path under an
- *      "Artifacts" heading and shows it with a markdown image, reusing the
- *      existing artifact-handoff convention so Fabric can index and preview it.
- *
- * This lives in the web zone (not `apps/shared`) on purpose: it is dashboard-only
- * and keeps the change inside a single ownership zone.
+ * The convention that ties the two halves together:
+ *   1. The composer asks the agent to emit the final, paste-ready post inside a
+ *      fenced code block tagged `linkedin-post`, with nothing else in the block.
+ *   2. Any generated image is listed under an "Artifacts" heading / shown with a
+ *      markdown image, reusing the existing artifact-handoff convention.
+ * The parser keys off (1) for the caption and (2) for the image.
  */
 
 export const SOCIAL_POST_FENCE = "linkedin-post";
@@ -30,12 +24,7 @@ export type SocialGoal =
   | "lesson"
   | "hiring";
 
-export type SocialTone =
-  | "candid"
-  | "bold"
-  | "warm"
-  | "analytical"
-  | "playful";
+export type SocialTone = "candid" | "bold" | "warm" | "analytical" | "playful";
 
 export type SocialFormat =
   | "hook-story"
@@ -193,7 +182,8 @@ function normalizeBrief(value: string): string {
   for (const ch of value) {
     const code = ch.codePointAt(0) ?? 0;
     // Replace C0/C1 control characters (including tabs and newlines) with a
-    // space; keep all normal text. Avoids embedding raw control bytes.
+    // space; keep all normal text. A char-code check avoids embedding raw
+    // control bytes in a regex character class.
     if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) {
       out += " ";
     } else {
@@ -229,4 +219,117 @@ export function buildSocialPrompt(request: SocialRequest): string {
   }
 
   return lines.join("\n");
+}
+
+// ── Artifact parsing ──────────────────────────────────────────────────────
+
+/**
+ * Minimal message shape the parser needs. Both the web dashboard's
+ * `SessionMessage` and the desktop/mobile message types are structurally
+ * compatible with this, so each surface can pass its own messages directly.
+ */
+export interface SocialSourceMessage {
+  role: string;
+  content: string | null;
+  timestamp?: number;
+}
+
+export interface SocialArtifact {
+  /** Stable within a session render: `${messageIndex}:${blockIndex}`. */
+  id: string;
+  /** The exact text to paste into the social network. */
+  caption: string;
+  /** Workspace-relative path or absolute URL of an accompanying image. */
+  imagePath: string | null;
+  /** Index of the source message within the conversation. */
+  messageIndex: number;
+  /** Message timestamp (epoch seconds) when the model recorded one. */
+  timestamp: number | null;
+}
+
+// Info strings we accept on the opening fence (case-insensitive). `linkedin-post`
+// is what the composer asks for; the looser aliases catch hand-written posts.
+const ACCEPTED_FENCES = new Set([
+  "linkedin-post",
+  "linkedinpost",
+  "linkedin",
+  "social-post",
+  "post",
+]);
+
+// Opening fence (``` or ~~~), optional info string, body, closing fence.
+const FENCE_RE =
+  /(?:^|\n)[ \t]*(?:```|~~~)[ \t]*([\w-]+)?[ \t]*\r?\n([\s\S]*?)\r?\n?[ \t]*(?:```|~~~)(?=\n|$)/g;
+
+// Markdown image: `![alt](path "title")` -> capture the path.
+const MD_IMAGE_RE = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)/g;
+
+// A bare token that ends in a common image extension. The token itself has no
+// spaces, so a markdown list bullet ("- path.png") is not swallowed.
+const IMAGE_TOKEN_RE =
+  /(?:^|[\s(])((?:https?:\/\/|\/|\.\/|[\w.-]+\/)?[-\w./]*\.(?:png|jpe?g|webp|gif|svg|avif))(?=$|[\s)"'?#])/i;
+
+function firstImagePath(text: string): string | null {
+  MD_IMAGE_RE.lastIndex = 0;
+  const md = MD_IMAGE_RE.exec(text);
+  if (md?.[1]) return md[1].trim();
+
+  const token = IMAGE_TOKEN_RE.exec(text);
+  if (token?.[1]) return token[1].trim();
+
+  return null;
+}
+
+/**
+ * Parse a conversation's messages into social artifacts, in conversation order.
+ * Returns an empty array when the conversation has no post-ready deliverable.
+ * Only `assistant` messages are read: the user's prompt names the fence but
+ * never contains a real fenced block.
+ */
+export function extractSocialArtifacts(
+  messages: readonly SocialSourceMessage[],
+): SocialArtifact[] {
+  const artifacts: SocialArtifact[] = [];
+
+  messages.forEach((message, messageIndex) => {
+    if (message.role !== "assistant") return;
+    const content = message.content;
+    if (!content) return;
+
+    let blockIndex = 0;
+    FENCE_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = FENCE_RE.exec(content)) !== null) {
+      const info = (match[1] ?? "").toLowerCase();
+      if (!ACCEPTED_FENCES.has(info)) continue;
+
+      const caption = match[2]?.trim();
+      if (!caption) continue;
+
+      const imagePath = firstImagePath(content);
+
+      artifacts.push({
+        id: `${messageIndex}:${blockIndex}`,
+        caption,
+        imagePath,
+        messageIndex,
+        timestamp: message.timestamp ?? null,
+      });
+      blockIndex += 1;
+    }
+  });
+
+  return artifacts;
+}
+
+/** Whether a conversation contains at least one post-ready artifact. */
+export function hasSocialArtifacts(
+  messages: readonly SocialSourceMessage[],
+): boolean {
+  return extractSocialArtifacts(messages).length > 0;
+}
+
+/** True when the path is an absolute http(s) URL rather than a workspace file. */
+export function isRemoteImage(path: string): boolean {
+  return /^https?:\/\//i.test(path);
 }

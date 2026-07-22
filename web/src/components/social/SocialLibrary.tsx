@@ -8,8 +8,12 @@ import { Badge } from "@/components/fabric/Badge";
 import { EmptyState, Skeleton } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { en } from "@/i18n/en";
+import {
+  extractSocialArtifacts,
+  type SocialArtifact,
+} from "@fabric/shared";
+
 import { api, type SessionInfo } from "@/lib/api";
-import { extractSocialArtifacts, type SocialArtifact } from "@/lib/social-artifacts";
 
 import { CopyButton } from "./CopyButton";
 import { SocialArtifactDetail } from "./SocialArtifactDetail";

@@ -1,8 +1,9 @@
 import { ImageOff } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { isRemoteImage } from "@fabric/shared";
+
 import { api } from "@/lib/api";
-import { isRemoteImage } from "@/lib/social-artifacts";
 import { cn } from "@/lib/utils";
 
 type LoadState = "loading" | "ready" | "error";

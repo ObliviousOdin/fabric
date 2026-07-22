@@ -22,7 +22,7 @@ import {
   type SocialFormat,
   type SocialGoal,
   type SocialTone,
-} from "@/lib/social-prompt";
+} from "@fabric/shared";
 
 /**
  * The Social Studio composer. Same handoff shape as the Design surface: collect

@@ -10,8 +10,9 @@ import {
 
 import { useI18n } from "@/i18n";
 import { en } from "@/i18n/en";
+import type { SocialArtifact } from "@fabric/shared";
+
 import type { SessionInfo } from "@/lib/api";
-import type { SocialArtifact } from "@/lib/social-artifacts";
 
 import { CopyButton } from "./CopyButton";
 import { WorkspaceImage } from "./WorkspaceImage";

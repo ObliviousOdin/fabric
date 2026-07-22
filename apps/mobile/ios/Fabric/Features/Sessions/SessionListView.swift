@@ -406,8 +406,17 @@ struct SessionListView: View {
     @State private var model = SessionLibraryModel()
     @State private var pinnedSessionKeys: Set<String> = []
     @State private var searchQuery = ""
+    @State private var renameTarget: ActiveSession?
+    @State private var renameDraft = ""
 
     private let pinStore = SessionLibraryPinStore()
+
+    /// Rename requires a live runtime session id — historical rows first
+    /// need a resume, so their rename lives inside the opened conversation.
+    private var supportsRename: Bool {
+        appModel.supportsGatewayMethod("session.title")
+            || appModel.supportsGatewayMethod("slash.exec")
+    }
 
     var body: some View {
         let projection = SessionLibraryProjection(
@@ -522,6 +531,25 @@ struct SessionListView: View {
             prepareForCurrentGateway()
             if appModel.phase == .connected { await reload() }
         }
+        .alert(
+            "Rename conversation",
+            isPresented: Binding(
+                get: { renameTarget != nil },
+                set: { if !$0 { renameTarget = nil } }
+            ),
+            presenting: renameTarget
+        ) { session in
+            TextField("Conversation name", text: $renameDraft)
+            Button("Save") {
+                let newTitle = renameDraft
+                renameTarget = nil
+                Task { await rename(session, to: newTitle) }
+            }
+            .disabled(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Cancel", role: .cancel) { renameTarget = nil }
+        } message: { _ in
+            Text("The name is saved on the Fabric gateway, so it appears on every device.")
+        }
     }
 
     @ViewBuilder
@@ -573,6 +601,16 @@ struct SessionListView: View {
                 }
             }
         }
+        .contextMenu {
+            if let session = item.activeSession, supportsRename {
+                Button {
+                    renameDraft = item.displayTitle == "Untitled session" ? "" : item.displayTitle
+                    renameTarget = session
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+            }
+        }
         if item.durableSessionKey == nil {
             link
         } else {
@@ -602,6 +640,19 @@ struct SessionListView: View {
             return
         }
         pinnedSessionKeys = pinStore.pinnedSessionKeys(for: gatewayID)
+    }
+
+    private func rename(_ session: ActiveSession, to title: String) async {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, supportsRename else { return }
+        // Failure keeps the previous server title; the reload below shows the
+        // authoritative outcome either way (matching the interrupt action).
+        _ = try? await appModel.api.setSessionTitle(
+            sessionId: session.id,
+            title: trimmed,
+            preferTypedMethod: appModel.supportsGatewayMethod("session.title")
+        )
+        await reload()
     }
 
     private func togglePin(_ item: SessionLibraryProjection.Item, currentlyPinned: Bool) {

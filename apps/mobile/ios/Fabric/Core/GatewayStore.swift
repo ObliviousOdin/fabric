@@ -24,9 +24,10 @@ enum GatewayAuthMode: String, Codable {
 }
 
 /// One saved Fabric server in the library. Metadata is JSON in UserDefaults;
-/// the token (token mode) lives in the Keychain keyed by `id`. Passwords are
-/// never stored — a gated server auto-logs-in only while its cookie session
-/// is alive, otherwise the user re-enters the password.
+/// credentials live in the Keychain keyed by `id`: the session token (token
+/// mode) always, and the sign-in password (gated mode) only when the user
+/// opts in to keeping it on this device. Without a kept password, a gated
+/// server auto-logs-in only while its cookie session is alive.
 struct SavedGateway: Identifiable, Codable, Equatable {
     let id: String
     var label: String
@@ -110,7 +111,7 @@ enum GatewayStore {
         let keptIDs = Set(deduplicated.map(\.id))
         let removed = list.filter { !keptIDs.contains($0.id) }
         persist(deduplicated)
-        for gateway in removed { deleteToken(id: gateway.id) }
+        for gateway in removed { deleteCredentials(id: gateway.id) }
         if let lastActive = lastActiveId(),
            let removedActive = removed.first(where: { $0.id == lastActive }),
            let replacement = deduplicated.first(where: { $0.endpointKey == removedActive.endpointKey }) {
@@ -154,12 +155,14 @@ enum GatewayStore {
 
     /// Protect a token before publishing metadata that makes the server appear
     /// auto-connectable. Keychain failure leaves no partially saved server.
+    /// A server switching to token auth also drops any kept sign-in password.
     @discardableResult
     static func upsert(_ gateway: SavedGateway, token: String) throws -> [SavedGateway] {
         guard GatewayBaseURL.allowsTokenCredential(gateway.baseURL) else {
             throw GatewayTokenTransportError.secureTransportRequired
         }
         try saveToken(token, id: gateway.id)
+        deletePassword(id: gateway.id)
         return upsertMetadata(gateway, deleteCurrentToken: false)
     }
 
@@ -178,21 +181,30 @@ enum GatewayStore {
             .map(\.id)
         list.removeAll { duplicateIDs.contains($0.id) }
         persist(list)
-        for id in duplicateIDs { deleteToken(id: id) }
+        for id in duplicateIDs { deleteCredentials(id: id) }
         if let lastActive = lastActiveId(), duplicateIDs.contains(lastActive) {
             setLastActive(gateway.id)
         }
         if deleteCurrentToken {
-            deleteToken(id: gateway.id)
+            // A server switching to gated auth sheds its stale token only;
+            // any password the user chose to keep remains its credential.
+            _ = deleteTokenStatus(id: gateway.id)
         }
         return list
     }
 
     /// Explicit user-initiated removal is credential-first: a failed Security
     /// framework deletion must leave the saved row and all related metadata in
-    /// place so the UI can report failure without orphaning a token.
+    /// place so the UI can report failure without orphaning a token or a kept
+    /// sign-in password.
     static func remove(id: String) throws {
-        try remove(id: id, deleteCredential: { deleteTokenStatus(id: id) })
+        try remove(id: id, deleteCredential: {
+            let tokenStatus = deleteTokenStatus(id: id)
+            guard tokenStatus == errSecSuccess || tokenStatus == errSecItemNotFound else {
+                return tokenStatus
+            }
+            return deletePasswordStatus(id: id)
+        })
     }
 
     /// Internal seam for the offboarding failure contract. Maintenance cleanup
@@ -240,9 +252,47 @@ enum GatewayStore {
         loadToken(id: id)
     }
 
+    // MARK: - Kept sign-in passwords (gated mode, opt-in)
+
+    /// Keep a gated server's sign-in password on this device. The password
+    /// only ever lives in the Keychain — never in metadata — and, like a
+    /// token, is only accepted for a transport that can keep it secret.
+    static func savePassword(_ password: String, for gateway: SavedGateway) throws {
+        guard GatewayBaseURL.allowsTokenCredential(gateway.baseURL) else {
+            throw GatewayTokenTransportError.secureTransportRequired
+        }
+        try saveCredential(password, query: passwordQuery(id: gateway.id))
+    }
+
+    static func password(id: String) -> String? {
+        loadCredential(query: passwordQuery(id: id))
+    }
+
+    static func deletePassword(id: String) {
+        _ = deletePasswordStatus(id: id)
+    }
+
+    /// A gated server with a kept password can sign in again with no prompt
+    /// (unless its provider requires a fresh TOTP code at connect time).
+    static func hasStoredPassword(_ gateway: SavedGateway) -> Bool {
+        hasStoredPassword(gateway, loadCredential: { password(id: $0) })
+    }
+
+    /// Internal seam mirroring `canAutoConnect`: the transport check runs
+    /// before Keychain access so an unsafe endpoint never advertises a kept
+    /// credential even when one still exists.
+    static func hasStoredPassword(
+        _ gateway: SavedGateway,
+        loadCredential: (String) -> String?
+    ) -> Bool {
+        gateway.authMode == .gated
+            && GatewayBaseURL.allowsTokenCredential(gateway.baseURL)
+            && !(loadCredential(gateway.id) ?? "").isEmpty
+    }
+
     /// A token-mode server with a stored token can reconnect with no prompt.
     /// (Gated servers are checked at connect time against the live cookie
-    /// session, so readiness there can't be answered synchronously here.)
+    /// session and any kept password — see `hasStoredPassword`.)
     static func canAutoConnect(_ gateway: SavedGateway) -> Bool {
         canAutoConnect(gateway, loadCredential: loadToken)
     }
@@ -265,18 +315,30 @@ enum GatewayStore {
         }
     }
 
-    // MARK: - Keychain (one token entry per gateway id)
+    // MARK: - Keychain (token + optional password entries per gateway id)
 
     private static func tokenQuery(id: String) -> [String: Any] {
+        credentialQuery(account: "gateway-token-\(id)")
+    }
+
+    private static func passwordQuery(id: String) -> [String: Any] {
+        credentialQuery(account: "gateway-password-\(id)")
+    }
+
+    private static func credentialQuery(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: "gateway-token-\(id)",
+            kSecAttrAccount as String: account,
         ]
     }
 
     private static func loadToken(id: String) -> String? {
-        var query = tokenQuery(id: id)
+        loadCredential(query: tokenQuery(id: id))
+    }
+
+    private static func loadCredential(query: [String: Any]) -> String? {
+        var query = query
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
@@ -286,15 +348,19 @@ enum GatewayStore {
     }
 
     private static func saveToken(_ token: String, id: String) throws {
-        let data = Data(token.utf8)
-        var addQuery = tokenQuery(id: id)
+        try saveCredential(token, query: tokenQuery(id: id))
+    }
+
+    private static func saveCredential(_ value: String, query: [String: Any]) throws {
+        let data = Data(value.utf8)
+        var addQuery = query
         addQuery[kSecValueData as String] = data
         addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         let status: OSStatus
         if addStatus == errSecDuplicateItem {
             status = SecItemUpdate(
-                tokenQuery(id: id) as CFDictionary,
+                query as CFDictionary,
                 [
                     kSecValueData as String: data,
                     kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
@@ -308,12 +374,17 @@ enum GatewayStore {
         }
     }
 
-    private static func deleteToken(id: String) {
+    private static func deleteCredentials(id: String) {
         _ = deleteTokenStatus(id: id)
+        _ = deletePasswordStatus(id: id)
     }
 
     private static func deleteTokenStatus(id: String) -> OSStatus {
         SecItemDelete(tokenQuery(id: id) as CFDictionary)
+    }
+
+    private static func deletePasswordStatus(id: String) -> OSStatus {
+        SecItemDelete(passwordQuery(id: id) as CFDictionary)
     }
 
     private static func deleteCredentialService() -> OSStatus {

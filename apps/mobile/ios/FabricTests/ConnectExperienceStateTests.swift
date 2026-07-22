@@ -51,6 +51,14 @@ final class ConnectExperienceStateTests: XCTestCase {
             ConnectGatewayAvailability(authMode: .gated, canAutoConnect: true),
             .savedSignIn
         )
+        XCTAssertEqual(
+            ConnectGatewayAvailability(
+                authMode: .gated,
+                canAutoConnect: false,
+                hasStoredPassword: true
+            ),
+            .ready
+        )
 
         for state in [
             ConnectGatewayAvailability.ready,

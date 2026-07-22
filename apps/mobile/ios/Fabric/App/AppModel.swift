@@ -309,21 +309,35 @@ final class AppModel {
         }
     }
 
+    /// Whether this saved gated server keeps a sign-in password on this
+    /// device (used only for presentation; the credential never leaves the
+    /// Keychain path).
+    func hasStoredPassword(_ gateway: SavedGateway) -> Bool {
+        GatewayStore.hasStoredPassword(gateway)
+    }
+
     /// Connect to a saved gated server. A supplied password is authoritative:
     /// sign in immediately instead of spending a round trip on a ticket request
     /// that is expected to fail for a fresh or expired cookie session. Saved
-    /// servers with no supplied password still try a silent cookie reconnect.
+    /// servers with no supplied password still try a silent cookie reconnect,
+    /// then a kept-password sign-in, before asking the user again.
     func connectGated(
         _ gateway: SavedGateway,
         provider: String,
         password: String?,
-        otp: String = ""
+        otp: String = "",
+        rememberPassword: Bool? = nil
     ) async {
         let hasFreshPassword = password?.isEmpty == false
         let authSession = GatewayAPI.beginAuthSession(
             for: gateway,
             preservingExistingCookies: !hasFreshPassword
         )
+        // An explicit opt-out clears the kept credential no matter how this
+        // attempt ends; a kept password only ever reflects the user's choice.
+        if rememberPassword == false {
+            GatewayStore.deletePassword(id: gateway.id)
+        }
         await connect(gateway) {
             if let password, !password.isEmpty {
                 try await GatewayAPI.passwordLogin(
@@ -340,18 +354,64 @@ final class AppModel {
                 )
                 return try GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)
             }
+            return try await Self.gatedReconnectURL(for: gateway, using: authSession)
+        }
+        if rememberPassword == true,
+           let password, !password.isEmpty,
+           phase == .connected,
+           activeGatewayId == gateway.id {
+            // Keep only a password that just signed in successfully, and never
+            // let a Keychain failure disturb the established connection.
+            try? GatewayStore.savePassword(password, for: gateway)
+        }
+    }
 
-            do {
-                let ticket = try await GatewayAPI.mintWsTicket(
-                    gateway: gateway,
-                    using: authSession
-                )
-                return try GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)
-            } catch GatewayAPIError.httpStatus(let code, _) where code == 401 || code == 403 {
-                throw GatewayClientError.rpc(message: "Sign in to \(gateway.label) to connect.")
-            } catch {
-                throw error
+    /// Mint the WS URL for a saved gated server without user input: first
+    /// from the live cookie session, then by signing in again with the kept
+    /// password. TOTP providers never auto-submit a stale code, and a
+    /// rejected kept password surfaces the ordinary sign-in prompt after one
+    /// attempt so automatic reconnects cannot hammer the sign-in endpoint.
+    private static func gatedReconnectURL(
+        for gateway: SavedGateway,
+        using authSession: GatewayAuthSessionLease
+    ) async throws -> URL {
+        let signInRequired = GatewayClientError.rpc(
+            message: "Sign in to \(gateway.label) to connect."
+        )
+        do {
+            let ticket = try await GatewayAPI.mintWsTicket(
+                gateway: gateway,
+                using: authSession
+            )
+            return try GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)
+        } catch GatewayAPIError.httpStatus(let code, _) where code == 401 || code == 403 {
+            guard GatewayStore.hasStoredPassword(gateway),
+                  let storedPassword = GatewayStore.password(id: gateway.id),
+                  !storedPassword.isEmpty else {
+                throw signInRequired
             }
+            let provider = try? await GatewayAPI.listAuthProviders(baseURL: gateway.baseURL)
+                .first(where: { $0.supportsPassword })
+            guard let provider, !provider.requiresTotp else {
+                throw signInRequired
+            }
+            do {
+                try await GatewayAPI.passwordLogin(
+                    gateway: gateway,
+                    using: authSession,
+                    provider: provider.name,
+                    username: gateway.username,
+                    password: storedPassword
+                )
+            } catch {
+                // The kept password was rejected (changed or rate-limited).
+                throw signInRequired
+            }
+            let ticket = try await GatewayAPI.mintWsTicket(
+                gateway: gateway,
+                using: authSession
+            )
+            return try GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)
         }
     }
 
@@ -527,11 +587,7 @@ final class AppModel {
                 preservingExistingCookies: true
             )
             await connect(gateway, automaticReconnect: true) {
-                let ticket = try await GatewayAPI.mintWsTicket(
-                    gateway: gateway,
-                    using: authSession
-                )
-                return try GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)
+                try await Self.gatedReconnectURL(for: gateway, using: authSession)
             }
         }
     }

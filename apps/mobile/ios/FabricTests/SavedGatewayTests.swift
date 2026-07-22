@@ -130,6 +130,92 @@ final class SavedGatewayTests: XCTestCase {
         XCTAssertNil(GatewayStore.token(id: gateway.id))
     }
 
+    func testKeptPasswordPersistsAndIsRemovedWithItsGateway() throws {
+        let gateway = SavedGateway(
+            id: "kept-password",
+            label: "Gated server",
+            baseURL: try XCTUnwrap(URL(string: "https://gated.example.test")),
+            authMode: .gated,
+            username: "odin"
+        )
+        GatewayStore.upsert(gateway)
+
+        do {
+            try GatewayStore.savePassword("kept-sign-in-secret", for: gateway)
+        } catch GatewayStoreError.credentialStorageUnavailable {
+            throw XCTSkip("This unsigned simulator runner does not permit Keychain writes.")
+        }
+
+        XCTAssertEqual(GatewayStore.password(id: gateway.id), "kept-sign-in-secret")
+        XCTAssertTrue(GatewayStore.hasStoredPassword(gateway))
+
+        try GatewayStore.remove(id: gateway.id)
+        XCTAssertNil(GatewayStore.password(id: gateway.id))
+        XCTAssertFalse(GatewayStore.hasStoredPassword(gateway))
+    }
+
+    func testKeptPasswordRequiresSecureTransport() throws {
+        let gateway = SavedGateway(
+            id: "insecure-password",
+            label: "Plain HTTP gateway",
+            baseURL: try XCTUnwrap(URL(string: "http://192.168.1.20:9119")),
+            authMode: .gated,
+            username: "odin"
+        )
+        var requestedCredentialID: String?
+
+        XCTAssertThrowsError(
+            try GatewayStore.savePassword("must-not-be-saved", for: gateway)
+        ) { error in
+            XCTAssertEqual(error as? GatewayTokenTransportError, .secureTransportRequired)
+            XCTAssertFalse(error.localizedDescription.contains("must-not-be-saved"))
+        }
+        XCTAssertFalse(GatewayStore.hasStoredPassword(gateway) { id in
+            requestedCredentialID = id
+            return "still-present-password"
+        })
+        XCTAssertNil(requestedCredentialID, "Unsafe transport must fail before reading Keychain.")
+    }
+
+    func testTokenModeGatewayNeverAdvertisesAKeptPassword() throws {
+        let gateway = SavedGateway(
+            id: "token-no-password",
+            label: "Token server",
+            baseURL: try XCTUnwrap(URL(string: "https://token.example.test")),
+            authMode: .token
+        )
+
+        XCTAssertFalse(GatewayStore.hasStoredPassword(gateway) { _ in "orphan-password" })
+    }
+
+    func testSwitchingToTokenAuthDropsTheKeptPassword() throws {
+        let baseURL = try XCTUnwrap(URL(string: "https://switching.example.test"))
+        let gated = SavedGateway(
+            id: "auth-switch",
+            label: "Was gated",
+            baseURL: baseURL,
+            authMode: .gated,
+            username: "odin"
+        )
+        GatewayStore.upsert(gated)
+        do {
+            try GatewayStore.savePassword("gated-era-secret", for: gated)
+        } catch GatewayStoreError.credentialStorageUnavailable {
+            throw XCTSkip("This unsigned simulator runner does not permit Keychain writes.")
+        }
+
+        let token = SavedGateway(
+            id: "auth-switch",
+            label: "Now token",
+            baseURL: baseURL,
+            authMode: .token
+        )
+        _ = try GatewayStore.upsert(token, token: "fresh-session-token")
+
+        XCTAssertNil(GatewayStore.password(id: token.id))
+        XCTAssertEqual(GatewayStore.token(id: token.id), "fresh-session-token")
+    }
+
     func testFullResetRemovesOrphanTokenWhenGatewayMetadataIsCorrupt() throws {
         let gateway = SavedGateway(
             id: "orphan-token-\(UUID().uuidString)",

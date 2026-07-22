@@ -84,7 +84,8 @@ struct GatewayListView: View {
                             state: ConnectGatewayAvailability(
                                 authMode: gateway.authMode,
                                 canAutoConnect: appModel.canAutoConnect(gateway),
-                                allowsTokenCredential: GatewayBaseURL.allowsTokenCredential(gateway.baseURL)
+                                allowsTokenCredential: GatewayBaseURL.allowsTokenCredential(gateway.baseURL),
+                                hasStoredPassword: appModel.hasStoredPassword(gateway)
                             ),
                             isEnabled: appModel.phase != .connecting,
                             onConnect: { Task { await tap(gateway) } },

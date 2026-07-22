@@ -978,6 +978,122 @@ final class ChatExperienceTests: XCTestCase {
         }, ["Authoritative final"])
     }
 
+    // MARK: - Streaming scroll follow mode (Issue #90)
+
+    func testFollowStateStartsEngagedAndChasesLatestAtBottom() {
+        var follow = TranscriptFollowState()
+        XCTAssertTrue(follow.isFollowing)
+        XCTAssertFalse(follow.showsJumpToLatest)
+        XCTAssertEqual(follow.transcriptDidGrow(newUserTurn: false), .scrollToLatest)
+        XCTAssertTrue(follow.isFollowing)
+        XCTAssertFalse(follow.showsJumpToLatest)
+    }
+
+    func testScrollingAwayDisengagesFollowAndHoldsPositionForDeltas() {
+        var follow = TranscriptFollowState()
+        follow.viewportDidScroll(distanceFromBottom: TranscriptFollowState.bottomTolerance + 200)
+        XCTAssertFalse(follow.isFollowing)
+
+        // Streaming deltas below the viewport must not move the reader.
+        XCTAssertEqual(follow.transcriptDidGrow(newUserTurn: false), .hold)
+        XCTAssertEqual(follow.transcriptDidGrow(newUserTurn: false), .hold)
+        XCTAssertTrue(follow.showsJumpToLatest)
+    }
+
+    func testNonTouchScrollAwayAlsoDisengagesFollow() {
+        // A VoiceOver scroll action, hardware/trackpad scrolling, and the scroll
+        // indicator all move the viewport offset, so the view routes them through
+        // the same geometry path as a touch drag — they must disengage follow too,
+        // or streaming would keep yanking an assistive/hardware reader back.
+        var follow = TranscriptFollowState()
+        follow.viewportDidScroll(distanceFromBottom: 500)
+        XCTAssertFalse(follow.isFollowing)
+        _ = follow.transcriptDidGrow(newUserTurn: false)
+        XCTAssertTrue(follow.showsJumpToLatest)
+    }
+
+    func testScrollWithinToleranceKeepsFollowing() {
+        var follow = TranscriptFollowState()
+        follow.viewportDidScroll(distanceFromBottom: TranscriptFollowState.bottomTolerance)
+        XCTAssertTrue(follow.isFollowing, "Staying within tolerance is not a disengagement")
+        follow.viewportDidScroll(distanceFromBottom: TranscriptFollowState.bottomTolerance + 0.5)
+        XCTAssertFalse(follow.isFollowing, "Crossing the tolerance disengages follow")
+    }
+
+    func testRichLayoutFollowUpOnlyScrollsWhileFollowing() {
+        var follow = TranscriptFollowState()
+        XCTAssertTrue(follow.richLayoutReadyShouldScroll())
+        follow.viewportDidScroll(distanceFromBottom: 400)
+        XCTAssertFalse(
+            follow.richLayoutReadyShouldScroll(),
+            "A completed row's rich relayout must not yank a scrolled-up reader"
+        )
+    }
+
+    func testScrollingBackToBottomReengagesFollowAndClearsAffordance() {
+        var follow = TranscriptFollowState()
+        follow.viewportDidScroll(distanceFromBottom: 400)
+        _ = follow.transcriptDidGrow(newUserTurn: false)
+        XCTAssertTrue(follow.showsJumpToLatest)
+
+        // Returning to the bottom by any scroll method re-engages follow.
+        follow.viewportDidScroll(distanceFromBottom: 0)
+        XCTAssertTrue(follow.isFollowing)
+        XCTAssertFalse(follow.showsJumpToLatest)
+        XCTAssertEqual(follow.transcriptDidGrow(newUserTurn: false), .scrollToLatest)
+    }
+
+    func testContentGrowthDriftNeverReengagesAScrolledUpReader() {
+        var follow = TranscriptFollowState()
+        follow.viewportDidScroll(distanceFromBottom: 400)
+        _ = follow.transcriptDidGrow(newUserTurn: false)
+        // Content grew below the reader (offset unchanged), so the view routes it
+        // through the settle path far from the bottom — this must never re-arm
+        // follow; only reaching the bottom does.
+        follow.viewportDidSettle(distanceFromBottom: 800)
+        XCTAssertFalse(follow.isFollowing)
+        XCTAssertTrue(follow.showsJumpToLatest)
+    }
+
+    func testSettlingAtBottomAfterSnapReengagesFollow() {
+        var follow = TranscriptFollowState()
+        follow.viewportDidScroll(distanceFromBottom: 400)
+        XCTAssertFalse(follow.isFollowing)
+        // A non-reader relayout that lands at the bottom (our own snap-to-latest)
+        // re-engages follow.
+        follow.viewportDidSettle(distanceFromBottom: 0)
+        XCTAssertTrue(follow.isFollowing)
+    }
+
+    func testJumpToLatestReengagesFollowAndClearsAffordance() {
+        var follow = TranscriptFollowState()
+        follow.viewportDidScroll(distanceFromBottom: 400)
+        _ = follow.transcriptDidGrow(newUserTurn: false)
+        follow.jumpToLatest()
+        XCTAssertTrue(follow.isFollowing)
+        XCTAssertFalse(follow.showsJumpToLatest)
+    }
+
+    func testSendingANewUserTurnAlwaysReturnsToLatest() {
+        var follow = TranscriptFollowState()
+        follow.viewportDidScroll(distanceFromBottom: 400)
+        _ = follow.transcriptDidGrow(newUserTurn: false)
+        XCTAssertFalse(follow.isFollowing)
+        // Sending a message re-engages follow and snaps to the new turn.
+        XCTAssertEqual(follow.transcriptDidGrow(newUserTurn: true), .scrollToLatest)
+        XCTAssertTrue(follow.isFollowing)
+        XCTAssertFalse(follow.showsJumpToLatest)
+    }
+
+    func testJumpToLatestAffordanceHiddenUntilContentArrivesBelow() {
+        var follow = TranscriptFollowState()
+        follow.viewportDidScroll(distanceFromBottom: 400)
+        // Away from the bottom, but nothing new has streamed in yet.
+        XCTAssertFalse(follow.showsJumpToLatest)
+        _ = follow.transcriptDidGrow(newUserTurn: false)
+        XCTAssertTrue(follow.showsJumpToLatest)
+    }
+
     @MainActor
     private func makeModel(
         methods: Set<String>,

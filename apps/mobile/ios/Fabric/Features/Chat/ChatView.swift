@@ -1127,13 +1127,136 @@ struct ChatExperienceDebugFixtureView: View {
 }
 #endif
 
-/// Owns transcript scrolling so a completed assistant row can request one
-/// follow-up scroll after its cached rich layout has a measured height.
-/// Without that second signal, a tall code or list block can grow below the
-/// viewport after the ordinary `messages` change already scrolled the plain
-/// streaming row.
+private enum TranscriptScroll {
+    static let coordinateSpace = "fabric.transcript.scroll"
+}
+
+/// The transcript content's frame in the scroll view's coordinate space. Its
+/// `maxY` versus the viewport height gives the reader's distance from the latest
+/// content; its `minY` (the scroll offset) changes on any viewport move — a
+/// touch drag, trackpad, hardware key, scroll bar, or a VoiceOver scroll action
+/// — yet stays put when content merely grows at the bottom. That distinction is
+/// what lets follow disengage on every scroll input method while still ignoring
+/// streaming growth.
+private struct TranscriptContentFrameKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
+/// Height of the transcript viewport.
+private struct TranscriptViewportHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// Pure follow-mode policy for the streaming transcript. It is extracted from
+/// the SwiftUI view so every transition — engage, manual disengage, delta
+/// arrival, rich-layout completion, jump, and return-to-bottom — is
+/// deterministically unit-testable without a live scroll view. The view feeds
+/// it measured geometry and explicit reader intent; this type owns the decision
+/// of whether to chase the newest token. Follow is gated on an explicit state,
+/// never on a delay or gesture-timing heuristic.
+struct TranscriptFollowState: Equatable {
+    /// Within this many points of the bottom the viewport counts as "at the
+    /// latest turn". A small tolerance absorbs sub-pixel layout drift and the
+    /// rounding in SwiftUI's scroll geometry.
+    static let bottomTolerance: CGFloat = 24
+
+    /// Whether new content should keep pulling the viewport to the latest token.
+    private(set) var isFollowing: Bool
+    /// Whether content arrived below the viewport while follow was disengaged.
+    private(set) var hasPendingContentBelow: Bool
+
+    init(isFollowing: Bool = true, hasPendingContentBelow: Bool = false) {
+        self.isFollowing = isFollowing
+        self.hasPendingContentBelow = hasPendingContentBelow
+    }
+
+    /// The "Jump to latest" affordance appears only when the reader has moved
+    /// away from the bottom *and* newer content exists below the viewport.
+    var showsJumpToLatest: Bool { !isFollowing && hasPendingContentBelow }
+
+    enum ContentAdvance: Equatable {
+        /// Snap the viewport to the newest content.
+        case scrollToLatest
+        /// Preserve the reader's current position.
+        case hold
+    }
+
+    /// The transcript grew — a streaming delta, a completed turn, or a brand new
+    /// message. A fresh user turn always re-engages follow (you sent it, so you
+    /// expect to watch the reply). Otherwise growth is chased only while
+    /// following, and remembered as pending-below while disengaged.
+    mutating func transcriptDidGrow(newUserTurn: Bool) -> ContentAdvance {
+        if newUserTurn {
+            isFollowing = true
+            hasPendingContentBelow = false
+            return .scrollToLatest
+        }
+        if isFollowing {
+            hasPendingContentBelow = false
+            return .scrollToLatest
+        }
+        hasPendingContentBelow = true
+        return .hold
+    }
+
+    /// A completed row reported its measured rich-layout height. Only a still-
+    /// following viewport may chase that post-completion growth, so a reader who
+    /// has scrolled up is never yanked when Markdown re-lays out.
+    func richLayoutReadyShouldScroll() -> Bool { isFollowing }
+
+    /// The reader moved the viewport — by a touch drag, trackpad, hardware key,
+    /// scroll bar, or a VoiceOver scroll action. Any of these changes the scroll
+    /// offset, so all of them route here: more than the tolerance from the
+    /// bottom disengages follow, and returning to the bottom re-engages it. This
+    /// is the single disengage path, so no scroll input method is missed — a
+    /// touch-only signal would leave assistive and hardware scrolling stuck in
+    /// follow. It is timing-free: driven by measured offset, never a delay.
+    mutating func viewportDidScroll(distanceFromBottom: CGFloat) {
+        isFollowing = distanceFromBottom <= Self.bottomTolerance
+        if isFollowing {
+            hasPendingContentBelow = false
+        }
+    }
+
+    /// The transcript re-laid out without the reader moving it — a streaming
+    /// delta grew the content, or the view rotated (the scroll offset is
+    /// unchanged). Reaching the bottom (e.g. after our own snap-to-latest)
+    /// re-engages follow; growth below a scrolled-up reader never does, so
+    /// streaming cannot flip follow back on.
+    mutating func viewportDidSettle(distanceFromBottom: CGFloat) {
+        guard distanceFromBottom <= Self.bottomTolerance else { return }
+        isFollowing = true
+        hasPendingContentBelow = false
+    }
+
+    /// The reader tapped "Jump to latest".
+    mutating func jumpToLatest() {
+        isFollowing = true
+        hasPendingContentBelow = false
+    }
+}
+
+/// Owns transcript scrolling. Follow mode keeps the newest token in view while
+/// the reader is at the bottom, but disengages the moment they scroll up so a
+/// long streaming response can be read from the top without being snapped back
+/// to the latest delta. A "Jump to latest" control returns to — and re-engages
+/// — follow. Both scroll call sites (ordinary `messages` growth and the
+/// completed row's rich-layout follow-up) are gated behind the explicit follow
+/// state so neither can steal the reading position.
 struct TranscriptView: View {
     let messages: [TranscriptMessage]
+
+    @State private var follow = TranscriptFollowState()
+    @State private var contentFrame: CGRect = .zero
+    @State private var viewportHeight: CGFloat = 0
+    @State private var lastScrollOffset: CGFloat = 0
+    @State private var latestUserMessageID: UUID?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -1143,20 +1266,115 @@ struct TranscriptView: View {
                         MessageBubble(
                             message: message,
                             onRichLayoutReady: message.id == messages.last?.id
-                                ? { proxy.scrollTo(message.id, anchor: .bottom) }
+                                ? {
+                                    if follow.richLayoutReadyShouldScroll() {
+                                        proxy.scrollTo(message.id, anchor: .bottom)
+                                    }
+                                }
                                 : nil
                         )
                         .id(message.id)
                     }
                 }
                 .padding()
+                .background(
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: TranscriptContentFrameKey.self,
+                            value: geometry.frame(
+                                in: .named(TranscriptScroll.coordinateSpace)
+                            )
+                        )
+                    }
+                )
+            }
+            .coordinateSpace(.named(TranscriptScroll.coordinateSpace))
+            .background(
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: TranscriptViewportHeightKey.self,
+                        value: geometry.size.height
+                    )
+                }
+            )
+            .onPreferenceChange(TranscriptContentFrameKey.self) { value in
+                contentFrame = value
+                updateFollowFromGeometry()
+            }
+            .onPreferenceChange(TranscriptViewportHeightKey.self) { value in
+                viewportHeight = value
+                updateFollowFromGeometry()
             }
             .onChange(of: messages) {
-                if let lastId = messages.last?.id {
+                let currentUserID = messages.last(where: { $0.role == .user })?.id
+                let newUserTurn = currentUserID != nil && currentUserID != latestUserMessageID
+                latestUserMessageID = currentUserID
+                if follow.transcriptDidGrow(newUserTurn: newUserTurn) == .scrollToLatest,
+                   let lastId = messages.last?.id {
                     proxy.scrollTo(lastId, anchor: .bottom)
                 }
             }
+            .onAppear {
+                latestUserMessageID = messages.last(where: { $0.role == .user })?.id
+            }
+            .overlay(alignment: .bottom) {
+                if follow.showsJumpToLatest {
+                    JumpToLatestButton {
+                        follow.jumpToLatest()
+                        if let lastId = messages.last?.id {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                proxy.scrollTo(lastId, anchor: .bottom)
+                            }
+                        }
+                    }
+                    .padding(.bottom, 10)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: follow.showsJumpToLatest)
         }
+    }
+
+    /// Feed the latest scroll geometry to the follow policy. A change in the
+    /// content's top offset (`minY`) means the reader moved the viewport by some
+    /// input method, so follow may disengage or re-engage; an unchanged offset
+    /// means the transcript only grew or re-laid out, so follow may re-engage at
+    /// the bottom but is never disengaged. This routes every scroll input method
+    /// through the disengage path while keeping streaming growth from falsely
+    /// disengaging.
+    private func updateFollowFromGeometry() {
+        let distanceFromBottom = max(0, contentFrame.maxY - viewportHeight)
+        let scrollOffset = contentFrame.minY
+        if abs(scrollOffset - lastScrollOffset) > 0.5 {
+            lastScrollOffset = scrollOffset
+            follow.viewportDidScroll(distanceFromBottom: distanceFromBottom)
+        } else {
+            follow.viewportDidSettle(distanceFromBottom: distanceFromBottom)
+        }
+    }
+}
+
+/// Capsule affordance that returns the reader to the newest content and
+/// re-engages follow. Meets the 44-point target and carries an explicit
+/// VoiceOver label/hint.
+private struct JumpToLatestButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Jump to latest", systemImage: "arrow.down.circle.fill")
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 14)
+                .frame(minHeight: FabricTheme.minTarget)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(FabricTheme.textOnBrand)
+        .background(FabricTheme.action, in: Capsule())
+        .overlay(Capsule().stroke(FabricTheme.border.opacity(0.4), lineWidth: 0.5))
+        .shadow(color: Color.black.opacity(0.18), radius: 6, y: 2)
+        .accessibilityIdentifier("transcript-jump-to-latest")
+        .accessibilityLabel("Jump to latest")
+        .accessibilityHint("Scrolls to the newest message and resumes following the response")
     }
 }
 

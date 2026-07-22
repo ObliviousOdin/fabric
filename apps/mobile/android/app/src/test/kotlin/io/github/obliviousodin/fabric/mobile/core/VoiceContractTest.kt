@@ -79,15 +79,10 @@ class VoiceContractTest {
     )
 
     private fun fixtureFile(name: String): File {
-        val roots = listOf(
-            File(System.getProperty("user.dir")),
-            File(System.getProperty("user.dir")).parentFile,
-            File(System.getProperty("user.dir")).parentFile?.parentFile,
-            File(System.getProperty("user.dir")).parentFile?.parentFile?.parentFile,
-        ).filterNotNull()
-        return roots
+        val start = File(System.getProperty("user.dir")).canonicalFile
+        return generateSequence(start) { current -> current.parentFile }
             .map { root -> File(root, "apps/mobile/contracts/fabric-voice-v1/$name") }
             .firstOrNull { it.isFile }
-            ?: error("Could not find canonical voice fixture $name")
+            ?: error("Could not find canonical voice fixture $name from ${start.path}")
     }
 }

@@ -272,10 +272,13 @@ final class ResumeHistoryTests: XCTestCase {
         )))
     }
 
-    func testGatewayHTTPSessionDoesNotUsePersistentSharedStorage() {
+    func testGatewayDiscoveryHTTPSessionIsStatelessAndNonPersistent() {
         let configuration = GatewayAPI.httpSession.configuration
 
         XCTAssertNil(configuration.urlCache)
+        XCTAssertNil(configuration.httpCookieStorage)
+        XCTAssertFalse(configuration.httpShouldSetCookies)
+        XCTAssertEqual(configuration.httpCookieAcceptPolicy, .never)
         XCTAssertFalse(configuration.urlCredentialStorage === URLCredentialStorage.shared)
         XCTAssertFalse(configuration.httpCookieStorage === HTTPCookieStorage.shared)
     }
@@ -684,7 +687,7 @@ final class ResumeHistoryTests: XCTestCase {
         let code = (0..<40)
             .map { "let row\($0) = \($0)" }
             .joined(separator: "\n")
-        message.text = """
+        let completedText = """
         # Finished
 
         - Verified the complete response
@@ -694,7 +697,10 @@ final class ResumeHistoryTests: XCTestCase {
         \(code)
         ```
         """
-        message.streaming = false
+        message = AssistantTurnReducer.reducing(
+            message,
+            event: .messageComplete(authoritativeText: completedText)
+        )
         host.rootView = TranscriptView(messages: [message])
 
         var lastMetrics: (offset: CGFloat, maximum: CGFloat, content: CGFloat, viewport: CGFloat)?
@@ -727,7 +733,15 @@ final class ResumeHistoryTests: XCTestCase {
         }
 
         guard let lastMetrics else {
-            return XCTFail("Expected the hosted transcript to contain a vertical scroll view")
+            var scrollViews: [UIScrollView] = []
+            collectScrollViews(in: host.view, into: &scrollViews)
+            let metrics = scrollViews.map {
+                "content=\($0.contentSize), bounds=\($0.bounds), offset=\($0.contentOffset)"
+            }
+            return XCTFail(
+                "Expected the hosted transcript to contain a vertical scroll view; "
+                    + "candidates=\(metrics)"
+            )
         }
         XCTFail(
             "Expected rich completion at bottom; offset=\(lastMetrics.offset), "

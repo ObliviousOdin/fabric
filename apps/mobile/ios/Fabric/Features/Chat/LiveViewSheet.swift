@@ -375,7 +375,10 @@ final class LiveViewModel {
     }
 
     private func handleFailure(_ error: Error) -> Bool {
-        errorText = error.localizedDescription
+        // RPC descriptions and transport diagnostics are server-controlled
+        // and may contain response bodies, paths, or credentials. Keep those
+        // outside observable UI state and render only fixed recovery copy.
+        errorText = Self.userVisibleFailure(for: error)
 
         guard frame != nil else {
             if Self.isConnectionFailure(error) {
@@ -407,6 +410,26 @@ final class LiveViewModel {
         // mark it stale, and let the same sequential loop try again.
         retryRequired = false
         return true
+    }
+
+    private static func userVisibleFailure(for error: Error) -> String {
+        if let frameError = error as? LiveViewFrameError {
+            return frameError.localizedDescription
+        }
+        if isConnectionFailure(error) {
+            return "Live view is waiting for the Fabric connection."
+        }
+        if let gatewayError = error as? GatewayClientError {
+            switch gatewayError {
+            case .requestTimedOut:
+                return "Live view refresh timed out."
+            case .rpc:
+                return "Live view stopped on the Fabric computer."
+            case .notConnected, .connectFailed, .socketClosed:
+                return "Live view is waiting for the Fabric connection."
+            }
+        }
+        return "Live view couldn't refresh."
     }
 
     private static func isHardFailure(_ error: Error) -> Bool {

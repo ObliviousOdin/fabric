@@ -564,3 +564,4 @@ the same slice; the `mobile.yml` PrivacyInfo audit is extended to match.
 | `contacts.read` | `NSContactsUsageDescription` | — |
 | `calendar.read` | `NSCalendarsUsageDescription` (or full-access variant) | — |
 | existing UserDefaults | — | `NSPrivacyAccessedAPICategoryUserDefaults` / `CA92.1` (shipped) |
+| protected Home/Chat cache metadata | — | `NSPrivacyAccessedAPICategoryFileTimestamp` / `C617.1` (`0.2.1` candidate) |

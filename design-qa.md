@@ -56,6 +56,135 @@ final result: passed
 
 ---
 
+# Design QA — iOS Robust Product Experience
+
+Date: 2026-07-21
+
+## Comparison setup
+
+- Approved scanner-led source:
+  `<CODEX_GENERATED_IMAGES>/019f8619-0a68-74a3-ba57-c09091264d5f/exec-5ac6cd30-fd91-4589-80ba-0035e8a1f8ea.png`
+  (`e9b8568ba6ad99bc2f095ea3c749f81f8d192149afb293bbd414ccd93cc5c129`)
+- Final generated production hero:
+  `apps/mobile/ios/Fabric/Assets.xcassets/PairingLaptopHero.imageset/pairing-laptop-hero.jpg`
+  (`e9eebbfdd69e9af63035c1899d159840faf5b7c3f0deaa275ce5d98b84f1e518`)
+- Final implementation capture:
+  `<CODEX_VISUALIZATIONS>/2026/07/21/019f8619-0a68-74a3-ba57-c09091264d5f/ios-robust-final/onboarding-light-jpeg-final.png`
+  (`6f5ab257c46bfd31da5af66b4a6628587d17512341cd3b4cd6b11ee9add4c9d8`)
+- Same-viewport source/implementation comparison:
+  `<CODEX_VISUALIZATIONS>/2026/07/21/019f8619-0a68-74a3-ba57-c09091264d5f/ios-robust-final/onboarding-source-vs-app-jpeg-final.png`
+  (`a752b014c69273b052286e00d0a1127d61937b0b919431c49e3695394bb31760`)
+- Source asset: 1024 x 1536; simulator viewport: 1320 x 2868. Both
+  were normalized to equal review frames in the 1704 x 1846 comparison.
+- Themes: Fabric Light and Fabric Dark.
+- Primary comparison state: first run, no saved gateway, scanner-led activation.
+
+The final native composition preserves the approved Fabric identity, large
+scanner-first hierarchy, warm real-computer pairing moment, one dominant
+camera action, and a quiet manual fallback. Intentional product corrections
+use canonical solid action violet instead of the concept gradient, say
+`Advanced setup` to name the actual fallback, and describe Keychain protection
+instead of promising transport encryption before an endpoint is known.
+
+The hero was created with the built-in image-generation workflow from a prompt
+for a warm, realistic laptop pairing moment with Fabric's violet scan frame,
+then cropped to the measured 1024 x 1214 production slot. It contains no
+credential, URL, functional QR payload, or third-party logo. The second asset
+pass changed only the scan overlay to restore all four approved corner markers.
+
+## Focused evidence
+
+- iPhone 17e AX XXXL interaction dock:
+  `<CODEX_VISUALIZATIONS>/2026/07/21/019f8619-0a68-74a3-ba57-c09091264d5f/ios-robust-final/chat-17e-axxxl-dock-final.png`
+  (`28a0e40bfa28e376c355052a2531e7aea6ff8d87434248c467aedd4b3059b59b`)
+- AX XXXL Settings endpoint identity:
+  `<CODEX_VISUALIZATIONS>/2026/07/21/019f8619-0a68-74a3-ba57-c09091264d5f/ios-robust-final/settings-axxxl-endpoint-final.png`
+  (`832e3b2a358608ca49a8033d380a55c6074ca5b968fd4519a5b8256bd9be1d37`)
+- AX XXXL connection-review endpoint identity:
+  `<CODEX_VISUALIZATIONS>/2026/07/21/019f8619-0a68-74a3-ba57-c09091264d5f/ios-robust-final/connection-success-axxxl-endpoint-final.png`
+  (`c9036936f0c6b3b41cfab0f1763ee0f33dda270582cb8dc2dc3ea67618171e7b`)
+- AX XXXL returning-server endpoint identity:
+  `<CODEX_VISUALIZATIONS>/2026/07/21/019f8619-0a68-74a3-ba57-c09091264d5f/ios-robust-final/returning-axxxl-endpoint-final.png`
+  (`b0bb9f5f6ecd3125e58fe108dd85df004b3233e3db19f1f218ad9a806cc23153`)
+- Additional inspected captures include onboarding Dark, saved-server return,
+  scanner denial, verified and legacy connection handoffs, Sessions, chat
+  activity, Settings, and the approved running Home fixture.
+
+## Iteration history
+
+1. The integrated first pass completed the product flow but still used a
+   schematic laptop illustration. Same-viewport comparison showed that this
+   missed the approved direction's emotional and visual center.
+2. A measured, project-bound photographic pairing hero replaced the schematic.
+   A targeted second generation restored the missing upper scan corners while
+   preserving the approved scene and all security invariants.
+3. Full-surface review caught an execution-truth issue in the legacy connection
+   handoff: it could repeat verified continuity copy. The handoff now derives
+   every execution fact from the negotiated contract and uses explicit
+   `not verified` language for a legacy gateway.
+4. Small-phone and AX XXXL captures confirmed vertical scrolling, readable
+   hierarchy, intact controls, and reachable interaction-dock actions.
+   Deterministic Sessions and legacy-handoff fixtures were added so those
+   states remain in the release suite.
+5. Final security and accessibility review found three upgrade-edge defects:
+   reusable tokens could survive on remote HTTP rows, changing a typed endpoint
+   could retain credentials for the previous endpoint, and Dynamic Type could
+   visually hyphenate endpoint identities. Saved-token transport now fails
+   closed outside HTTPS or strict loopback, endpoint changes clear all bound
+   credentials, and the four identity surfaces use exact by-character wrapping
+   with no invented hyphens.
+
+## State, interaction, and accessibility verification
+
+- First run, saved-server return, camera denial, verified connection, legacy
+  connection, Sessions, Home, chat activity, approvals, and Settings have
+  deterministic no-network fixtures.
+- The scanner remains the single primary first-run action; Advanced setup is a
+  labelled secondary path and denied/restricted camera states retain both
+  Settings recovery and manual entry.
+- Legacy gateways never claim that execution location or disconnect/restart
+  continuity is verified.
+- Saved reusable tokens are refused before Keychain access or network use for
+  remote HTTP endpoints; the saved row remains visible with an HTTPS re-pair
+  recovery path. Editing endpoint A to endpoint B clears token, password, OTP,
+  username, and saved scan authority before another request can be enabled.
+- Reasoning is collapsed by default, completed tool activity persists in the
+  transcript, and approval choices remain explicit with readable VoiceOver
+  labels.
+- The iPhone 17e keeps onboarding and the full approval grid intact. At AX
+  XXXL, the scrollable interaction dock keeps Commands, background work,
+  Processes, and Live View reachable; XCUITest scrolls to and exercises that
+  contract instead of requiring every label to appear at once.
+- Endpoint identities preserve their exact text and accessibility labels at AX
+  XXXL without invented hyphens or truncation; selectable identity surfaces
+  retain native copy behavior.
+- AX XXXL reflows into vertically scrollable content without truncated titles
+  or controls; all action components retain the 44-point target contract.
+- Dark appearance preserves text/action contrast and uses the canonical
+  on-dark Fabric mark.
+
+## Automated verification
+
+- Xcode 26.5 exact-head simulator suites passed on iPhone 17 Pro Max and
+  iPhone 17e: 282 tests per device, 280 passed, 2 intentional skips, 0 failed.
+  The skips are the unsigned-simulator Keychain orphan-reset check and the
+  explicitly opt-in disposable-gateway journey.
+- The 11 deterministic UI journeys passed on both simulators. The separate
+  disposable source-gateway pairing journey passed 1/1 on the signed iPhone
+  17e simulator, covering pairing, Keychain, WebSocket capability negotiation,
+  connection review, and Home/Sessions/Settings navigation.
+- `ConversationHomeModelTests/testCancelledLoadCannotPublishAfterTheTransportReturns`
+  passed 10/10 repeated iterations with isolated snapshot storage.
+- XcodeGen generation contract: 15 tests and 10 subtests passed.
+- Unsigned Release build passed; packaged metadata reports `0.2.1 (1)`, the
+  embedded and source privacy manifests lint cleanly, and the simulator package
+  has no distribution signature.
+- Public release audit and `git diff --check` passed.
+
+final result: passed
+
+---
+
 # Design QA — iOS Conversation-First Home
 
 Date: 2026-07-20

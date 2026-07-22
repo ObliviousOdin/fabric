@@ -17,6 +17,51 @@ enum GatewayBaseURL {
         else { return nil }
         return components.url
     }
+
+    static func isLoopback(_ url: URL) -> Bool {
+        guard let host = url.host()?.lowercased() else { return false }
+        if host == "localhost" || host == "::1" { return true }
+
+        // Do not use a textual prefix here: `127.attacker.example` is a DNS
+        // hostname, not an IPv4 loopback address. Accept only canonical dotted
+        // decimal with four in-range octets, then require the loopback /8.
+        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4 else { return false }
+        var values: [UInt8] = []
+        values.reserveCapacity(4)
+        for octet in octets {
+            guard !octet.isEmpty,
+                  octet.allSatisfy({ $0.isASCII && $0.isNumber }),
+                  (octet.count == 1 || octet.first != "0"),
+                  let value = UInt8(octet)
+            else { return false }
+            values.append(value)
+        }
+        return values[0] == 127
+    }
+
+    /// A reusable credential may only cross a transport that protects it.
+    /// Plain HTTP remains available for local simulator/development gateways,
+    /// but never for a remote host. Keep every token entry point and reconnect
+    /// path on this one policy so an older saved row cannot bypass pairing UI.
+    static func allowsTokenCredential(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "https":
+            return true
+        case "http":
+            return isLoopback(url)
+        default:
+            return false
+        }
+    }
+}
+
+enum GatewayTokenTransportError: LocalizedError, Equatable {
+    case secureTransportRequired
+
+    var errorDescription: String? {
+        "Saved token connections now require HTTPS. Re-pair this Fabric using a trusted HTTPS or Tailscale Serve address."
+    }
 }
 
 enum PairingEnrollmentAuth: Equatable {
@@ -123,7 +168,8 @@ struct PairingPayload: Equatable {
             guard
                 Set(params.keys) == tokenKeys,
                 let token = params["token"],
-                !token.isEmpty
+                !token.isEmpty,
+                GatewayBaseURL.allowsTokenCredential(baseURL)
             else { return nil }
             return PairingPayload(baseURL: baseURL, gated: false, token: token, enrollment: nil)
         default:

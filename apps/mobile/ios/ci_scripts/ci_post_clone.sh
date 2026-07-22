@@ -94,11 +94,26 @@ fi
 source_revision=""
 if [ -n "$bundle_id" ]; then
   # Release provenance must describe an immutable tracked tree. Untracked local
-  # files do not enter the archive through this project, but any tracked change
-  # makes HEAD an inaccurate description of the packaged source.
+  # app inputs can enter the archive because project.yml recursively includes
+  # Fabric/. Reject both ordinary and ignored untracked paths there, then reject
+  # tracked changes, so HEAD describes every source/resource XcodeGen can package.
   if ! git -C "$repo_root" diff --quiet --ignore-submodules -- \
     || ! git -C "$repo_root" diff --cached --quiet --ignore-submodules --; then
     echo "iOS release generation requires a clean tracked checkout" >&2
+    exit 2
+  fi
+  if ! grep -Fqx '      - Fabric' "$generated_spec"; then
+    echo "The recursive iOS app source root changed; update ci_post_clone.sh before releasing" >&2
+    exit 2
+  fi
+  untracked_app_inputs="$({
+    git -C "$repo_root" ls-files --others --exclude-standard -- apps/mobile/ios/Fabric
+    git -C "$repo_root" ls-files --others --ignored --exclude-standard -- apps/mobile/ios/Fabric
+  } | LC_ALL=C sort -u)"
+  if [ -n "$untracked_app_inputs" ]; then
+    echo "iOS release generation found untracked app source or resources under apps/mobile/ios/Fabric:" >&2
+    printf '%s\n' "$untracked_app_inputs" >&2
+    echo "Commit or remove every recursive app input before generating a release" >&2
     exit 2
   fi
   source_revision="$(git -C "$repo_root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null || true)"

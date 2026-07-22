@@ -131,6 +131,10 @@ Required controls:
 
 - Prefer Tailscale, WireGuard, or an SSH tunnel as the network boundary.
 - Require HTTPS/WSS for non-local production endpoints.
+- Permit token-mode credentials only over HTTPS or strict loopback. An upgraded
+  saved remote-HTTP token gateway must fail closed before credential load or
+  transport, remain visible for explicit recovery/removal, and require re-pair
+  through trusted HTTPS or loopback.
 - Require a configured provider on non-loopback binds; use TOTP for any public
   exposure.
 - Store token-mode credentials in Keychain/Android Keystore only.
@@ -169,6 +173,9 @@ A release is production-grade only when every applicable gate is satisfied.
 ### Security
 
 - iOS tokens use Keychain with a documented accessibility class.
+- iOS auto-connect, explicit reconnect, and final WebSocket construction all
+  enforce the HTTPS-or-strict-loopback token boundary, including saved records
+  created by an older build.
 - Android tokens use Android Keystore-backed encryption; no credential appears
   in plain SharedPreferences, backups, logs, clipboard history, screenshots,
   or saved instance state.
@@ -235,9 +242,21 @@ initial iOS development preview has been signed, uploaded, installed, and used
 through internal TestFlight; it is evidence that the distribution path works,
 not a claim that the production gates are complete. Shared protocol, PWA,
 Android, and iOS simulator checks run in CI; `fabric mobile` is the documented
-gateway/pairing entry point. Repeatable clean-SHA archives, full physical-device
-acceptance, protected release automation, store assets, public beta delivery,
-and the native visual/state capture matrix remain open gates. See
+gateway/pairing entry point. The protected Xcode Cloud `Default` workflow now
+targets merged `main`, supplies the protected release bundle identifier through
+`FABRIC_IOS_BUNDLE_ID`, and sends successful archives to the internal
+TestFlight `beta` group; the local signing/profile audit associates that bundle
+with the configured release signing team. Merged-main
+candidates `0.2.0 (4)`, its immutable-source repeat `0.2.0 (5)`, and the
+pairing-reliability candidate `0.2.0 (6)` archived, uploaded, processed to
+**Testing**, and reached that group; build 6 came from
+`9651091ac45e34124184bdf1cf54a37e149c27e2`. A physical-iPhone audit on
+2026-07-21 also observed the TestFlight-installed bundle as `0.2.0 (15)`, but
+its apparent mapping to current `origin/main` at `c5343180` is history-based
+inference until signed-archive or workflow provenance is captured. Full
+physical-device acceptance, independent signed-archive inspection, store
+assets, public beta delivery, and later-phase native quality gates remain open.
+See
 `IOS_RELEASES.md` for exact build evidence and `ROADMAP.md` for the phased parity
 program. Passing a simulator build alone does not advance the support tier or
 justify a store release.

@@ -71,24 +71,18 @@ shippable.
 
 ---
 
-## 2. Merge-safety reality (why this branch is docs-first, and how code lands)
+## 2. Merge-safety reality (current branch and how code lands)
 
-The one in-flight change that matters merged while this plan was being written:
-
-- **PR #78 (Loom)** is **already on `main`** (`fb78a8f`), followed by **PR #80**
-  (dependency patches, `4c991bc`). This branch has been **rebased onto
-  `4c991bc`** and now inherits both. `#78`'s only change to mobile is a single
-  line adding `if: github.event_name != 'pull_request'` to the `ios` job in
-  `.github/workflows/mobile.yml`; it touches **no** `apps/mobile` source. No
-  other in-flight PR touches `apps/mobile` or CI.
+The capability-manifest spine (Loop 0) is now on `main` through PR #81. The
+`0.2.1` branch builds only on that advertised baseline; it does not turn on
+Durable Work or any future feature family.
 
 Two consequences shape every future loop:
 
-- **Never touch the `ios` job block of `mobile.yml`.** It is the only file this
-  branch and `#78` both could touch. If a slice needs a new contract-fixture path
-  or a PrivacyInfo audit line, edit only the `paths:` arrays or the
-  privacy-audit *step*, after rebasing, far from the `if:` block, and re-run to
-  confirm no drift.
+- **Preserve the `ios` pull-request skip in `mobile.yml`.** A product-surface
+  slice has no reason to change that job guard. If a later CI-specific slice
+  needs a contract-fixture path or PrivacyInfo audit line, keep the edit focused
+  on that consumer and independently review the workflow diff.
 - **iOS gets zero PR signal.** After `#78`, the entire iOS validation chain —
   XcodeGen regeneration, the `pbxproj`/`Info.plist` byte-check,
   `test_ios_project_generation.py`, `xcodebuild test`, the Release build, and the
@@ -97,19 +91,19 @@ Two consequences shape every future loop:
   authoritative gate**; the push-to-`main` `ios` job is a tripwire, not a safety
   net. iOS changes must be correct-by-construction.
 
-**Why this plan's first artifacts are docs.** This upgrade is authored in a
-Linux session with **no Swift toolchain** and no way to run the pinned XcodeGen,
-so the committed `pbxproj` cannot be regenerated to byte-match CI here. Landing
-half-built Swift would either break the push-to-`main` byte-check or ship an
-unverified surface. So the branch delivers the **plan + architecture + gap map**
-— which are byte-safe (`apps/mobile/*.md` is governed by no audit, and a
-docs-only change leaves `android`/`web` PR checks green and `ios` skipped) — and
-every code loop below is written to be dropped in by a macOS build loop that
-runs steps 2–7 for real.
+**Why this plan's first artifacts were docs.** The original planning branch was
+authored without a Swift/Xcode validation host, so it deliberately landed no
+half-built native surface. The current `0.2.1` candidate is running on a macOS
+Xcode 26.5 loop with pinned XcodeGen regeneration, simulator and Release gates,
+visual evidence, and a physical-device gate. It still is not "shipped": exact
+merged-SHA packaging, the post-merge `main` iOS tripwire, a fresh confirmation
+that the already configured protected Xcode Cloud workflow still targets
+merged `main`, archive/upload, and an internal TestFlight install remain.
 
 **Files a code loop may touch:** `apps/mobile/ios/**`, `apps/mobile/contracts/**`,
-`apps/shared/**` (for a mirrored contract), and these docs. **Never:** any of
-`#78`'s files, or the `ios` `if:` block.
+`apps/shared/**` (for a mirrored contract), and these docs. A product loop does
+not change the `ios` job guard; a CI-contract loop must declare and review that
+scope explicitly.
 
 ---
 
@@ -157,18 +151,18 @@ first (fast, high-confidence, no coordination); the differentiating epics come
 after the substrate they share is set. "Server" means the gateway must add
 methods (coordinate the manifest change first — Loop 0).
 
-| Loop | Slice | Journeys | Server? | Depends on |
-| --- | --- | --- | --- | --- |
-| **0** | Capability-manifest + typed-error governance | all | schema | — |
-| **1** | Pairing reliability bundle | 1, 3 | no | 0 |
-| **2** | Settings shell + Forget-Gateway purge + diagnostics + gated re-auth | 13, 14 | no | — |
-| **3** | Daily-chat rich rendering | 4 | no | — |
-| **4** | Offline resilience (transcript cache + outbound queue) | 9 | no | — |
-| **5** | Consent + grant + ledger substrate + node enrollment | 2, 3, 6, 7 | yes | 0 |
-| **6** | `node.invoke` thin vertical + `camera.capture` magic moment | 7 | yes | 5 |
-| **7** | Trust Center surface (audit + grants + nodes) | 2, 7, 13 | yes | 5, 2 |
-| **8** | Push transport + notifications consent + cross-surface approvals | 2, 6 | yes | 5 |
-| **9** | Breadth: more providers, files, Talk Mode/Listen, share ext., Watch, guided Tailscale | 5, 8, 11, 12 | mixed | 5, 6, 8 |
+| Loop | Slice | Candidate status | Journeys | Server? | Depends on |
+| --- | --- | --- | --- | --- | --- |
+| **0** | Capability-manifest + typed-error governance | Complete on `main` (#81) | all | schema | — |
+| **1** | Pairing reliability bundle | Partially implemented in `0.2.1` | 1, 3 | no | 0 |
+| **2** | Settings shell + Forget-Gateway purge + diagnostics + gated re-auth | Implemented in `0.2.1` candidate; release gates pending | 13, 14 | no | — |
+| **3** | Daily-chat rich rendering | Partially implemented in `0.2.1` | 4 | no | — |
+| **4** | Offline resilience (transcript cache + outbound queue) | Partially implemented in `0.2.1` | 9 | no | — |
+| **5** | Consent + grant + ledger substrate + node enrollment | Planned | 2, 3, 6, 7 | yes | 0 |
+| **6** | `node.invoke` thin vertical + `camera.capture` magic moment | Planned | 7 | yes | 5 |
+| **7** | Trust Center surface (audit + grants + nodes) | Planned | 2, 7, 13 | yes | 5, 2 |
+| **8** | Push transport + notifications consent + cross-surface approvals | Planned | 2, 6 | yes | 5 |
+| **9** | Breadth: more providers, files, Talk Mode/Listen, share ext., Watch, guided Tailscale | Planned | 5, 8, 11, 12 | mixed | 5, 6, 8 |
 
 ### Loop 0 — Capability-manifest & typed-error governance  *(schema; highest leverage)*
 
@@ -184,7 +178,7 @@ trust/node/error corpora pass in their canonical TypeScript reference until
 native consumers land; negotiation tests prove each new key is
 additive-optional and fail-closed; no live manifest advertises them yet.
 
-> **Status:** complete on this branch. Landed TDD-verified: the governance
+> **Status:** complete on `main` through PR #81. Landed TDD-verified: the governance
 > registry (`gateway-feature-registry-v1.json`), the 8 new optional families +
 > flag-only `scoped_grants` + `supportsGatewayFeature` in the TS reference, the
 > `fabric-trust-v1` and `fabric-node-v1` fixture corpora with their TS parsers,
@@ -205,6 +199,13 @@ already have a Gateway?" branch. All client-only. **Exit:** a scanned-but-
 unreachable gateway produces guidance, not a raw error; first-run teaches the
 node model; full state matrix + accessibility captured.
 
+> **`0.2.1` candidate status:** the existing-gateway activation slice is
+> implemented: branded QR-first entry, one pre-permission rationale,
+> denied/restricted recovery, reticle/torch/manual fallback, bounded route/TLS/
+> auth/contract diagnosis, and a negotiation-derived connection review. Guided
+> installation for a user without a Gateway and secure node enrollment are not
+> implemented, so this loop is not represented as fully shipped.
+
 ### Loop 2 — Settings shell + offboarding + diagnostics  *(client-only; foundational)*
 
 Build the Settings home that the Trust Center and consent center will live in:
@@ -213,6 +214,15 @@ Complete the Forget-Gateway purge (clear gated cookies + a verified full local
 reset), add a diagnostics screen + persistent status chip + clear-cache, and make
 gated reconnect prompt a graceful re-auth on an expired cookie. **Exit:** a full
 local reset is verifiable; expired-cookie reconnect recovers cleanly.
+
+> **`0.2.1` candidate status:** the Settings shell, permission inventory,
+> redacted diagnostics, switch/re-pair/forget/reset confirmations, full-device
+> local reset, presentation-cache recovery, persistent connection banner, and
+> expired-cookie re-auth path are implemented. Each saved gateway + endpoint has
+> an isolated ephemeral cookie jar; public discovery is cookie-disabled; auth
+> attempts are generation-fenced; targeted Forget/disconnect invalidates only
+> that gateway; and full reset invalidates all jars. Loop 2 is complete in the
+> candidate source but does not count as shipped until the release gates pass.
 
 ### Loop 3 — Daily-chat rich rendering  *(client-only; most-used surface)*
 
@@ -223,6 +233,11 @@ tables, and lightweight code highlighting. No server dependency. **Exit:**
 reasoning + tool history are legible and accessible; diff/table fixtures pass in
 both themes.
 
+> **`0.2.1` candidate status:** bounded/redacted reasoning and persistent tool
+> cards, diff coloring, approval context/choices, and non-spamming accessibility
+> announcements are implemented. GFM table layout and language-aware code
+> highlighting remain, so Loop 3 remains partial.
+
 ### Loop 4 — Offline resilience  *(client-only)*
 
 Close the dropped-send data loss (Journey 9): a file-protected, presentation-only
@@ -232,6 +247,11 @@ blind retry, per `PRODUCTION.md`. Establishes the offline contract that later
 side-effecting surfaces reuse via idempotent Durable Work. **Exit:** last-known
 transcript reads offline with controls disabled; queued sends flush in order and
 never cross-flush across servers.
+
+> **`0.2.1` candidate status:** Home and Chat have separate protected, bounded
+> presentation caches. Chat can show the last-known transcript read-only when
+> authoritative resume fails; neither cache becomes server-authoritative work
+> state. There is no outbound queue, so Loop 4 remains partial.
 
 ### Loop 5 — Consent + grant + ledger substrate + node enrollment  *(server; the pivot)*
 

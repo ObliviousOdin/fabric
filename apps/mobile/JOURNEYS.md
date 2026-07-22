@@ -7,30 +7,32 @@ actually does today, with file evidence and severity-rated gaps.
 
 It is the input to the loop-driven [`UPGRADE_PLAN.md`](UPGRADE_PLAN.md); the
 architecture that closes these gaps is in [`ARCHITECTURE.md`](ARCHITECTURE.md).
-State is assessed against `apps/mobile/ios` at the branch head (through PR #77,
-rebased onto `main` including #78/#80).
+State is assessed against the `0.2.1` candidate source at this branch head,
+based on `main` after the capability-governance merge (#81). This is a code gap
+map, not a TestFlight release claim; archive/device/tester evidence lives in
+[`IOS_RELEASES.md`](IOS_RELEASES.md).
 
-**Legend:** ✅ shipped · ◐ partial · ○ absent. Evidence cites the owning Swift
-file/symbol.
+**Legend:** ✅ implemented in current source · ◐ partial · ○ absent. Evidence
+cites the owning Swift file/symbol.
 
 ## Summary
 
 | # | Journey | State | Biggest gap | Severity | Target loop |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Discovery & installation | ◐ | No "do you already have a Gateway?" branch | medium | 1 |
-| 2 | First launch, permissions & onboarding | ○ | No progressive-consent broker for device sensors | **critical** | 1 / 5 |
-| 3 | Pairing (critical activation) | ◐ | Unreachable gateway dies with a raw error; enrollment is a dead end | **critical** | 1 / 5 |
-| 4 | Daily text chat & session management | ◐ | Live reasoning discarded; no rich file/artifact rendering | high | 3 |
+| 1 | Discovery & installation | ◐ | No guided path for someone without a running Gateway | medium | 1 |
+| 2 | First launch, permissions & onboarding | ◐ | No progressive-consent broker for device sensors | **critical** | 5 |
+| 3 | Pairing (critical activation) | ◐ | Device enrollment/OAuth/private-CA trust are still absent | **critical** | 5 / 9 |
+| 4 | Daily text chat & session management | ◐ | No generated file/artifact or model-control surface | high | 3 / 9 |
 | 5 | Voice / Talk mode | ○ | No phone-side audio transport | high | 9 |
-| 6 | Approvals & human-in-the-loop | ◐ | Approval card has no context, expiry, free-text, or cross-surface | high | 5 / 8 |
+| 6 | Approvals & human-in-the-loop | ◐ | No expiry, free-text denial, or cross-surface attention | high | 5 / 8 |
 | 7 | Device capability invocation | ○ | No `node.invoke` transport (the peak differentiator) | **critical** | 5 / 6 |
 | 8 | Content sharing (share sheet) | ○ | No share extension | high | 9 |
-| 9 | Offline continuity | ○ | Offline sends are dropped; no offline-readable transcript | high | 4 |
+| 9 | Offline continuity | ◐ | No outbound queue or server-authoritative offline state | high | 4 |
 | 10 | Multi-gateway management | ✅ | Simultaneous live sockets (parked) | medium | 9 |
 | 11 | Apple Watch companion | ○ | No Watch target | high | 9 |
 | 12 | Workspace / files inspection | ○ | No read-only files surface | high | 9 |
-| 13 | Settings, permissions & offboarding | ◐ | Forget-Gateway purge is incomplete; no settings surface | high | 2 |
-| 14 | Error recovery & reconnection | ◐ | No diagnostics; gated re-auth can't recover an expired cookie | medium | 2 |
+| 13 | Settings, permissions & offboarding | ◐ | Future grant/node controls wait for advertised families | high | 7 |
+| 14 | Error recovery & reconnection | ◐ | Backoff is capped and has no jitter/cause policy | medium | 2 / 4 |
 
 The two biggest facts behind this table: **the drop-off risk is concentrated in
 pairing (Journey 3)** and **the delight peak the whole product is missing is
@@ -43,17 +45,18 @@ device-capability invocation (Journey 7)** — today the app is a strong remote
 
 Get the app installed and opened for the first time.
 
-- ✅ QR-first entry exists once inside: **Scan pairing QR** is the top section of
-  `AddGatewayView`, manual URL/token/password below.
-- ○ **No discovery branch.** A cold launch lands directly in an empty server
-  list (`GatewayListView`) whose only guidance is a one-line footer. There is no
-  branch distinguishing a user who already runs `fabric serve` from one who has
-  no gateway yet — the app assumes a gateway exists and shows a credential form
-  for a server the user may not have. *(medium — `no-gateway-branching`)*
+- ✅ A cold launch now lands on the branded scanner-led
+  `FirstRunConnectView`, with one primary **Scan pairing code** path and manual
+  URL/token/password fields behind **Advanced setup**. Returning users receive a
+  separate saved-Fabric library (`GatewayListView`).
+- ◐ **Gateway discovery is still instructional, not guided.** The scanner names
+  the `fabric mobile` command, but there is no explicit install/start walkthrough
+  for a person who does not yet run a Gateway. *(medium —
+  `no-gateway-branching`)*
 - Not yet a public App Store listing; store messaging must set the "needs a
   Gateway" expectation before install.
 
-## 2. First launch, permissions & onboarding — ○
+## 2. First launch, permissions & onboarding — ◐
 
 Understand the app and grant necessary, least-privilege access.
 
@@ -63,15 +66,14 @@ Understand the app and grant necessary, least-privilege access.
 - ✅ The reusable fail-closed gate infrastructure that every permission surface
   should build on already exists (`AppModel.supportsGatewayMethod`,
   `GatewayCapabilityNegotiation`).
-- ○ **No first-run explainer / phone-is-a-node mental model.** Nothing teaches
-  that the app is a thin client, that execution/state stay on the host, that
-  active work survives a phone disconnect but a gateway restart interrupts it, or
-  that a gateway credential is root-equivalent. *(high — `no-first-run-explainer`)*
-- ◐ **Cold camera prompt, dead-end recovery.** The prompt fires the moment
-  `QRScannerView` builds an `AVCaptureSession` — no rationale, no
-  `authorizationStatus` pre-check; a denied camera shows a static label with no
-  Open-Settings deep link and no manual-entry fallback. *(medium —
-  `camera-priming-and-recovery`)*
+- ✅ `PairingScannerFlow` checks authorization before camera construction,
+  presents one rationale before the system request, and gives denied,
+  restricted, and unavailable states an Open-Settings action where possible
+  plus an Advanced-setup fallback.
+- ✅ The post-connect `ConnectedGatewayIntroView` explains only what negotiation
+  proves: endpoint, gateway execution, phone-disconnect continuity, gateway-host
+  dependency, and credential storage. A legacy response says those execution
+  facts are unverified instead of inferring them.
 - ○ **No progressive-consent broker.** There is no `node.*` family, no
   capability-request handling, no just-in-time consent for a sensor an agent
   asks for. The "ask only when needed" surface does not exist. *(critical —
@@ -81,23 +83,25 @@ Understand the app and grant necessary, least-privilege access.
 
 ## 3. Pairing (critical activation path) — ◐
 
-Connect the phone to the gateway as a secure node in < 2–3 minutes.
+Connect the phone to the gateway as a secure remote client in < 2–3 minutes;
+secure node enrollment remains a later, separately advertised contract.
 
 - ✅ QR pairing (`PairingURI`, `QRScannerView`), token and gated password/TOTP
   connect paths, per-connect ticket mint, and a saved-server library are shipped
   and hardened (PR #71).
 - ✅ Pairing v2 `enrollment` handle is recognized and **fails closed** today
   (`AppModel.receivePairingURL` → `.unsupportedEnrollment`).
-- ○ **No reachability diagnosis.** A scanned-but-unreachable gateway dies with a
-  raw error rather than "you're not on the tailnet / wrong network / host
-  offline". *(critical — `route-diagnosis`)*
+- ✅ Pairing and saved-server failures pass through `ConnectRouteDiagnosis` /
+  `GatewayConnectionIssue`: offline, timeout/host, TLS, authentication, and
+  contract failures receive bounded actionable copy; raw server/network text and
+  credentials never enter the UI or presentation cache.
 - ○ **Enrollment is a dead end.** The v2 handle has no `enroll → pending-approval
   → active` loop, so the "choose Full/Limited, approve on Gateway" journey can't
   complete. *(critical — `device-enrollment-loop`)*
-- ○ **No Full vs Limited scope** at pairing; **no OAuth browser sign-in** for
-  hosted gateways; **no guided Tailscale** setup / tailnet-membership detection;
-  **thin QR UX** (no torch, reticle, permission-denied state, manual fallback).
-  *(high)*
+- ✅ The QR path now includes a reticle, conditional torch, permission recovery,
+  cancellation, and manual fallback. It still has **no Full vs Limited scope**,
+  **no OAuth browser sign-in**, and **no guided Tailscale** setup or
+  tailnet-membership detection. *(high)*
 - ◐ TLS trust-on-first-use for private-CA gateways and an activation funnel to
   defend the < 3 min target are absent. *(medium)*
 
@@ -108,15 +112,14 @@ Seamless continuity of conversation and context.
 - ✅ Streaming responses, steering, interruption, slash commands, background
   tasks, process control, and a **searchable, pinnable** session library (PRs
   #72, #74, #75) are shipped; rich assistant transcript rendering landed in #74.
-- ○ **Live reasoning is discarded** — `thinking.delta` is not surfaced as a
-  collapsible per-turn block. *(high — `reasoning-live-hidden`)*
-- ○ **Tool activity collapses** to one ephemeral status line instead of
-  persistent per-tool cards. *(high — `tool-activity-cards`)*
+- ✅ `ChatPresentationReducer` retains bounded/redacted reasoning and tool
+  lifecycle parts beside the assistant turn; `ReasoningDisclosureCard` and
+  `ToolActivityCard` render them persistently with stable accessibility labels.
 - ○ **No generated file / image / PDF presentation** — the inbound artifact fetch
   contract does not exist client-side. *(high — `generated-files-pdf-image`)*
 - ○ **No model switch or reasoning-effort control** mid-session. *(high)*
-- ◐ Markdown fidelity gaps: GFM tables render as raw pipe text, diffs lack
-  add/remove coloring, no math, no code syntax highlighting. *(medium/low)*
+- ◐ Unified diffs now receive add/remove presentation, while GFM tables, math,
+  and language-aware code syntax highlighting remain. *(medium/low)*
 - ○ No **Listen/TTS** affordance; no **session rename/archive**. *(medium/low)*
 
 ## 5. Voice / Talk mode — ○
@@ -137,9 +140,10 @@ Stay in control of agent actions — the core trust mechanism.
 - ✅ Approve/deny works today: `approval.request` renders and
   `ChatViewModel.respondToApproval` resolves the exact `request_id` with a
   receipt echo; clarify/sudo/secret prompts resolve too.
-- ◐ **Approval card is thin.** It omits the summary/context and has **no expiry
-  countdown**, and `respondToApproval` **hardcodes `once`/`deny`** (ChatViewModel.swift:758–767)
-  — no free-text deny reason, no session/always/scoped choice. *(high)*
+- ◐ Approval UI now presents bounded summary/command/directory context and the
+  gateway's once/session/always/deny choices, disabling permanent approval with
+  an explicit reason when the request forbids it. It still has no expiry
+  countdown or free-text denial reason. *(high)*
 - ○ **Invisible outside the open chat.** No attention badge on Home/Sessions, no
   deep link, no "answered elsewhere" reconciliation. *(medium —
   `approval-cross-surface`; hard-depends on the push backbone)*
@@ -168,19 +172,21 @@ Inject external text, links, images, or media into a session.
   the client (`image.attach_bytes`/`pdf.attach`/`file.attach`) but has **no
   consumer**. *(medium — `attachment-delivery`)*
 
-## 9. Offline continuity — ○
+## 9. Offline continuity — ◐
 
 Remain useful without a perfect network.
 
 - ✅ Foreground reconnect performs an authoritative `session.resume` before
   mutation controls return (`AppModel`, PR #73) — the socket-lifecycle half of
   resilience is solid.
+- ✅ Chat retains a bounded, protected, presentation-only last-known transcript
+  and can show it read-only when authoritative resume fails. The cache is never
+  promoted to server state and mutation controls stay unavailable.
 - ○ **Offline sends are dropped** — no bounded, expiring outbound queue that
   flushes in order on reconnect. *(high — `outbound-queue`)*
-- ○ **No offline-readable transcript** — last-known history is not cached for
-  reading while disconnected. *(high — `transcript-cache`)*
-- Both must honor `PRODUCTION.md`'s ban on blind offline queues / auto-retry of
-  side-effecting RPCs — flush only definitely-unsent messages via gated
+- Any future outbound queue must honor `PRODUCTION.md`'s ban on blind offline
+  queues / auto-retry of side-effecting RPCs — flush only definitely-unsent
+  messages via gated
   `prompt.submit`, and route true side effects through idempotent Durable Work.
 
 ## 10. Multi-gateway management — ✅
@@ -216,11 +222,17 @@ Change needs, or leave cleanly and completely.
 
 - ✅ "Forget Gateway" exists and removes the server + Keychain token
   (`AppModel.removeGateway`, `GatewayStore.remove`).
-- ◐ **Purge is incomplete** — gated cookies are not cleared and there is no
-  verified full local reset. *(high — `forget-gateway-purge-incomplete`)*
-- ○ **No Settings screen** or permission-management surface — which is also the
-  home the Trust Center and consent center need. *(medium —
-  `no-settings-permission-surface`)*
+- ✅ The connected shell now has a first-class Settings screen with connection
+  and execution posture, camera/local-network inventory, client/gateway
+  contract details, redacted diagnostics, re-pair/switch/forget actions, and a
+  confirmed full-device local reset.
+- ✅ Every saved gated gateway + normalized endpoint owns an isolated ephemeral
+  cookie jar. Public discovery is cookie-disabled; fresh-password and silent-
+  reconnect attempts are generation-fenced; Forget/disconnect invalidate only
+  the targeted gateway; and full reset invalidates every jar before removing
+  saved metadata, Keychain tokens, and device presentation state.
+- ◐ Future grant/node permission controls still wait for their advertised
+  families. *(high)*
 
 ## 14. Error recovery & reconnection — ◐
 
@@ -228,11 +240,13 @@ Recover from network drops, stuck approvals, and connection failures.
 
 - ✅ Auto-reconnect with exponential backoff and generation-guarded attempts is
   shipped (`AppModel.scheduleReconnect`, capped, foreground-gated).
-- ◐ **Gated auto-reconnect can't recover an expired cookie** — it retries a
-  ticket mint that will fail rather than prompting a graceful re-auth. *(medium —
-  `gated-reconnect-no-reauth`)*
-- ○ **No diagnostics / persistent status chip / clear-cache** recovery surface.
-  *(medium)* Backoff has a hard 4-attempt cap and no jitter/cause distinction.
+- ✅ A 401/403 ticket-mint failure now transitions to the existing gated
+  `SignInSheet` instead of repeating a silent reconnect; the shell adds a
+  persistent recovery banner with Retry/Servers actions.
+- ✅ Settings provides a locally generated redacted diagnostic report and a
+  device-only presentation-cache recovery action; neither sends data or mutates
+  gateway-side work.
+- ◐ Backoff still has a hard four-attempt cap and no jitter/cause distinction.
   *(low)*
 
 ---

@@ -3,6 +3,16 @@ import XCTest
 
 @MainActor
 final class ConversationHomeModelTests: XCTestCase {
+    private var temporarySnapshotDirectories: [URL] = []
+
+    override func tearDownWithError() throws {
+        for directory in temporarySnapshotDirectories {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        temporarySnapshotDirectories.removeAll()
+        try super.tearDownWithError()
+    }
+
     func testHomePrioritizesAttentionAndKeepsLiveRowsOutOfRecent() {
         let waiting = active(
             id: "runtime-waiting",
@@ -75,7 +85,7 @@ final class ConversationHomeModelTests: XCTestCase {
             sessions: [session(id: "recent", startedAt: 1)],
             activeError: FixtureError("live status unavailable")
         )
-        let model = ConversationHomeModel()
+        let model = isolatedHomeModel()
         let context = ConversationHomeLoadContext(gatewayID: "gateway", connectionGeneration: 1)
 
         await model.reload(using: loader, context: context, supportsActiveSessions: true)
@@ -90,7 +100,7 @@ final class ConversationHomeModelTests: XCTestCase {
         let loader = ImmediateHomeLoader(
             sessions: [session(id: "recent", startedAt: 1)]
         )
-        let model = ConversationHomeModel()
+        let model = isolatedHomeModel()
         let context = ConversationHomeLoadContext(gatewayID: "legacy", connectionGeneration: 1)
 
         await model.reload(using: loader, context: context, supportsActiveSessions: false)
@@ -411,6 +421,29 @@ final class ConversationHomeModelTests: XCTestCase {
         XCTAssertFalse(model.isLoading)
     }
 
+    func testSessionLibraryFailureUsesSafeRecoveryCopy() async {
+        let model = SessionLibraryModel()
+        let context = SessionLibraryLoadContext(
+            gatewayID: "gateway",
+            connectionGeneration: 1
+        )
+
+        await model.reload(
+            using: SessionListFailureLoader(),
+            context: context,
+            supportsSessionList: true,
+            supportsActiveSessions: true
+        )
+
+        XCTAssertEqual(
+            model.loadError,
+            "Couldn't load sessions. Check the connection and pull to retry."
+        )
+        XCTAssertFalse(model.loadError?.contains("raw-secret") == true)
+        XCTAssertFalse(model.loadError?.contains("/Users/private") == true)
+        XCTAssertFalse(model.isLoading)
+    }
+
     func testSessionLibraryModelNewerSameGatewayReloadRejectsOlderCompletion() async {
         let oldLoader = SuspendedHomeLoader()
         let newLoader = ImmediateHomeLoader(
@@ -500,14 +533,18 @@ final class ConversationHomeModelTests: XCTestCase {
 
     func testFailedRecentRequestNeverStartsLiveStatusRequest() async {
         let loader = RecentFailureHomeLoader()
-        let model = ConversationHomeModel()
+        let model = isolatedHomeModel()
         let context = ConversationHomeLoadContext(gatewayID: "gateway", connectionGeneration: 1)
 
         await model.reload(using: loader, context: context, supportsActiveSessions: true)
         await Task.yield()
 
         XCTAssertEqual(loader.activeCallCount, 0)
-        XCTAssertEqual(model.loadError, "recent unavailable")
+        XCTAssertEqual(
+            model.loadError,
+            "Couldn't refresh Home. Check the connection and pull to retry."
+        )
+        XCTAssertFalse(model.loadError?.contains("recent unavailable") == true)
         XCTAssertFalse(model.isLoading)
     }
 
@@ -516,7 +553,7 @@ final class ConversationHomeModelTests: XCTestCase {
         let newLoader = ImmediateHomeLoader(
             sessions: [session(id: "new", startedAt: 2)]
         )
-        let model = ConversationHomeModel()
+        let model = isolatedHomeModel()
         let oldContext = ConversationHomeLoadContext(gatewayID: "gateway-a", connectionGeneration: 1)
         let newContext = ConversationHomeLoadContext(gatewayID: "gateway-b", connectionGeneration: 2)
 
@@ -543,7 +580,7 @@ final class ConversationHomeModelTests: XCTestCase {
 
     func testCancelledLoadCannotPublishAfterTheTransportReturns() async {
         let loader = SuspendedHomeLoader()
-        let model = ConversationHomeModel()
+        let model = isolatedHomeModel()
         let context = ConversationHomeLoadContext(gatewayID: "gateway", connectionGeneration: 1)
 
         let request = Task {
@@ -579,6 +616,16 @@ final class ConversationHomeModelTests: XCTestCase {
         XCTAssertTrue(dispatch.attempted)
         XCTAssertNil(dispatch.beginIfReady(true, onAttempt: { attempts.append("duplicate") }))
         XCTAssertEqual(attempts, ["admitted"])
+    }
+
+    private func isolatedHomeModel() -> ConversationHomeModel {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ConversationHomeModelTests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        temporarySnapshotDirectories.append(directory)
+        return ConversationHomeModel(
+            snapshotStore: ConversationHomeSnapshotStore(directoryURL: directory)
+        )
     }
 
     func testInitialPromptDispatchIgnoresBlankLaunchIntent() {
@@ -711,6 +758,18 @@ private final class CountingSessionLibraryLoader: SessionLibraryLoading {
 
     func activeSessions(currentSessionId: String?) async throws -> [ActiveSession] {
         activeCallCount += 1
+        return []
+    }
+}
+
+@MainActor
+private final class SessionListFailureLoader: SessionLibraryLoading {
+    func listSessions(limit: Int) async throws -> [SessionSummary] {
+        throw FixtureError("Authorization: Bearer raw-secret /Users/private/.fabric")
+    }
+
+    func activeSessions(currentSessionId: String?) async throws -> [ActiveSession] {
+        XCTFail("A failed authoritative session list must not start live-status loading")
         return []
     }
 }

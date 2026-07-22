@@ -9,7 +9,9 @@ struct FabricMobileApp: App {
         WindowGroup {
             Group {
 #if DEBUG
-                if let fixture = ConversationHomeDebugFixture.requested {
+                if let fixture = FabricUIDebugFixture.requested {
+                    FabricUIDebugFixtureView(fixture: fixture)
+                } else if let fixture = ConversationHomeDebugFixture.requested {
                     ConversationHomeDebugFixtureView(fixture: fixture)
                 } else {
                     RootView()
@@ -23,6 +25,13 @@ struct FabricMobileApp: App {
                 // neutral surfaces carry the rest (design contract).
                 .tint(FabricTheme.action)
                 .onOpenURL { appModel.receivePairingURL($0) }
+                .task {
+#if DEBUG
+                    if let url = FabricUIDebugPairingLaunch.requestedURL {
+                        appModel.receivePairingURL(url)
+                    }
+#endif
+                }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .active:
@@ -41,22 +50,91 @@ struct FabricMobileApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var appModel
+    @State private var signIn: SavedGateway?
 
     var body: some View {
-        if appModel.activeGatewayId == nil {
-            // The saved-server library is home; connecting shows an overlay
-            // there rather than a separate screen.
-            GatewayListView()
-        } else {
-            VStack(spacing: 0) {
-                if appModel.phase != .connected {
-                    ConnectionRecoveryBanner()
-                }
+        Group {
+            if appModel.activeGatewayId == nil {
+                GatewayListView()
+            } else if appModel.phase == .connected,
+                      appModel.connectedIntroGatewayId == appModel.activeGatewayId,
+                      let gateway = appModel.activeGateway {
+                ConnectedGatewayIntroView(
+                    gateway: gateway,
+                    negotiation: appModel.capabilityNegotiation,
+                    onContinue: {
+                        ConnectedAppShellSelection.resetForCompletedIntro()
+                        appModel.completeConnectedIntro()
+                    },
+                    onSwitchServer: { appModel.disconnect() }
+                )
+            } else {
+                ConnectedAppShellView()
+            }
+        }
+        .sheet(item: $signIn) { gateway in
+            SignInSheet(gateway: gateway)
+        }
+        .onChange(of: appModel.pendingSignInGateway?.id, initial: true) {
+            guard appModel.pendingSignInGateway != nil else { return }
+            signIn = appModel.takePendingSignInGateway()
+        }
+    }
+}
+
+enum ConnectedAppTab: String {
+    case home
+    case sessions
+    case settings
+}
+
+enum ConnectedAppShellSelection {
+    static let storageKey = "fabric.mobile.selected-tab.v1"
+
+    static func resetForCompletedIntro(defaults: UserDefaults = .standard) {
+        defaults.set(ConnectedAppTab.home.rawValue, forKey: storageKey)
+    }
+}
+
+private struct ConnectedAppShellView: View {
+    @Environment(AppModel.self) private var appModel
+    @AppStorage(ConnectedAppShellSelection.storageKey)
+    private var selectedTab = ConnectedAppTab.home.rawValue
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if appModel.phase != .connected {
+                ConnectionRecoveryBanner()
+            }
+            TabView(selection: $selectedTab) {
                 NavigationStack {
                     ConversationHomeView()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .tag(ConnectedAppTab.home.rawValue)
+                .tabItem {
+                    Label("Home", systemImage: "sparkles")
+                }
+                .accessibilityIdentifier("app-tab-home")
+
+                NavigationStack {
+                    SessionListView()
+                }
+                .tag(ConnectedAppTab.sessions.rawValue)
+                .tabItem {
+                    Label("Sessions", systemImage: "bubble.left.and.bubble.right")
+                }
+                .accessibilityIdentifier("app-tab-sessions")
+
+                NavigationStack {
+                    SettingsRootView()
+                }
+                .tag(ConnectedAppTab.settings.rawValue)
+                .tabItem {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .accessibilityIdentifier("app-tab-settings")
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
@@ -91,7 +169,7 @@ struct ConnectionRecoveryBannerContent: View {
 
     var body: some View {
         Group {
-            if dynamicTypeSize.isAccessibilitySize {
+            if usesVerticalLayout {
                 VStack(alignment: .leading, spacing: 8) {
                     status
                     if showActions { actions }
@@ -110,6 +188,17 @@ struct ConnectionRecoveryBannerContent: View {
         .background(FabricTheme.warning.fabricTint())
     }
 
+    private var usesVerticalLayout: Bool {
+        switch dynamicTypeSize {
+        case .xxLarge, .xxxLarge,
+             .accessibility1, .accessibility2, .accessibility3,
+             .accessibility4, .accessibility5:
+            return true
+        default:
+            return false
+        }
+    }
+
     private var status: some View {
         HStack(spacing: 10) {
             if isReconnecting {
@@ -125,13 +214,27 @@ struct ConnectionRecoveryBannerContent: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 10) {
-            Button("Retry", action: onRetry)
-                .buttonStyle(.bordered)
-                .frame(minHeight: FabricTheme.minTarget)
-            Button("Servers", action: onServers)
-                .buttonStyle(.plain)
-                .frame(minHeight: FabricTheme.minTarget)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                retryButton
+                serversButton
+            }
+            VStack(spacing: 8) {
+                retryButton.frame(maxWidth: .infinity)
+                serversButton.frame(maxWidth: .infinity)
+            }
         }
+    }
+
+    private var retryButton: some View {
+        Button("Retry", action: onRetry)
+            .buttonStyle(.bordered)
+            .frame(minHeight: FabricTheme.minTarget)
+    }
+
+    private var serversButton: some View {
+        Button("Servers", action: onServers)
+            .buttonStyle(.plain)
+            .frame(minHeight: FabricTheme.minTarget)
     }
 }

@@ -87,6 +87,7 @@ struct ChatView: View {
             model?.stop()
         }
         .toolbar(.visible, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
     }
 
     private func dispatchInitialPromptIfReady(using model: ChatViewModel) async {
@@ -149,6 +150,8 @@ struct InitialPromptDispatch: Equatable {
 }
 
 private struct ChatContentView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @Bindable var model: ChatViewModel
     @Binding var draft: String
     let liveViewCaptureCapability: LiveViewCaptureCapability
@@ -161,6 +164,7 @@ private struct ChatContentView: View {
     @State private var showLiveView = false
     @State private var promptAnswer = ""
     @State private var liveViewModel: LiveViewModel
+    @AccessibilityFocusState private var focusedInteractionIdentity: String?
 
     init(
         model: ChatViewModel,
@@ -185,6 +189,28 @@ private struct ChatContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if model.showingCachedTranscript {
+                Label(
+                    model.sessionError == nil
+                        ? "Saved preview — checking the gateway for current history"
+                        : "Saved preview — gateway unavailable",
+                    systemImage: model.sessionError == nil
+                        ? "clock.arrow.circlepath"
+                        : "wifi.exclamationmark"
+                )
+                .font(.footnote)
+                .foregroundStyle(FabricTheme.textMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(FabricTheme.surfaceInset)
+                .accessibilityLabel("Saved conversation preview")
+                .accessibilityValue(
+                    model.sessionError == nil
+                        ? "Checking the gateway for current history"
+                        : "Read only until the conversation reconnects"
+                )
+            }
             if let warning = model.persistenceWarning {
                 Label(warning, systemImage: "externaldrive.badge.exclamationmark")
                     .font(.footnote)
@@ -195,100 +221,37 @@ private struct ChatContentView: View {
                     .background(FabricTheme.warning.fabricTint())
             }
             if let sessionError = model.sessionError {
-                VStack(spacing: 12) {
-                    ContentUnavailableView(
-                        "Session unavailable",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text(sessionError)
+                if model.hasReadOnlyCachedTranscriptAfterResumeFailure {
+                    transcript
+                    CachedTranscriptRecoveryBanner(
+                        message: sessionError,
+                        onRetry: onRetrySession
                     )
-                    switch recoveryAction {
-                    case .retryResume:
-                        Button("Retry session", action: onRetrySession)
-                            .buttonStyle(.borderedProminent)
-                            .frame(minHeight: FabricTheme.minTarget)
-                    case .returnToConversations:
-                        Button("Back to conversations", action: onReturnToConversations)
-                            .buttonStyle(.borderedProminent)
-                            .frame(minHeight: FabricTheme.minTarget)
-                            .accessibilityHint("Your goal remains preserved on Home")
+                } else {
+                    VStack(spacing: 12) {
+                        ContentUnavailableView(
+                            "Session unavailable",
+                            systemImage: "exclamationmark.triangle",
+                            description: Text(sessionError)
+                        )
+                        switch recoveryAction {
+                        case .retryResume:
+                            Button("Retry session", action: onRetrySession)
+                                .buttonStyle(.borderedProminent)
+                                .frame(minHeight: FabricTheme.minTarget)
+                        case .returnToConversations:
+                            Button("Back to conversations", action: onReturnToConversations)
+                                .buttonStyle(.borderedProminent)
+                                .frame(minHeight: FabricTheme.minTarget)
+                                .accessibilityHint("Your goal remains preserved on Home")
+                        }
                     }
                 }
             } else {
                 transcript
             }
 
-            if let approval = model.pendingApproval {
-                approvalBanner(approval)
-                    .disabled(
-                        !model.sessionReady
-                            || !model.supportsGatewayMethod("approval.respond")
-                    )
-            }
-
-            if let prompt = model.pendingPrompt {
-                promptBanner(prompt)
-                    .disabled(
-                        !model.sessionReady
-                            || !model.supportsGatewayMethod(prompt.responseMethod)
-                    )
-            }
-
-            if let status = model.statusLine {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    Text(status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer()
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 4)
-            }
-
-            composer
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        showCommandCatalog = true
-                    } label: {
-                        Label("Commands…", systemImage: "slash.circle")
-                    }
-                    .disabled(
-                        !model.supportsGatewayMethod("commands.catalog")
-                            || !model.supportsGatewayMethod("slash.exec")
-                    )
-                    Button {
-                        let text = draft
-                        draft = ""
-                        Task { await model.sendInBackground(text) }
-                    } label: {
-                        Label("Run draft in background", systemImage: "moon.zzz")
-                    }
-                    .disabled(
-                        draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || !model.canSendInBackground
-                    )
-                    Button {
-                        showProcesses = true
-                    } label: {
-                        Label("Background processes…", systemImage: "terminal")
-                    }
-                    .disabled(!model.supportsGatewayMethod("process.list"))
-                    Button {
-                        showLiveView = true
-                    } label: {
-                        Label("Live screen view…", systemImage: "display")
-                    }
-                    .disabled(!liveViewCaptureCapability.isSupported)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .accessibilityLabel("Chat actions")
-                .disabled(!model.sessionReady)
-            }
+            controlDock
         }
         .sheet(isPresented: $showCommandCatalog) {
             CommandCatalogSheet(
@@ -315,6 +278,15 @@ private struct ChatContentView: View {
         .onChange(of: model.sessionReady, initial: true) { _, ready in
             liveViewModel.setConnectionReady(ready)
         }
+        .onChange(of: model.interactionAccessibilityCue, initial: true) { _, cue in
+            guard let cue else {
+                focusedInteractionIdentity = nil
+                return
+            }
+            guard UIAccessibility.isVoiceOverRunning else { return }
+            focusedInteractionIdentity = cue.identity
+            UIAccessibility.post(notification: .announcement, argument: cue.announcement)
+        }
         .onDisappear {
             liveViewModel.disappear()
         }
@@ -324,89 +296,278 @@ private struct ChatContentView: View {
         TranscriptView(messages: model.messages)
     }
 
-    /// Waiting-for-approval banner. Status language per the design contract:
-    /// an amber marker + explicit label, with the status color held to a
-    /// tint and an edge marker — never a fully saturated panel.
-    private func approvalBanner(_ approval: PendingApproval) -> some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(FabricTheme.warning)
-                .frame(width: 3)
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(FabricTheme.warning)
-                        .frame(width: 8, height: 8)
-                    Text("Waiting for approval")
-                        .font(.subheadline.weight(.semibold))
-                }
-                if let command = approval.command, !command.isEmpty {
-                    Text(command)
-                        .font(.caption.monospaced())
-                        .lineLimit(4)
-                }
-                HStack {
-                    Button("Allow") {
-                        Task { await model.respondToApproval(allow: true) }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    Button("Deny", role: .destructive) {
-                        Task { await model.respondToApproval(allow: false) }
-                    }
-                    .buttonStyle(.bordered)
+    /// At accessibility sizes the approval/question, remote actions, and
+    /// composer share one scrollable dock. They cannot all fit below a useful
+    /// transcript at AX XXXL, and independent fixed children otherwise squeeze
+    /// and overlap one another. Regular sizes retain the compact pinned dock.
+    @ViewBuilder
+    private var controlDock: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            ScrollView {
+                VStack(spacing: 0) {
+                    controlStack(usesIndependentBlockingScroll: false)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(
+                minHeight: hasBlockingInteraction ? 360 : 260,
+                maxHeight: hasBlockingInteraction ? 580 : 460
+            )
+            .layoutPriority(3)
+            .background(FabricTheme.surfaceRaised)
+            .overlay(alignment: .top) { Divider() }
+            .accessibilityLabel("Conversation controls")
+            .accessibilityIdentifier("chat-interaction-dock-scroll")
+        } else {
+            controlStack(usesIndependentBlockingScroll: true)
         }
-        .background(FabricTheme.warning.fabricTint())
-        .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// Blocking agent prompt: clarify choices as buttons, plus a free-text
-    /// (or secure, for sudo/secret) answer field.
-    private func promptBanner(_ prompt: PendingPrompt) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private var hasBlockingInteraction: Bool {
+        model.pendingApproval != nil || model.pendingPrompt != nil
+    }
+
+    @ViewBuilder
+    private func controlStack(usesIndependentBlockingScroll: Bool) -> some View {
+        if usesIndependentBlockingScroll {
+            blockingInteractionRegion
+        } else {
+            blockingInteractionContent
+        }
+
+        if let status = model.statusLine {
+            HStack(alignment: .top, spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 4)
+        }
+
+        if let outcome = model.unknownSendOutcome {
+            UnknownSendOutcomeBanner(
+                outcome: outcome,
+                canCheck: model.storedSessionId?.isEmpty == false
+            ) {
+                Task { await model.checkConversationAfterUnknownSend() }
+            }
+        }
+
+        let advertisedActions = ChatAdvertisedActions(
+            supportsMethod: model.supportsGatewayMethod,
+            supportsDurableWork: model.advertisesDurableWork,
+            liveViewSupported: liveViewCaptureCapability.isSupported
+        )
+        if !advertisedActions.isEmpty {
+            ChatActionStrip(
+                advertised: advertisedActions,
+                commandsEnabled: model.sessionReady,
+                backgroundEnabled: model.sessionReady
+                    && model.unknownSendOutcome == nil
+                    && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && model.canSendInBackground,
+                processesEnabled: model.sessionReady,
+                liveViewEnabled: model.sessionReady,
+                onCommands: { showCommandCatalog = true },
+                onBackground: {
+                    let text = draft
+                    draft = ""
+                    Task { await model.sendInBackground(text) }
+                },
+                onProcesses: { showProcesses = true },
+                onLiveView: { showLiveView = true }
+            )
+        }
+
+        ChatComposerBar(
+            draft: $draft,
+            busy: model.busy,
+            sessionReady: model.sessionReady,
+            hasUnknownSendOutcome: model.unknownSendOutcome != nil,
+            supportsMethod: model.supportsGatewayMethod,
+            onSend: { text in Task { await model.send(text) } },
+            onInterrupt: { Task { await model.interrupt() } }
+        )
+    }
+
+    @ViewBuilder
+    private var blockingInteractionRegion: some View {
+        if hasBlockingInteraction {
+            ChatBlockingInteractionRegion {
+                blockingInteractionContent
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var blockingInteractionContent: some View {
+        if let approval = model.pendingApproval {
+            ApprovalResponseBanner(
+                approval: approval,
+                responseState: model.approvalResponseState
+            ) { choice in
+                Task { await model.respondToApproval(choice: choice) }
+            }
+            .disabled(
+                !model.sessionReady
+                    || !model.supportsGatewayMethod("approval.respond")
+            )
+            .accessibilityFocused(
+                $focusedInteractionIdentity,
+                equals: PendingInteraction.approval(approval).identity
+            )
+        } else if let prompt = model.pendingPrompt {
+            BlockingPromptCard(
+                prompt: prompt,
+                answer: $promptAnswer,
+                onResponse: { answer in
+                    Task { await model.respondToPrompt(answer) }
+                }
+            )
+            .disabled(
+                !model.sessionReady
+                    || !model.supportsGatewayMethod(prompt.responseMethod)
+            )
+            .accessibilityFocused(
+                $focusedInteractionIdentity,
+                equals: PendingInteraction.prompt(prompt).identity
+            )
+        }
+    }
+}
+
+private struct CachedTranscriptRecoveryBanner: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    let message: String
+    let onRetry: () -> Void
+
+    var body: some View {
+        Group {
+            if dynamicTypeSize >= .xxLarge {
+                VStack(alignment: .leading, spacing: 8) {
+                    copy
+                    retryButton
+                }
+            } else {
+                HStack(alignment: .top, spacing: 10) {
+                    copy
+                    Spacer(minLength: 0)
+                    retryButton
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(FabricTheme.warning.fabricTint())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Saved conversation is read only")
+    }
+
+    private var copy: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Showing the saved conversation")
+                .font(.subheadline.weight(.semibold))
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(FabricTheme.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Reconnect before sending or changing anything.")
+                .font(.footnote)
+                .foregroundStyle(FabricTheme.textMuted)
+        }
+    }
+
+    private var retryButton: some View {
+        Button("Retry", action: onRetry)
+            .buttonStyle(.borderedProminent)
+            .frame(minHeight: FabricTheme.minTarget)
+            .accessibilityLabel("Retry conversation")
+    }
+}
+
+/// A bounded, independently scrollable blocking region. Long commands,
+/// questions, or accessibility-sized controls can scroll without pushing the
+/// composer off-screen or making the transcript itself inaccessible.
+private struct ChatBlockingInteractionRegion<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ScrollView {
+            content
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(minHeight: 180, maxHeight: 320)
+        .layoutPriority(2)
+        .background(FabricTheme.surfaceRaised)
+        .overlay(alignment: .top) { Divider() }
+        .overlay(alignment: .bottom) { Divider() }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Response required")
+        .accessibilityIdentifier("chat-blocking-interaction-scroll")
+    }
+}
+
+/// Blocking clarify/credential prompt used by both live Chat and deterministic
+/// UI fixtures. The field and actions stack before large type can squeeze the
+/// primary controls below the 44-point touch contract.
+private struct BlockingPromptCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    let prompt: PendingPrompt
+    @Binding var answer: String
+    let onResponse: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
             Label(
                 prompt.kind == .clarify ? "The agent has a question" : "Credential requested",
                 systemImage: prompt.kind == .clarify ? "questionmark.bubble" : "key"
             )
             .font(.subheadline.weight(.semibold))
 
-            Text(prompt.question)
+            Text(prompt.presentationQuestion)
                 .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
 
-            if !prompt.choices.isEmpty {
-                ForEach(prompt.choices, id: \.self) { choice in
-                    Button(choice) {
-                        promptAnswer = ""
-                        Task { await model.respondToPrompt(choice) }
+            if !prompt.presentationChoices.isEmpty {
+                VStack(spacing: 8) {
+                    ForEach(prompt.presentationChoices) { choice in
+                        Button(choice.label) {
+                            answer = ""
+                            onResponse(choice.response)
+                        }
+                        .buttonStyle(.bordered)
+                        .frame(maxWidth: .infinity, minHeight: FabricTheme.minTarget)
                     }
-                    .buttonStyle(.bordered)
                 }
             }
 
-            HStack {
-                Group {
-                    if prompt.isSecureEntry {
-                        SecureField("Answer", text: $promptAnswer)
-                    } else {
-                        TextField("Answer", text: $promptAnswer)
-                    }
+            Group {
+                if prompt.isSecureEntry {
+                    SecureField("Answer", text: $answer)
+                } else {
+                    TextField("Answer", text: $answer, axis: .vertical)
+                        .lineLimit(1...4)
                 }
-                .textFieldStyle(.roundedBorder)
+            }
+            .textFieldStyle(.roundedBorder)
+            .frame(minHeight: FabricTheme.minTarget)
 
-                Button("Send") {
-                    let answer = promptAnswer
-                    promptAnswer = ""
-                    Task { await model.respondToPrompt(answer) }
+            if dynamicTypeSize >= .xxLarge {
+                VStack(spacing: 8) {
+                    sendButton
+                    dismissButton
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(promptAnswer.isEmpty)
-
-                Button("Dismiss", role: .cancel) {
-                    promptAnswer = ""
-                    Task { await model.respondToPrompt("") }
+            } else {
+                HStack(spacing: 8) {
+                    sendButton
+                    dismissButton
                 }
             }
         }
@@ -415,28 +576,160 @@ private struct ChatContentView: View {
         .background(FabricTheme.info.fabricTint())
     }
 
-    private var composer: some View {
+    private var sendButton: some View {
+        Button("Send") {
+            let response = answer
+            answer = ""
+            onResponse(response)
+        }
+        .buttonStyle(.borderedProminent)
+        .frame(maxWidth: .infinity, minHeight: FabricTheme.minTarget)
+        .disabled(answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    private var dismissButton: some View {
+        Button("Dismiss", role: .cancel) {
+            answer = ""
+            onResponse("")
+        }
+        .buttonStyle(.bordered)
+        .frame(maxWidth: .infinity, minHeight: FabricTheme.minTarget)
+    }
+}
+
+/// Capability-truthful chat actions. Only advertised controls are composed;
+/// an advertised control may still be temporarily disabled while disconnected
+/// or while it awaits the draft/session state it needs.
+private struct ChatActionStrip: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    let advertised: ChatAdvertisedActions
+    let commandsEnabled: Bool
+    let backgroundEnabled: Bool
+    let processesEnabled: Bool
+    let liveViewEnabled: Bool
+    let onCommands: () -> Void
+    let onBackground: () -> Void
+    let onProcesses: () -> Void
+    let onLiveView: () -> Void
+
+    var body: some View {
+        Group {
+            if dynamicTypeSize >= .xxLarge {
+                LazyVGrid(
+                    columns: actionColumns,
+                    spacing: 8
+                ) {
+                    actions(fillAvailableWidth: true)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 4)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        actions(fillAvailableWidth: false)
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+        .frame(minHeight: FabricTheme.minTarget)
+        .padding(.top, 4)
+        .background(FabricTheme.surfaceRaised)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Conversation actions")
+    }
+
+    private var actionColumns: [GridItem] {
+        if dynamicTypeSize.isAccessibilitySize {
+            return [GridItem(.flexible())]
+        }
+        return [
+            GridItem(.flexible(), spacing: 8),
+            GridItem(.flexible(), spacing: 8),
+        ]
+    }
+
+    @ViewBuilder
+    private func actions(fillAvailableWidth: Bool) -> some View {
+        if advertised.commands {
+            ChatActionButton(
+                title: "Commands",
+                systemImage: "slash.circle",
+                fillAvailableWidth: fillAvailableWidth,
+                action: onCommands
+            )
+            .disabled(!commandsEnabled)
+            .accessibilityHint("Browse slash commands and skills")
+        }
+
+        if advertised.background {
+            ChatActionButton(
+                title: "Background",
+                systemImage: "moon.zzz",
+                fillAvailableWidth: fillAvailableWidth,
+                action: onBackground
+            )
+            .disabled(!backgroundEnabled)
+            .accessibilityLabel("Run draft in background")
+            .accessibilityHint("Starts the current draft as background work")
+        }
+
+        if advertised.processes {
+            ChatActionButton(
+                title: "Processes",
+                systemImage: "terminal",
+                fillAvailableWidth: fillAvailableWidth,
+                action: onProcesses
+            )
+            .disabled(!processesEnabled)
+            .accessibilityHint("View and control background processes")
+        }
+
+        if advertised.liveView {
+            ChatActionButton(
+                title: "Live View",
+                systemImage: "display",
+                fillAvailableWidth: fillAvailableWidth,
+                action: onLiveView
+            )
+            .disabled(!liveViewEnabled)
+            .accessibilityHint("View the remote screen while Fabric works")
+        }
+    }
+}
+
+/// Production composer shared with the deterministic chat fixture. This keeps
+/// fixture interaction, accessibility labels, command dispatch gating, and
+/// minimum target sizes aligned with the shipping surface.
+private struct ChatComposerBar: View {
+    @Binding var draft: String
+    let busy: Bool
+    let sessionReady: Bool
+    let hasUnknownSendOutcome: Bool
+    let supportsMethod: (String) -> Bool
+    let onSend: (String) -> Void
+    let onInterrupt: () -> Void
+
+    var body: some View {
         HStack(spacing: 8) {
             TextField(
-                model.busy ? "Steer the running turn…" : "Message Fabric… (/ for commands)",
+                busy ? "Steer the running turn…" : "Message Fabric… (/ for commands)",
                 text: $draft,
                 axis: .vertical
             )
             .textFieldStyle(.roundedBorder)
             .lineLimit(1...5)
+            .frame(minHeight: FabricTheme.minTarget)
+            .accessibilityIdentifier("chat-composer")
             .disabled(
-                !model.sessionReady
-                    || !model.supportsGatewayMethod(draftDispatchMethod)
+                !sessionReady
+                    || hasUnknownSendOutcome
+                    || !supportsMethod(draftDispatchMethod)
             )
 
-            if model.busy {
-                // Steering send: injects the note without interrupting. The
-                // active-thread color marks it as touching the live turn.
-                Button {
-                    let text = draft
-                    draft = ""
-                    Task { await model.send(text) }
-                } label: {
+            if busy {
+                Button(action: submitDraft) {
                     Image(systemName: "arrow.uturn.right.circle.fill")
                         .font(.title2)
                         .foregroundStyle(FabricTheme.threadActive)
@@ -444,48 +737,395 @@ private struct ChatContentView: View {
                 }
                 .accessibilityLabel("Steer running turn")
                 .disabled(
-                    draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || !model.supportsGatewayMethod("session.steer")
+                    trimmedDraft.isEmpty
+                        || hasUnknownSendOutcome
+                        || !supportsMethod("session.steer")
                 )
 
-                Button {
-                    Task { await model.interrupt() }
-                } label: {
+                Button(action: onInterrupt) {
                     Image(systemName: "stop.circle.fill")
                         .font(.title2)
                         .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                 }
                 .accessibilityLabel("Interrupt running turn")
-                .disabled(!model.supportsGatewayMethod("session.interrupt"))
+                .disabled(!supportsMethod("session.interrupt"))
             } else {
-                Button {
-                    let text = draft
-                    draft = ""
-                    Task { await model.send(text) }
-                } label: {
+                Button(action: submitDraft) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
                         .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                 }
                 .accessibilityLabel("Send message")
                 .disabled(
-                    !model.sessionReady
-                        || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || !model.supportsGatewayMethod(draftDispatchMethod)
+                    !sessionReady
+                        || hasUnknownSendOutcome
+                        || trimmedDraft.isEmpty
+                        || !supportsMethod(draftDispatchMethod)
                 )
             }
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
-        .disabled(!model.sessionReady)
+        .disabled(!sessionReady)
+        .layoutPriority(3)
+    }
+
+    private var trimmedDraft: String {
+        draft.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var draftDispatchMethod: String {
-        if model.busy { return "session.steer" }
-        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.hasPrefix("/") ? "slash.exec" : "prompt.submit"
+        if busy { return "session.steer" }
+        return trimmedDraft.hasPrefix("/") ? "slash.exec" : "prompt.submit"
+    }
+
+    private func submitDraft() {
+        let text = draft
+        draft = ""
+        onSend(text)
     }
 }
+
+private struct ChatActionButton: View {
+    let title: String
+    let systemImage: String
+    let fillAvailableWidth: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.weight(.semibold))
+                .lineLimit(fillAvailableWidth ? 2 : 1)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 10)
+                .frame(
+                    maxWidth: fillAvailableWidth ? .infinity : nil,
+                    minHeight: FabricTheme.minTarget
+                )
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(FabricTheme.text)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct UnknownSendOutcomeBanner: View {
+    let outcome: UnknownSendOutcome
+    let canCheck: Bool
+    let onCheck: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
+                .foregroundStyle(FabricTheme.warning)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Delivery unconfirmed")
+                    .font(.subheadline.weight(.semibold))
+                Text(outcome.description)
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.textMuted)
+                Button("Check conversation", action: onCheck)
+                    .buttonStyle(.borderedProminent)
+                    .frame(minHeight: FabricTheme.minTarget)
+                    .disabled(!canCheck)
+                    .accessibilityHint("Reloads authoritative history without resending your message")
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(FabricTheme.warning.fabricTint())
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// Waiting-for-approval banner. Four canonical gateway choices stay explicit;
+/// a permanent rule remains visible but unavailable when the server forbids it.
+private struct ApprovalResponseBanner: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    let approval: PendingApproval
+    let responseState: ApprovalResponseState
+    let onChoice: (ApprovalChoice) -> Void
+
+    private var columns: [GridItem] {
+        let count = dynamicTypeSize >= .xxLarge ? 1 : 2
+        return Array(repeating: GridItem(.flexible(), spacing: 8), count: count)
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(FabricTheme.warning)
+                .frame(width: 3)
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Approval needed", systemImage: "exclamationmark.shield")
+                    .font(.subheadline.weight(.semibold))
+
+                if let summary = approval.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.callout)
+                        .foregroundStyle(FabricTheme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("Request summary")
+                        .accessibilityValue(summary)
+                }
+                if let command = approval.command, !command.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Command")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(FabricTheme.textMuted)
+                        Text(command)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let cwd = approval.cwd, !cwd.isEmpty {
+                    Label(cwd, systemImage: "folder")
+                        .font(.caption)
+                        .foregroundStyle(FabricTheme.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("Working directory")
+                        .accessibilityValue(cwd)
+                }
+
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(ApprovalChoice.allCases, id: \.rawValue) { choice in
+                        approvalButton(choice)
+                    }
+                }
+
+                if !approval.allowPermanent {
+                    Label(
+                        "Always is unavailable because this request requires an explicit approval each time.",
+                        systemImage: "info.circle"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("approval-permanent-unavailable-reason")
+                }
+
+                if case .failed(let message) = responseState {
+                    Label(message, systemImage: "exclamationmark.circle")
+                        .font(.footnote)
+                        .foregroundStyle(FabricTheme.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("Approval response failed")
+                        .accessibilityValue(message)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+        }
+        .background(FabricTheme.warning.fabricTint())
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private func approvalButton(_ choice: ApprovalChoice) -> some View {
+        let isSubmittingChoice: Bool = {
+            if case .submitting(let current) = responseState { return current == choice }
+            return false
+        }()
+        Button {
+            onChoice(choice)
+        } label: {
+            HStack(spacing: 6) {
+                if isSubmittingChoice {
+                    ProgressView().controlSize(.small)
+                }
+                Text(choice.label)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, minHeight: FabricTheme.minTarget)
+        }
+        .buttonStyle(.bordered)
+        .tint(choice == .deny ? FabricTheme.danger : FabricTheme.action)
+        .disabled(
+            responseState.isSubmitting
+                || (choice == .always && !approval.allowPermanent)
+        )
+        .accessibilityLabel(choice.accessibilityLabel)
+        .accessibilityHint(
+            choice == .always && !approval.allowPermanent
+                ? "Permanent approval is unavailable for this request"
+                : choice.accessibilityHint
+        )
+    }
+}
+
+/// Deterministic no-network surface for simulator capture and UI tests using
+/// `-fabric-ui-fixture chat-activity`.
+#if DEBUG
+struct ChatExperienceDebugFixtureView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    @State private var approvalState: ApprovalResponseState = .idle
+    @State private var draft = "Prepare the verified build notes"
+    @State private var fixtureStatus: String?
+    @State private var messages: [TranscriptMessage]
+
+    init() {
+        _messages = State(initialValue: Self.makeMessages())
+    }
+
+    private static func makeMessages() -> [TranscriptMessage] {
+        let parts: [AssistantTurnPart] = [
+            AssistantTurnPart(
+                id: "reasoning:fixture",
+                content: .reasoning(.init(
+                    text: "I’m checking the release branch, its tests, and the latest build receipt before recommending a ship decision.",
+                    wasTruncated: false
+                ))
+            ),
+            AssistantTurnPart(
+                id: "tool:tests",
+                content: .tool(.init(
+                    callID: "fixture-tests",
+                    name: "xcodebuild",
+                    detail: "iPhone 17 Pro Max · 128 tests passed",
+                    state: .complete,
+                    durationSeconds: 42.8
+                ))
+            ),
+            AssistantTurnPart(
+                id: "tool:upload",
+                content: .tool(.init(
+                    callID: "fixture-upload",
+                    name: "release_check",
+                    detail: "Waiting for a signing decision",
+                    state: .running,
+                    durationSeconds: nil
+                ))
+            ),
+            AssistantTurnPart(
+                id: "text:fixture",
+                content: .text("The app is healthy. One protected release action needs your approval.")
+            ),
+        ]
+        return [
+            TranscriptMessage(role: .user, text: "Verify the iOS release and prepare TestFlight."),
+            TranscriptMessage(
+                role: .assistant,
+                text: "The app is healthy. One protected release action needs your approval.",
+                assistantParts: parts
+            ),
+        ]
+    }
+
+    private let approval = PendingApproval(
+        command: "gh pr merge 82 --squash",
+        requestId: "fixture-approval",
+        summary: "Merge the verified iOS experience pull request into main.",
+        cwd: "/workspace/fabric",
+        allowPermanent: false
+    )
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                TranscriptView(messages: messages)
+                controlDock
+            }
+            .background(FabricTheme.surface)
+            .navigationTitle("Release readiness")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    @ViewBuilder
+    private var controlDock: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            ScrollView {
+                VStack(spacing: 0) {
+                    controls(usesIndependentBlockingScroll: false)
+                }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(minHeight: 360, maxHeight: 580)
+            .layoutPriority(3)
+            .background(FabricTheme.surfaceRaised)
+            .overlay(alignment: .top) { Divider() }
+            .accessibilityLabel("Conversation controls")
+            .accessibilityIdentifier("chat-interaction-dock-scroll")
+        } else {
+            controls(usesIndependentBlockingScroll: true)
+        }
+    }
+
+    @ViewBuilder
+    private func controls(usesIndependentBlockingScroll: Bool) -> some View {
+        if usesIndependentBlockingScroll {
+            ChatBlockingInteractionRegion {
+                approvalBanner
+            }
+        } else {
+            approvalBanner
+        }
+
+        if let fixtureStatus {
+            Text(fixtureStatus)
+                .font(.caption)
+                .foregroundStyle(FabricTheme.textMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                .accessibilityIdentifier("chat-fixture-status")
+        }
+
+        ChatActionStrip(
+            advertised: ChatAdvertisedActions(
+                supportsMethod: { _ in true },
+                supportsDurableWork: false,
+                liveViewSupported: true
+            ),
+            commandsEnabled: true,
+            backgroundEnabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            processesEnabled: true,
+            liveViewEnabled: true,
+            onCommands: { fixtureStatus = "Command catalog opened" },
+            onBackground: {
+                fixtureStatus = "Draft sent to background"
+                draft = ""
+            },
+            onProcesses: { fixtureStatus = "Process list opened" },
+            onLiveView: { fixtureStatus = "Live View opened" }
+        )
+
+        ChatComposerBar(
+            draft: $draft,
+            busy: false,
+            sessionReady: true,
+            hasUnknownSendOutcome: false,
+            supportsMethod: { _ in true },
+            onSend: { text in
+                messages.append(TranscriptMessage(role: .user, text: text))
+                messages.append(TranscriptMessage(
+                    role: .info,
+                    text: "Fixture dispatch received without contacting a gateway."
+                ))
+                fixtureStatus = "Message submitted"
+            },
+            onInterrupt: {}
+        )
+    }
+
+    private var approvalBanner: some View {
+        ApprovalResponseBanner(
+            approval: approval,
+            responseState: approvalState
+        ) { choice in
+            approvalState = .submitting(choice)
+            fixtureStatus = "Approval response: \(choice.label)"
+        }
+    }
+}
+#endif
 
 /// Owns transcript scrolling so a completed assistant row can request one
 /// follow-up scroll after its cached rich layout has a measured height.
@@ -543,7 +1183,7 @@ private struct MessageBubble: View {
             }
         case .assistant:
             HStack(alignment: .top) {
-                AssistantMessageBody(
+                AssistantTurnBody(
                     message: message,
                     onRichLayoutReady: onRichLayoutReady
                 )
@@ -580,6 +1220,146 @@ private struct MessageBubble: View {
             .accessibilityLabel("Error")
             .accessibilityValue(message.text)
         }
+    }
+}
+
+private struct AssistantTurnBody: View {
+    let message: TranscriptMessage
+    let onRichLayoutReady: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if message.assistantParts.isEmpty {
+                AssistantMessageBody(
+                    text: message.text,
+                    streaming: message.streaming,
+                    onRichLayoutReady: onRichLayoutReady
+                )
+            } else {
+                ForEach(message.assistantParts) { part in
+                    switch part.content {
+                    case .text(let text):
+                        AssistantMessageBody(
+                            text: text,
+                            streaming: message.streaming,
+                            onRichLayoutReady: onRichLayoutReady
+                        )
+                    case .reasoning(let reasoning):
+                        ReasoningDisclosureCard(reasoning: reasoning)
+                    case .tool(let tool):
+                        ToolActivityCard(tool: tool)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Fabric response and activity")
+    }
+}
+
+private struct ReasoningDisclosureCard: View {
+    let reasoning: AssistantTurnPart.Reasoning
+    @State private var isExpanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            Text(verbatim: reasoning.text)
+                .font(.caption)
+                .foregroundStyle(FabricTheme.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .padding(.top, 6)
+                .accessibilityLabel("Reasoning detail")
+                .accessibilityValue(reasoning.text)
+        } label: {
+            Label("Reasoning", systemImage: "brain.head.profile")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(FabricTheme.textMuted)
+                .frame(minHeight: FabricTheme.minTarget)
+                .contentShape(Rectangle())
+        }
+        .tint(FabricTheme.action)
+        .padding(.horizontal, 10)
+        .background(FabricTheme.surfaceInset)
+        .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radius))
+        .accessibilityHint(isExpanded ? "Collapse reasoning" : "Expand reasoning")
+    }
+}
+
+private struct ToolActivityCard: View {
+    let tool: AssistantTurnPart.Tool
+
+    private var title: String {
+        tool.name.replacingOccurrences(of: "_", with: " ")
+    }
+
+    private var stateLabel: String {
+        switch tool.state {
+        case .generating: return "Preparing"
+        case .running: return "Running"
+        case .complete: return "Completed"
+        case .failed: return "Failed"
+        }
+    }
+
+    private var systemImage: String {
+        switch tool.state {
+        case .generating: return "wand.and.stars"
+        case .running: return "gearshape.2"
+        case .complete: return "checkmark.circle.fill"
+        case .failed: return "xmark.octagon.fill"
+        }
+    }
+
+    private var stateColor: Color {
+        switch tool.state {
+        case .generating, .running: return FabricTheme.threadActive
+        case .complete: return FabricTheme.success
+        case .failed: return FabricTheme.danger
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(stateColor)
+                .frame(width: 20, height: 20)
+                .symbolEffect(.pulse, isActive: tool.state == .running || tool.state == .generating)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                    Text(stateLabel)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(stateColor)
+                    if let duration = tool.durationSeconds, duration >= 0 {
+                        Text(duration.formatted(.number.precision(.fractionLength(1))) + "s")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(FabricTheme.textMuted)
+                    }
+                }
+                if let detail = tool.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(FabricTheme.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if tool.state == .failed {
+                    Text("The tool reported a failure. No raw result is shown.")
+                        .font(.caption)
+                        .foregroundStyle(FabricTheme.textMuted)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(FabricTheme.surfaceInset)
+        .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radius))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Tool \(title), \(stateLabel)")
+        .accessibilityValue(tool.detail ?? "")
     }
 }
 
@@ -1121,26 +1901,27 @@ private struct RichTranscriptHeightPreferenceKey: PreferenceKey {
 }
 
 private struct AssistantMessageBody: View {
-    let message: TranscriptMessage
+    let text: String
+    let streaming: Bool
     let onRichLayoutReady: (() -> Void)?
 
     @State private var renderCache = AssistantTranscriptRenderCache()
 
     private var renderInput: AssistantTranscriptRenderInput {
-        AssistantTranscriptRenderInput(text: message.text, streaming: message.streaming)
+        AssistantTranscriptRenderInput(text: text, streaming: streaming)
     }
 
     var body: some View {
         Group {
-            switch AssistantTranscriptPresentationMode.mode(for: message) {
+            switch streaming ? AssistantTranscriptPresentationMode.streamingPlain : .rich {
             case .streamingPlain:
-                Text(verbatim: message.text.isEmpty ? "…" : message.text)
+                Text(verbatim: text.isEmpty ? "…" : text)
                     .font(.subheadline)
                     .foregroundStyle(FabricTheme.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
                     .accessibilityLabel("Fabric")
-                    .accessibilityValue(message.text.isEmpty ? "Streaming response" : message.text)
+                    .accessibilityValue(text.isEmpty ? "Streaming response" : text)
             case .rich:
                 if let document = renderCache.document {
                     AssistantTranscriptView(document: document)
@@ -1164,13 +1945,13 @@ private struct AssistantMessageBody: View {
                     // A completed row is parsed once on appearance. This
                     // verbatim fallback prevents a blank flash and preserves
                     // malformed text while the state cache is populated.
-                    Text(verbatim: message.text)
+                    Text(verbatim: text)
                         .font(.subheadline)
                         .foregroundStyle(FabricTheme.text)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                         .accessibilityLabel("Fabric")
-                        .accessibilityValue(message.text)
+                        .accessibilityValue(text)
                 }
             }
         }

@@ -129,4 +129,125 @@ final class PairingPayloadTests: XCTestCase {
         XCTAssertNil(GatewayBaseURL.parse("https://agent.example.test?token=secret"))
         XCTAssertNil(GatewayBaseURL.parse("https://agent.example.test/#fragment"))
     }
+
+    func testTokenPairingRejectsPlaintextNetworkHostsButAllowsLoopbackDevelopment() {
+        XCTAssertNil(PairingPayload.parse(
+            "fabric://pair?v=1&url=http%3A%2F%2F192.168.1.20%3A9119&auth=token&token=secret"
+        ))
+        XCTAssertNotNil(PairingPayload.parse(
+            "fabric://pair?v=1&url=http%3A%2F%2F127.0.0.1%3A9119&auth=token&token=secret"
+        ))
+        XCTAssertNotNil(PairingPayload.parse(
+            "fabric://pair?v=1&url=https%3A%2F%2Ffabric.example.test&auth=token&token=secret"
+        ))
+    }
+
+    func testLoopbackClassificationRequiresAnActualCanonicalLoopbackAddress() throws {
+        for value in [
+            "http://localhost:9119",
+            "http://[::1]:9119",
+            "http://127.0.0.1:9119",
+            "http://127.255.255.255:9119",
+        ] {
+            let url = try XCTUnwrap(URL(string: value))
+            XCTAssertTrue(GatewayBaseURL.isLoopback(url), value)
+        }
+
+        for value in [
+            "http://127.attacker.example:9119",
+            "http://localhost.attacker.example:9119",
+            "http://127.0.0:9119",
+            "http://127.0.0.1.2:9119",
+            "http://127..0.1:9119",
+            "http://127.00.0.1:9119",
+            "http://127.0.0.256:9119",
+            "http://128.0.0.1:9119",
+        ] {
+            let url = try XCTUnwrap(URL(string: value))
+            XCTAssertFalse(GatewayBaseURL.isLoopback(url), value)
+        }
+    }
+
+    func testTokenTransportPolicyIsSharedAcrossSavedAndPairingPaths() throws {
+        for value in [
+            "https://fabric.example.test",
+            "http://localhost:9119",
+            "http://127.0.0.1:9119",
+            "http://[::1]:9119",
+        ] {
+            XCTAssertTrue(
+                GatewayBaseURL.allowsTokenCredential(try XCTUnwrap(URL(string: value))),
+                value
+            )
+        }
+
+        for value in [
+            "http://192.168.1.20:9119",
+            "http://127.attacker.example:9119",
+            "ftp://localhost:9119",
+        ] {
+            XCTAssertFalse(
+                GatewayBaseURL.allowsTokenCredential(try XCTUnwrap(URL(string: value))),
+                value
+            )
+        }
+    }
+
+    func testTokenWebSocketBuilderRejectsRemotePlaintextWithoutLeakingCredential() throws {
+        let baseURL = try XCTUnwrap(URL(string: "http://192.168.1.20:9119"))
+        let credential = "top-secret-upgrade-token"
+
+        XCTAssertThrowsError(try GatewayAPI.websocketURL(baseURL: baseURL, token: credential)) { error in
+            XCTAssertEqual(error as? GatewayTokenTransportError, .secureTransportRequired)
+            XCTAssertFalse(error.localizedDescription.contains(credential))
+            XCTAssertTrue(error.localizedDescription.contains("HTTPS"))
+        }
+    }
+
+    func testTokenWebSocketBuilderStillAllowsHTTPSAndLoopbackDevelopment() throws {
+        let https = try GatewayAPI.websocketURL(
+            baseURL: try XCTUnwrap(URL(string: "https://fabric.example.test/prefix")),
+            token: "https-token"
+        )
+        let loopback = try GatewayAPI.websocketURL(
+            baseURL: try XCTUnwrap(URL(string: "http://127.0.0.1:9119")),
+            token: "loopback-token"
+        )
+
+        XCTAssertEqual(https.scheme, "wss")
+        XCTAssertEqual(https.path, "/prefix/api/ws")
+        XCTAssertEqual(loopback.scheme, "ws")
+        XCTAssertEqual(loopback.host(), "127.0.0.1")
+    }
+
+    func testWebSocketBuilderNormalizesAcceptedSchemeCase() throws {
+        let tokenURL = try GatewayAPI.websocketURL(
+            baseURL: try XCTUnwrap(URL(string: "HTTPS://fabric.example.test")),
+            token: "uppercase-token"
+        )
+        let ticketURL = try GatewayAPI.websocketURL(
+            baseURL: try XCTUnwrap(URL(string: "HTTP://fabric.example.test")),
+            ticket: "single-use-ticket"
+        )
+
+        XCTAssertEqual(tokenURL.scheme, "wss")
+        XCTAssertEqual(ticketURL.scheme, "ws")
+        XCTAssertEqual(ticketURL.host(), "fabric.example.test")
+    }
+
+    func testRemotePlaintextRejectsReusableTokenButKeepsTicketBuilderContract() throws {
+        let baseURL = try XCTUnwrap(URL(string: "http://fabric.example.test"))
+
+        XCTAssertThrowsError(try GatewayAPI.websocketURL(baseURL: baseURL, token: "reusable-token")) {
+            XCTAssertEqual($0 as? GatewayTokenTransportError, .secureTransportRequired)
+        }
+        let ticketURL = try GatewayAPI.websocketURL(baseURL: baseURL, ticket: "single-use-ticket")
+        XCTAssertEqual(ticketURL.absoluteString, "ws://fabric.example.test/api/ws?ticket=single-use-ticket")
+    }
+
+    func testDeceptive127PrefixCannotCarryTokenOverPlaintextHTTP() {
+        XCTAssertNil(PairingPayload.parse(
+            "fabric://pair?v=1&url=http%3A%2F%2F127.attacker.example%3A9119&auth=token&token=secret"
+        ))
+    }
 }

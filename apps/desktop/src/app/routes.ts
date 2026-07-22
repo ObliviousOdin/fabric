@@ -1,6 +1,7 @@
 export const SESSION_ROUTE_PREFIX = '/'
 export const NEW_CHAT_ROUTE = '/'
 export const SETTINGS_ROUTE = '/settings'
+export const VOICE_SETTINGS_ROUTE = `${SETTINGS_ROUTE}?tab=config:voice`
 export const COMMAND_CENTER_ROUTE = '/command-center'
 export const SKILLS_ROUTE = '/skills'
 export const DESIGN_ROUTE = '/design'

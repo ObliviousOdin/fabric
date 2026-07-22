@@ -112,7 +112,15 @@ import { $terminalTakeover } from './right-sidebar/store'
 import { TerminalPaneChrome } from './right-sidebar/terminal/chrome'
 import { PersistentTerminal } from './right-sidebar/terminal/persistent'
 import { closeActiveTerminal } from './right-sidebar/terminal/terminals'
-import { ARTIFACTS_ROUTE, CRON_ROUTE, NEW_CHAT_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from './routes'
+import {
+  ARTIFACTS_ROUTE,
+  CRON_ROUTE,
+  NEW_CHAT_ROUTE,
+  routeSessionId,
+  sessionRoute,
+  SETTINGS_ROUTE,
+  VOICE_SETTINGS_ROUTE
+} from './routes'
 import { SessionPickerOverlay } from './session-picker-overlay'
 import { SessionSwitcher } from './session-switcher'
 import { useContextSuggestions } from './session/hooks/use-context-suggestions'
@@ -520,7 +528,7 @@ export function DesktopController() {
   }, [navigate])
 
   const openVoiceSettings = useCallback(() => {
-    navigate(`${SETTINGS_ROUTE}?tab=config:voice`)
+    navigate(VOICE_SETTINGS_ROUTE)
   }, [navigate])
 
   const modelMenuContent = useMemo(

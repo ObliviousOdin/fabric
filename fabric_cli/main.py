@@ -12791,6 +12791,23 @@ def _set_chat_arg_defaults(args) -> None:
             setattr(args, attr, default)
 
 
+def _run_top_level_oneshot(args) -> int:
+    """Dispatch either argv-backed or private stdin-backed one-shot mode."""
+    import importlib
+
+    oneshot_module = importlib.import_module("fabric_cli.oneshot")
+
+    kwargs = {
+        "model": getattr(args, "model", None),
+        "provider": getattr(args, "provider", None),
+        "toolsets": getattr(args, "toolsets", None),
+        "usage_file": getattr(args, "usage_file", None),
+    }
+    if getattr(args, "oneshot_stdin", False):
+        return oneshot_module.run_oneshot_from_stdin(**kwargs)
+    return oneshot_module.run_oneshot(args.oneshot, **kwargs)
+
+
 def _try_termux_fast_cli_launch() -> bool:
     """Run obvious Termux non-TUI chat/oneshot/version paths on a light parser."""
     if not _is_termux_startup_environment():
@@ -12810,7 +12827,10 @@ def _try_termux_fast_cli_launch() -> bool:
 
     first = _first_positional_argv()
     has_oneshot = any(
-        arg == "-z" or arg == "--oneshot" or arg.startswith("--oneshot=")
+        arg == "-z"
+        or arg == "--oneshot"
+        or arg.startswith("--oneshot=")
+        or arg == "--oneshot-stdin"
         for arg in argv
     )
     if not has_oneshot and first not in {None, "chat"}:
@@ -12826,19 +12846,9 @@ def _try_termux_fast_cli_launch() -> bool:
         _print_version_info(check_updates=False)
         return True
 
-    if getattr(args, "oneshot", None):
+    if getattr(args, "oneshot", None) or getattr(args, "oneshot_stdin", False):
         _prepare_agent_startup(args)
-        from fabric_cli.oneshot import run_oneshot
-
-        sys.exit(
-            run_oneshot(
-                args.oneshot,
-                model=getattr(args, "model", None),
-                provider=getattr(args, "provider", None),
-                toolsets=getattr(args, "toolsets", None),
-                usage_file=getattr(args, "usage_file", None),
-            )
-        )
+        sys.exit(_run_top_level_oneshot(args))
 
     if (args.resume or args.continue_last) and args.command is None:
         args.command = "chat"
@@ -12889,7 +12899,11 @@ def _try_termux_fast_tui_launch() -> bool:
     args = parser.parse_args(_coalesce_session_name_args(sys.argv[1:]))
 
     # Preserve top-level behaviours whose semantics are not "launch chat/TUI".
-    if getattr(args, "version", False) or getattr(args, "oneshot", None):
+    if (
+        getattr(args, "version", False)
+        or getattr(args, "oneshot", None)
+        or getattr(args, "oneshot_stdin", False)
+    ):
         return False
     if getattr(args, "command", None) not in {None, "chat"}:
         return False
@@ -15028,18 +15042,8 @@ def main():
 
     # Handle top-level --oneshot / -z: single-shot mode, stdout = final
     # response only, nothing else. Bypasses cli.py entirely.
-    if getattr(args, "oneshot", None):
-        from fabric_cli.oneshot import run_oneshot
-
-        sys.exit(
-            run_oneshot(
-                args.oneshot,
-                model=getattr(args, "model", None),
-                provider=getattr(args, "provider", None),
-                toolsets=getattr(args, "toolsets", None),
-                usage_file=getattr(args, "usage_file", None),
-            )
-        )
+    if getattr(args, "oneshot", None) or getattr(args, "oneshot_stdin", False):
+        sys.exit(_run_top_level_oneshot(args))
 
     # Handle top-level --resume / --continue as shortcut to chat
     if (args.resume or args.continue_last) and args.command is None:

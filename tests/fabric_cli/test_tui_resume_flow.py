@@ -383,6 +383,66 @@ def test_termux_fast_cli_launch_oneshot_uses_light_parser(monkeypatch, main_mod)
     }
 
 
+def test_top_level_oneshot_stdin_dispatches_without_prompt_argument(monkeypatch, main_mod):
+    captured = {}
+    args = types.SimpleNamespace(
+        oneshot=None,
+        oneshot_stdin=True,
+        model="gpt-test",
+        provider="openai",
+        toolsets="web",
+        usage_file=None,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "fabric_cli.oneshot",
+        types.SimpleNamespace(
+            run_oneshot=lambda *_args, **_kwargs: pytest.fail(
+                "argv-backed one-shot must not run"
+            ),
+            run_oneshot_from_stdin=lambda **kwargs: captured.update(kwargs) or 23,
+        ),
+    )
+
+    assert main_mod._run_top_level_oneshot(args) == 23
+    assert captured == {
+        "model": "gpt-test",
+        "provider": "openai",
+        "toolsets": "web",
+        "usage_file": None,
+    }
+
+
+def test_oneshot_stdin_is_mutually_exclusive_with_prompt_argument():
+    from fabric_cli._parser import build_top_level_parser
+
+    parser, _, _ = build_top_level_parser()
+
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["-z", "private", "--oneshot-stdin"])
+
+    assert exc.value.code == 2
+
+
+def test_read_oneshot_stdin_accepts_bounded_utf8():
+    import io
+
+    from fabric_cli.oneshot import read_oneshot_stdin
+
+    assert read_oneshot_stdin(io.BytesIO("  ask Fabric ✓\n".encode())) == "ask Fabric ✓"
+
+
+def test_read_oneshot_stdin_rejects_empty_and_oversized_input():
+    import io
+
+    from fabric_cli.oneshot import ONESHOT_STDIN_MAX_BYTES, read_oneshot_stdin
+
+    with pytest.raises(ValueError, match="did not contain a prompt"):
+        read_oneshot_stdin(io.BytesIO(b" \n"))
+    with pytest.raises(ValueError, match="1 MiB"):
+        read_oneshot_stdin(io.BytesIO(b"x" * (ONESHOT_STDIN_MAX_BYTES + 1)))
+
+
 def test_termux_fast_cli_launch_version_skips_update_check(monkeypatch, main_mod):
     captured = []
 

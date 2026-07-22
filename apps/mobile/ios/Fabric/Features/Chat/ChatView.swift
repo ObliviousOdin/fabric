@@ -3028,9 +3028,9 @@ struct PetSpriteView: View {
     }
 
     /// UI state → canonical row name, falling back to `idle` when the mapped
-    /// row is missing from `stateRows` or has no real frames. Rows can be
-    /// ragged, so the animated count comes from `framesByRow`, never from
-    /// `framesPerState`.
+    /// row is missing from `stateRows` or has no declared frames. Rows can be
+    /// ragged, so `framesByRow` chooses a non-idle row when available; the
+    /// bounded `framesPerState` fallback is applied later in `resolvedRow`.
     private var resolvedRowName: String {
         let candidate: String
         switch state {

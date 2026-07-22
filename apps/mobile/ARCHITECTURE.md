@@ -511,6 +511,70 @@ gate, not retrofitted):
 
 ---
 
+## 8. Phone audio and transcription contracts
+
+Phone recording is a **client-owned capture**, not a gateway-host microphone
+capability. A phone may transcribe locally or upload a bounded recording to the
+existing authenticated `/api/audio/transcribe` endpoint, but the gateway never
+advertises that it can open, monitor, or retain the phone microphone. The
+canonical schemas and cross-platform corpus live in
+`apps/mobile/contracts/fabric-voice-v1/`.
+
+Every terminal transcription uses `fabric.transcription` version 1:
+
+```json
+{
+  "schema": "fabric.transcription",
+  "version": 1,
+  "request_id": "capture-018f8ac2",
+  "status": "completed",
+  "text": "Ship the voice note workflow.",
+  "provider": "autowhisper",
+  "language": "en",
+  "duration_ms": 1840,
+  "processing_ms": 412,
+  "model": "distil-small.en",
+  "segments": [
+    {"start_ms": 0, "end_ms": 1840, "text": "Ship the voice note workflow."}
+  ],
+  "warnings": []
+}
+```
+
+`status` is `completed`, `no_speech`, `cancelled`, or `failed`. `no_speech`
+and `cancelled` require empty `text`. `failed` requires empty `text` plus
+`error: {code, message, retryable}`. Timing, provider, language, and model are
+optional; consumers default omitted `segments` and `warnings` to empty arrays
+and ignore additive fields. An explicit future version is **incompatible**, not
+legacy or malformed.
+
+A completed phone capture wraps that result in `fabric.phone_audio` version 1:
+
+```json
+{
+  "contract": "fabric.phone_audio",
+  "version": 1,
+  "capture_id": "018f8ac2-39a1-75e1-bbd9-0fe8ed42ffdd",
+  "mode": "voice_note",
+  "mime_type": "audio/mp4",
+  "duration_ms": 1840,
+  "result": {"schema": "fabric.transcription", "version": 1, "request_id": "capture-018f8ac2", "status": "completed", "text": "Ship it."}
+}
+```
+
+`mode` is `dictate`, `voice_note`, `ask_fabric`, or `chat`. The phone owns
+permission prompts, interruption handling, capture cancellation, temporary
+files, and local-retention choice. The authenticated upload path owns byte and
+duration limits plus temporary-file deletion. Neither contract creates a model
+tool, mutates the conversation prompt, or adds a `voice.*` gateway method.
+
+The backend audio response grows additively: legacy `ok`, `transcript`, and
+`provider` fields remain, while `result` carries the verified v1 object. A
+legacy provider without a structured result is normalized into v1; a provider
+that explicitly advertises an unsupported version fails closed.
+
+---
+
 ## Durable Work stays dark (a release invariant on this branch)
 
 None of the above flips FMB-002 Durable Work on. `supportsDurableWork` returns

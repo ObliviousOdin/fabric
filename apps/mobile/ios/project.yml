@@ -109,6 +109,26 @@ targets:
         buildPhase: resources
       - path: ../contracts/fabric-work-v1/cursor-expired.json
         buildPhase: resources
+      # Shared voice v1 corpus. Phone audio remains a client-owned contract;
+      # these fixtures do not advertise gateway-host microphone methods.
+      - path: ../contracts/fabric-voice-v1/voice-manifest.json
+        buildPhase: resources
+      - path: ../contracts/fabric-voice-v1/transcription-completed.json
+        buildPhase: resources
+      - path: ../contracts/fabric-voice-v1/transcription-failed.json
+        buildPhase: resources
+      - path: ../contracts/fabric-voice-v1/transcription-additive-future.json
+        buildPhase: resources
+      - path: ../contracts/fabric-voice-v1/transcription-incompatible.json
+        buildPhase: resources
+      - path: ../contracts/fabric-voice-v1/transcription-malformed.json
+        buildPhase: resources
+      - path: ../contracts/fabric-voice-v1/phone-audio-voice-note.json
+        buildPhase: resources
+      - path: ../contracts/fabric-voice-v1/phone-audio-chat.json
+        buildPhase: resources
+      - path: ../contracts/fabric-voice-v1/phone-audio-malformed.json
+        buildPhase: resources
     dependencies:
       - target: Fabric
     settings:

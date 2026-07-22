@@ -1,3 +1,5 @@
+import type { TranscriptionResultV1 } from '@fabric/shared'
+
 export interface ConfigFieldSchema {
   category?: string
   description?: string
@@ -13,6 +15,7 @@ export interface ConfigSchemaResponse {
 export interface AudioTranscriptionResponse {
   ok: boolean
   provider?: string
+  result?: TranscriptionResultV1
   transcript: string
 }
 

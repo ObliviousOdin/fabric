@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fabric.local/contracts/fabric-phone-audio-v1.schema.json",
+  "title": "Fabric phone audio v1",
+  "type": "object",
+  "required": [
+    "contract",
+    "version",
+    "capture_id",
+    "mode",
+    "mime_type",
+    "duration_ms",
+    "result"
+  ],
+  "properties": {
+    "contract": { "const": "fabric.phone_audio" },
+    "version": { "const": 1 },
+    "capture_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "mode": { "enum": ["dictate", "voice_note", "ask_fabric", "chat"] },
+    "mime_type": {
+      "type": "string",
+      "pattern": "^(audio/[a-z0-9][a-z0-9.+-]*(;[a-z0-9][a-z0-9_-]*=[a-z0-9][a-z0-9.,_+-]*)*|video/webm)(?![\\s\\S])",
+      "maxLength": 128
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3600000
+    },
+    "result": {
+      "$ref": "https://fabric.local/contracts/fabric-transcription-v1.schema.json"
+    }
+  },
+  "additionalProperties": true
+}

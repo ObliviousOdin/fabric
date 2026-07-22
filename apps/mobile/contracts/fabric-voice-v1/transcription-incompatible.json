@@ -1,0 +1,7 @@
+{
+  "schema": "fabric.transcription",
+  "version": 2,
+  "request_id": "capture-v2-1",
+  "status": "completed",
+  "text": "A v1 client must reject this result."
+}

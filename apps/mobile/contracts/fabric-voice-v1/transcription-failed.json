@@ -1,0 +1,15 @@
+{
+  "schema": "fabric.transcription",
+  "version": 1,
+  "request_id": "capture-failed-1",
+  "status": "failed",
+  "text": "",
+  "provider": "autowhisper",
+  "segments": [],
+  "warnings": [],
+  "error": {
+    "code": "invalid_audio",
+    "message": "The recording could not be decoded.",
+    "retryable": false
+  }
+}

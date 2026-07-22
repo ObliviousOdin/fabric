@@ -1,5 +1,8 @@
 """Behavioral contract for mobile gateway capability negotiation."""
 
+import json
+from pathlib import Path
+
 from fabric_cli import __release_date__, __version__
 from tui_gateway import server
 from tui_gateway.gateway_capabilities import (
@@ -192,3 +195,32 @@ def test_optional_features_are_derived_from_required_method_relationships() -> N
 
 def test_live_server_registry_advertises_pets() -> None:
     assert _build(server._methods)["features"]["pets"] is True
+
+
+def test_compiled_families_match_the_canonical_feature_registry() -> None:
+    """The gateway's compiled feature method sets must match the shared
+    ``gateway-feature-registry-v1.json`` that every mobile platform (TS, Swift,
+    Kotlin) asserts parity against, so the fail-closed subset check can never
+    fragment between the gateway and its clients. The server implements a subset
+    of the registry's optional families; every family it *does* define must
+    carry the canonical method set exactly.
+    """
+    registry_path = (
+        Path(__file__).resolve().parents[2]
+        / "apps"
+        / "mobile"
+        / "contracts"
+        / "gateway-feature-registry-v1.json"
+    )
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+
+    assert registry["contract"]["name"] == "fabric.gateway"
+    assert registry["contract"]["version"] == GATEWAY_CONTRACT_VERSION
+
+    baseline = {name: set(methods) for name, methods in registry["baseline_features"].items()}
+    assert baseline == {name: set(methods) for name, methods in FEATURE_METHODS.items()}
+
+    optional = {name: set(methods) for name, methods in registry["optional_features"].items()}
+    for family, methods in OPTIONAL_FEATURE_METHODS.items():
+        assert family in optional, f"{family} missing from the canonical registry"
+        assert optional[family] == set(methods), family

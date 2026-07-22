@@ -126,17 +126,23 @@ jobs:
     steps:
       - run: python3 scripts/ci/validate_release_run.py
   validate-production-source:
+    permissions:
+      actions: read
+      contents: read
     steps:
       - run: python3 scripts/ci/release_candidate.py
+      - run: python3 scripts/ci/desktop_release_assets.py preflight
   promote-production:
     if: github.event_name == 'workflow_dispatch' && inputs.channel == 'production'
     needs: validate-production-source
     permissions:
+      actions: write
       contents: write
     environment:
       name: production
     steps:
       - run: python3 scripts/ci/publish_release.py
+      - run: gh workflow run desktop-release.yml
 """
 
     def test_clean_public_snapshot_passes(self) -> None:
@@ -828,6 +834,73 @@ jobs:
         )
 
         self.assertIn("workflow-brand-gate", {issue.rule for issue in self._issues()})
+
+    def test_signing_secrets_allowed_only_in_desktop_release(self) -> None:
+        text = "steps:\n  - env:\n      CSC_LINK: ${{ secrets.CSC_LINK }}\n"
+
+        self.assertEqual(
+            [
+                issue
+                for issue in self._workflow_safety(
+                    ".github/workflows/desktop-release.yml", text
+                )
+                if issue.rule == "workflow-surface"
+            ],
+            [],
+        )
+        elsewhere = self._workflow_safety(".github/workflows/mobile.yml", text)
+        self.assertTrue(
+            any("secrets.CSC_LINK" in issue.message for issue in elsewhere)
+        )
+
+    def test_unlisted_secret_is_banned_even_in_desktop_release(self) -> None:
+        text = "steps:\n  - env:\n      X: ${{ secrets.EVIL_TOKEN }}\n"
+
+        issues = self._workflow_safety(
+            ".github/workflows/desktop-release.yml", text
+        )
+
+        self.assertTrue(
+            any("secrets.EVIL_TOKEN" in issue.message for issue in issues)
+        )
+
+    def test_signing_environment_is_confined_to_desktop_release(self) -> None:
+        text = "jobs:\n  x:\n    environment:\n      name: desktop-signing\n"
+
+        confined = self._workflow_safety(".github/workflows/mobile.yml", text)
+        self.assertTrue(
+            any(
+                "desktop-signing environment is confined" in issue.message
+                for issue in confined
+            )
+        )
+        allowed = self._workflow_safety(
+            ".github/workflows/desktop-release.yml", text
+        )
+        self.assertFalse(any("confined" in issue.message for issue in allowed))
+
+    def test_desktop_release_may_write_repository_contents(self) -> None:
+        text = "jobs:\n  attach:\n    permissions:\n      contents: write\n"
+
+        issues = self._workflow_safety(
+            ".github/workflows/desktop-release.yml", text
+        )
+
+        self.assertFalse(any(issue.rule == "workflow-surface" for issue in issues))
+
+    def test_release_channels_may_request_actions_write(self) -> None:
+        text = "jobs:\n  promote:\n    permissions:\n      actions: write\n"
+
+        issues = self._workflow_safety(
+            ".github/workflows/release-channels.yml", text
+        )
+
+        self.assertFalse(
+            any(
+                issue.rule == "workflow-surface" and "actions" in issue.message
+                for issue in issues
+            )
+        )
 
     def test_rejects_private_planning_directories(self) -> None:
         plan = self.root / f".{FORMER_LOWER}/plans/internal.md"

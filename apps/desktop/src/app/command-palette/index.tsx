@@ -28,6 +28,7 @@ import {
   KeyRound,
   Layers3,
   MessageCircle,
+  Mic,
   Monitor,
   Moon,
   Package,
@@ -75,7 +76,8 @@ import {
   sessionRoute,
   SETTINGS_ROUTE,
   SKILLS_ROUTE,
-  STARMAP_ROUTE
+  STARMAP_ROUTE,
+  VOICE_NOTES_ROUTE
 } from '../routes'
 import { FIELD_LABELS, SECTIONS } from '../settings/constants'
 import { fieldCopyForSchemaKey } from '../settings/field-copy'
@@ -431,6 +433,13 @@ export function CommandPalette() {
             keywords: ['skills', 'tools', 'toolsets', 'mcp', 'capabilities'],
             label: cc.nav.skills.title,
             run: go(SKILLS_ROUTE)
+          },
+          {
+            icon: Mic,
+            id: 'nav-voice-notes',
+            keywords: ['voice', 'record', 'transcribe', 'dictation', 'notes'],
+            label: t.voiceNotes.title,
+            run: go(VOICE_NOTES_ROUTE)
           },
           {
             icon: Palette,

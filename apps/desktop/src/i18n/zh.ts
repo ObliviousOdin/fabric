@@ -1745,6 +1745,7 @@ export const zh: Translations = {
     nav: {
       'new-session': '新建会话',
       skills: '技能与工具',
+      'voice-notes': '语音笔记',
       messaging: '消息平台',
       artifacts: '产物',
       design: '设计'
@@ -2676,6 +2677,37 @@ export const zh: Translations = {
     secretTitle: '需要密钥',
     secretDesc: 'Fabric 需要一个凭据才能继续。',
     secretPlaceholder: '密钥值'
+  },
+
+  voiceNotes: {
+    title: '语音笔记',
+    subtitle: '记录想法、检查转写内容，再让 Fabric 整理成实用笔记，同时保留你的原话。',
+    setupTitle: '语音转文字已关闭',
+    setupDescription: '录制语音笔记前，请选择并启用一个转写提供方。',
+    configure: '配置语音转文字',
+    readyTitle: '准备好了',
+    readyDescription: seconds =>
+      `最多可录制 ${Math.max(1, Math.floor(seconds / 60))} 分钟，发送给 Fabric 前可检查每一句话。`,
+    startRecording: '开始录音',
+    recording: '正在使用麦克风录音',
+    stopRecording: '停止并转写',
+    transcribing: '正在转写…',
+    transcribingDescription: 'Fabric 正在使用你配置的语音转文字提供方。',
+    reviewTitle: '检查转写内容',
+    reviewDescription: '在 Fabric 整理笔记前，可修正姓名或措辞。',
+    transcriptLabel: '转写内容',
+    transcriptPlaceholder: '转写内容会显示在这里。',
+    createNote: '使用 Fabric 创建笔记',
+    creating: '正在打开 Fabric…',
+    retryTranscription: '重新转写',
+    recordAgain: '重新录音',
+    saveRecording: '保存录音',
+    discard: '丢弃',
+    outputTitle: 'Fabric 将创建',
+    outputDescription: '在新会话中创建一份简洁的 Markdown 笔记，内容仅基于你检查过的转写。',
+    outputSections: ['摘要', '决定', '任务', '后续事项', '原始转写'],
+    privacyTitle: '音频仅临时保留',
+    privacyDescription: 'Fabric 会将录音发送给你配置的转写提供方，但不会在本地保存副本。离开页面时会丢弃，除非你选择“保存录音”。'
   },
 
   desktop: {

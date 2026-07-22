@@ -4,6 +4,7 @@ export const SETTINGS_ROUTE = '/settings'
 export const COMMAND_CENTER_ROUTE = '/command-center'
 export const SKILLS_ROUTE = '/skills'
 export const DESIGN_ROUTE = '/design'
+export const VOICE_NOTES_ROUTE = '/voice-notes'
 export const MESSAGING_ROUTE = '/messaging'
 export const ARTIFACTS_ROUTE = '/artifacts'
 export const CRON_ROUTE = '/cron'
@@ -23,6 +24,7 @@ export type AppView =
   | 'settings'
   | 'skills'
   | 'starmap'
+  | 'voice-notes'
 
 export type AppRouteId =
   | 'agents'
@@ -36,6 +38,7 @@ export type AppRouteId =
   | 'settings'
   | 'skills'
   | 'starmap'
+  | 'voice-notes'
 
 export interface AppRoute {
   id: AppRouteId
@@ -49,6 +52,7 @@ export const APP_ROUTES = [
   { id: 'command-center', path: COMMAND_CENTER_ROUTE, view: 'command-center' },
   { id: 'skills', path: SKILLS_ROUTE, view: 'skills' },
   { id: 'design', path: DESIGN_ROUTE, view: 'design' },
+  { id: 'voice-notes', path: VOICE_NOTES_ROUTE, view: 'voice-notes' },
   { id: 'messaging', path: MESSAGING_ROUTE, view: 'messaging' },
   { id: 'artifacts', path: ARTIFACTS_ROUTE, view: 'artifacts' },
   { id: 'cron', path: CRON_ROUTE, view: 'cron' },

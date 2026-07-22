@@ -2098,6 +2098,36 @@ export interface Translations {
     secretPlaceholder: string
   }
 
+  voiceNotes: {
+    title: string
+    subtitle: string
+    setupTitle: string
+    setupDescription: string
+    configure: string
+    readyTitle: string
+    readyDescription: (seconds: number) => string
+    startRecording: string
+    recording: string
+    stopRecording: string
+    transcribing: string
+    transcribingDescription: string
+    reviewTitle: string
+    reviewDescription: string
+    transcriptLabel: string
+    transcriptPlaceholder: string
+    createNote: string
+    creating: string
+    retryTranscription: string
+    recordAgain: string
+    saveRecording: string
+    discard: string
+    outputTitle: string
+    outputDescription: string
+    outputSections: string[]
+    privacyTitle: string
+    privacyDescription: string
+  }
+
   desktop: {
     audioReadFailed: string
     sessionUnavailable: string

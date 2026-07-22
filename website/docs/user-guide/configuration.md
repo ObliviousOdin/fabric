@@ -755,7 +755,7 @@ compression:
 # The summarization model/provider is configured under auxiliary:
 auxiliary:
   compression:
-    model: ""                                       # Empty = same-provider fast auxiliary model when declared, else main model. Override with e.g. "google/gemini-3-flash-preview".
+    model: ""                                       # Empty = known compatible same-provider fast compression model when threshold-safe, else main model. Override with e.g. "google/gemini-3-flash-preview".
     provider: "auto"                                # Stays on the main provider by default; explicit provider overrides are supported.
     base_url: null                                  # Custom OpenAI-compatible endpoint (overrides provider)
     timeout: 300                                    # Default seconds; configured finite positive values are honored exactly
@@ -781,7 +781,7 @@ compression:
   enabled: true
   threshold: 0.50
 ```
-Uses your main provider. When that provider declares a fast auxiliary model, compression selects it automatically while staying on the same backend (for example, OpenAI Codex uses `gpt-5.4-mini` instead of a reasoning-heavy main model). Otherwise it keeps the main model. Override `auxiliary.compression.provider` and `model` to choose a different route explicitly.
+Uses your main provider. When Fabric has a compression-specific fast model for that provider and its known context window can fit the live compression threshold, it selects that model while staying on the same backend (for example, OpenAI Codex can use `gpt-5.4-mini` instead of a reasoning-heavy main model). Generic cheap auxiliary defaults are not used for compression. If compatibility or threshold fit is unknown, Fabric keeps the main model. Override `auxiliary.compression.provider` and `model` to choose a different route explicitly.
 
 **Force a specific provider** (OAuth or API-key based):
 ```yaml

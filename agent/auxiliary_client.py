@@ -833,22 +833,20 @@ _API_KEY_PROVIDER_AUX_MODELS_FALLBACK: Dict[str, str] = {
 _API_KEY_PROVIDER_AUX_MODELS: Dict[str, str] = _API_KEY_PROVIDER_AUX_MODELS_FALLBACK
 
 # Compression is latency-sensitive and can run in the foreground on a very
-# large prompt. Prefer a same-provider fast model when one is known, without
-# silently sending the conversation to a different provider. OAuth providers
-# do not all advertise ``ProviderProfile.default_aux_model`` because their live
-# catalogues drift, so keep the small fallback explicit and task-scoped.
+# large prompt. Generic ``ProviderProfile.default_aux_model`` values are NOT
+# used here: those cheap side-task models may have a smaller context window than
+# the main conversation. Every entry in this task-specific map must have a
+# known context window and is screened against the live compression threshold
+# before use.
 _COMPRESSION_FAST_MODEL_FALLBACK: Dict[str, str] = {
     "openai-codex": "gpt-5.4-mini",
 }
 
 
 def _get_default_compression_model(provider_id: str) -> str:
-    """Return a same-provider fast model for automatic compression."""
+    """Return a declared same-provider fast model for automatic compression."""
     normalized = _normalize_aux_provider(provider_id)
-    return (
-        _get_aux_model_for_provider(normalized)
-        or _COMPRESSION_FAST_MODEL_FALLBACK.get(normalized, "")
-    )
+    return _COMPRESSION_FAST_MODEL_FALLBACK.get(normalized, "")
 
 
 # Vision-specific model overrides for direct providers.
@@ -3063,7 +3061,15 @@ _AUTO_PROVIDER_LABELS = {
     "_resolve_api_key_provider": "api-key",
 }
 
-_MAIN_RUNTIME_FIELDS = ("provider", "model", "base_url", "api_key", "api_mode", "auth_mode")
+_MAIN_RUNTIME_FIELDS = (
+    "provider",
+    "model",
+    "base_url",
+    "api_key",
+    "api_mode",
+    "auth_mode",
+    "compression_threshold_tokens",
+)
 
 
 def _normalize_main_runtime(main_runtime: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -3083,6 +3089,14 @@ def _normalize_main_runtime(main_runtime: Optional[Dict[str, Any]]) -> Dict[str,
         # Preserve a callable api_key (Entra ID bearer provider) unchanged.
         if field == "api_key" and callable(value) and not isinstance(value, str):
             normalized[field] = value
+            continue
+        if field == "compression_threshold_tokens":
+            try:
+                threshold_tokens = int(value or 0)
+            except (TypeError, ValueError, OverflowError):
+                threshold_tokens = 0
+            if threshold_tokens > 0:
+                normalized[field] = threshold_tokens
             continue
         if isinstance(value, str) and value.strip():
             normalized[field] = value.strip()
@@ -5100,14 +5114,48 @@ def _resolve_auto(
     if task == "compression" and main_provider and main_model:
         fast_compression_model = _get_default_compression_model(main_provider)
         if fast_compression_model and fast_compression_model != main_model:
-            logger.info(
-                "Auxiliary compression auto-route: using same-provider fast "
-                "model %s instead of main model %s (%s)",
-                fast_compression_model,
-                main_model,
-                main_provider,
+            raw_threshold = (
+                main_runtime.get("compression_threshold_tokens")
+                if isinstance(main_runtime, dict)
+                else None
             )
-            main_model = fast_compression_model
+            try:
+                required_context = int(raw_threshold or 0)
+            except (TypeError, ValueError, OverflowError):
+                required_context = 0
+            fast_context = _candidate_context_window(
+                main_provider,
+                fast_compression_model,
+                base_url=runtime_base_url,
+                allow_network=False,
+            )
+            if (
+                required_context > 0
+                and fast_context is not None
+                and fast_context >= required_context
+            ):
+                logger.info(
+                    "Auxiliary compression auto-route: using same-provider fast "
+                    "model %s instead of main model %s (%s; context=%d >= "
+                    "threshold=%d)",
+                    fast_compression_model,
+                    main_model,
+                    main_provider,
+                    fast_context,
+                    required_context,
+                )
+                main_model = fast_compression_model
+            else:
+                logger.info(
+                    "Auxiliary compression auto-route: keeping main model %s "
+                    "(%s); fast candidate %s is not proven to fit threshold=%s "
+                    "(context=%s)",
+                    main_model,
+                    main_provider,
+                    fast_compression_model,
+                    required_context or "unknown",
+                    fast_context or "unknown",
+                )
 
     if (main_provider and main_model
             and main_provider not in {"auto", ""}):
@@ -7546,6 +7594,31 @@ def _convert_openai_images_to_anthropic(messages: list) -> list:
 
 
 
+def _is_nvidia_nim_route(provider: str, base_url: Optional[str]) -> bool:
+    """Return whether an auxiliary route uses NVIDIA's NIM wire behavior."""
+    provider_norm = str(provider or "").strip().lower()
+    return (
+        provider_norm
+        in {"nvidia", "nvidia-nim", "nim", "build-nvidia", "nemotron"}
+        or base_url_host_matches(str(base_url or ""), "integrate.api.nvidia.com")
+    )
+
+
+def _nvidia_nim_default_max_tokens(model: str) -> int:
+    """Return NVIDIA's provider-profile cap for NIM calls that omit one."""
+    try:
+        from providers import get_provider_profile
+
+        profile = get_provider_profile("nvidia")
+        if profile is not None:
+            configured = profile.get_max_tokens(model)
+            if isinstance(configured, int) and configured > 0:
+                return configured
+    except Exception:
+        logger.debug("Could not resolve NVIDIA NIM output cap", exc_info=True)
+    return 16384
+
+
 def _build_call_kwargs(
     provider: str,
     model: str,
@@ -7582,7 +7655,18 @@ def _build_call_kwargs(
     if temperature is not None:
         kwargs["temperature"] = temperature
 
-    if max_tokens is not None:
+    _effective_base = base_url or (
+        _current_custom_base_url() if provider == "custom" else ""
+    )
+    _is_nvidia_nim = _is_nvidia_nim_route(provider, _effective_base)
+    effective_max_tokens = max_tokens
+    if effective_max_tokens is None and _is_nvidia_nim:
+        # NIM can return HTTP 200 with an empty choices[] payload when the cap
+        # is omitted. Use the provider profile's normal wire cap rather than
+        # forcing every compression transport to accept a reasoning-unsafe cap.
+        effective_max_tokens = _nvidia_nim_default_max_tokens(model)
+
+    if effective_max_tokens is not None:
         # We do NOT cap output by default. Most chat-completions providers treat
         # an omitted max_tokens as "use the model's max output", which is what we
         # want for auxiliary tasks (compression summaries, titles, vision, etc.) —
@@ -7602,19 +7686,11 @@ def _build_call_kwargs(
         # 200 with an empty choices[] payload when max_tokens is omitted. The main
         # NVIDIA chat path already sends an output cap via the provider profile;
         # preserve it on the auxiliary path too.
-        _effective_base = base_url or (
-            _current_custom_base_url() if provider == "custom" else ""
-        )
-        _provider_norm = str(provider or "").strip().lower()
-        _is_nvidia_nim = (
-            _provider_norm in {"nvidia", "nvidia-nim", "nim", "build-nvidia", "nemotron"}
-            or base_url_host_matches(_effective_base, "integrate.api.nvidia.com")
-        )
         if (
             _is_anthropic_compat_endpoint(provider, _effective_base)
             or _is_nvidia_nim
         ):
-            kwargs["max_tokens"] = max_tokens
+            kwargs["max_tokens"] = effective_max_tokens
 
     if tools:
         # Defensive dedup: providers like Google Vertex, Azure, and Bedrock

@@ -4,11 +4,16 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from agent.auxiliary_client import (
+    _client_cache_key,
     _resolve_auto,
     call_llm,
     resolve_provider_client,
 )
-from agent.context_compressor import ContextCompressor, SUMMARY_PREFIX
+from agent.context_compressor import (
+    HISTORICAL_TASK_HEADING,
+    ContextCompressor,
+    SUMMARY_PREFIX,
+)
 from agent.model_metadata import get_model_context_length
 
 
@@ -34,6 +39,7 @@ def test_auto_compression_uses_same_provider_fast_model():
                 "base_url": "https://chatgpt.com/backend-api/codex",
                 "api_key": "oauth-placeholder",
                 "api_mode": "codex_responses",
+                "compression_threshold_tokens": int(272_000 * 0.85),
             },
             task="compression",
             policy=_online_policy(),
@@ -51,8 +57,97 @@ def test_auto_compression_uses_same_provider_fast_model():
 
 def test_automatic_fast_model_can_fit_the_configured_compression_threshold():
     configured_context = 272_000
-    configured_threshold = int(configured_context * 0.75)
+    configured_threshold = int(configured_context * 0.85)
     assert get_model_context_length("gpt-5.4-mini") >= configured_threshold
+
+
+def test_auto_compression_keeps_main_model_when_fast_context_is_too_small():
+    client = MagicMock()
+    with (
+        patch(
+            "agent.auxiliary_client._candidate_context_window",
+            return_value=128_000,
+        ),
+        patch(
+            "agent.auxiliary_client.resolve_provider_client",
+            return_value=(client, "gpt-5.6-sol"),
+        ) as resolve,
+    ):
+        _, resolved_model = _resolve_auto(
+            main_runtime={
+                "provider": "openai-codex",
+                "model": "gpt-5.6-sol",
+                "compression_threshold_tokens": 231_200,
+            },
+            task="compression",
+            policy=_online_policy(),
+            route_config={},
+        )
+
+    assert resolved_model == "gpt-5.6-sol"
+    assert resolve.call_args.args[:2] == ("openai-codex", "gpt-5.6-sol")
+
+
+def test_auto_compression_keeps_main_model_without_live_threshold():
+    client = MagicMock()
+    with patch(
+        "agent.auxiliary_client.resolve_provider_client",
+        return_value=(client, "gpt-5.6-sol"),
+    ) as resolve:
+        _, resolved_model = _resolve_auto(
+            main_runtime={
+                "provider": "openai-codex",
+                "model": "gpt-5.6-sol",
+            },
+            task="compression",
+            policy=_online_policy(),
+            route_config={},
+        )
+
+    assert resolved_model == "gpt-5.6-sol"
+    assert resolve.call_args.args[:2] == ("openai-codex", "gpt-5.6-sol")
+
+
+def test_compression_threshold_participates_in_auto_client_cache_key():
+    common = {
+        "provider": "openai-codex",
+        "model": "gpt-5.6-sol",
+    }
+    lower = _client_cache_key(
+        "auto",
+        async_mode=False,
+        main_runtime={**common, "compression_threshold_tokens": 200_000},
+        task="compression",
+    )
+    higher = _client_cache_key(
+        "auto",
+        async_mode=False,
+        main_runtime={**common, "compression_threshold_tokens": 260_000},
+        task="compression",
+    )
+
+    assert lower != higher
+
+
+def test_auto_compression_does_not_reuse_generic_auxiliary_default():
+    client = MagicMock()
+    with patch(
+        "agent.auxiliary_client.resolve_provider_client",
+        return_value=(client, "claude-opus-4-8"),
+    ) as resolve:
+        _, resolved_model = _resolve_auto(
+            main_runtime={
+                "provider": "anthropic",
+                "model": "claude-opus-4-8",
+                "compression_threshold_tokens": 850_000,
+            },
+            task="compression",
+            policy=_online_policy(),
+            route_config={},
+        )
+
+    assert resolved_model == "claude-opus-4-8"
+    assert resolve.call_args.args[:2] == ("anthropic", "claude-opus-4-8")
 
 
 def test_non_compression_auto_task_keeps_main_model():
@@ -148,7 +243,7 @@ def test_generated_summary_is_bounded_after_reasoning_completes():
     oversized = (
         "## Goal\nPreserve continuity.\n\n"
         + ("x" * 5_000)
-        + "\n\n## Active Task\nACTIVE_TASK_MUST_SURVIVE\n"
+        + f"\n\n{HISTORICAL_TASK_HEADING}\nHISTORICAL_TASK_MUST_SURVIVE\n"
         + ("y" * 5_000)
         + "\n\n## Critical Context\nCRITICAL_CONTEXT_MUST_SURVIVE\n"
         + ("z" * 5_000)
@@ -169,27 +264,31 @@ def test_generated_summary_is_bounded_after_reasoning_completes():
     assert summary.startswith(SUMMARY_PREFIX)
     retained = compressor._strip_summary_prefix(summary)
     assert len(retained.encode("utf-8")) <= expected_budget * 4
-    assert "## Active Task" in retained
-    assert "ACTIVE_TASK_MUST_SURVIVE" in retained
+    assert HISTORICAL_TASK_HEADING in retained
+    assert "HISTORICAL_TASK_MUST_SURVIVE" in retained
     assert "## Critical Context" in retained
     assert "CRITICAL_CONTEXT_MUST_SURVIVE" in retained
     assert retained.endswith("[Summary truncated to compression output budget.]")
     assert compressor._previous_summary == retained
     assert call.call_args.kwargs["task"] == "compression"
+    assert (
+        call.call_args.kwargs["main_runtime"]["compression_threshold_tokens"]
+        == compressor.threshold_tokens
+    )
     # A provider-side cap can be spent on hidden reasoning before any useful
     # handoff is emitted; the completed text is bounded locally instead.
     assert "max_tokens" not in call.call_args.kwargs
 
 
 def test_summary_output_policy_leaves_under_budget_text_byte_identical():
-    summary = "## Active Task\nKeep this unchanged — 完全保留."
+    summary = f"{HISTORICAL_TASK_HEADING}\nKeep this unchanged — 完全保留."
     assert ContextCompressor._cap_summary_output(summary, 100) == summary
 
 
 def test_summary_output_policy_is_utf8_byte_bounded():
     summary = (
         "开" * 2_000
-        + "\n\n## Active Task\n保留当前任务"
+        + f"\n\n{HISTORICAL_TASK_HEADING}\n保留当前任务"
         + "界" * 2_000
         + "\n\n## Critical Context\n保留关键上下文"
         + "终" * 2_000
@@ -197,6 +296,6 @@ def test_summary_output_policy_is_utf8_byte_bounded():
     bounded = ContextCompressor._cap_summary_output(summary, 1_024)
 
     assert len(bounded.encode("utf-8")) <= 4_096
-    assert "## Active Task" in bounded
+    assert HISTORICAL_TASK_HEADING in bounded
     assert "## Critical Context" in bounded
     assert bounded.endswith("[Summary truncated to compression output budget.]")

@@ -1544,7 +1544,7 @@ class ContextCompressor(ContextEngine):
         Provider-side ``max_tokens`` is deliberately unsafe for compression:
         reasoning models can spend the cap before emitting a complete handoff.
         Bound the completed response instead. On overflow, retain head/tail
-        context plus the load-bearing ``Active Task`` and ``Critical Context``
+        context plus the load-bearing historical task and ``Critical Context``
         sections rather than blindly slicing a prefix.
         """
         max_bytes = max(1, int(summary_budget or 1)) * 4
@@ -1576,7 +1576,10 @@ class ContextCompressor(ContextEngine):
         mandatory_sections: List[str] = []
         for index, match in enumerate(section_matches):
             heading = match.group(0).strip().lower()
-            if heading not in {"## active task", "## critical context"}:
+            if heading not in {
+                HISTORICAL_TASK_HEADING.lower(),
+                "## critical context",
+            }:
                 continue
             end = (
                 section_matches[index + 1].start()
@@ -2082,7 +2085,7 @@ PREVIOUS SUMMARY:
 NEW TURNS TO INCORPORATE:
 {content_to_summarize}
 
-Update the summary using this exact structure. PRESERVE all existing information that is still relevant. ADD new completed actions to the numbered list (continue numbering). Move items from "In Progress" to "Completed Actions" when done. Move answered questions to "Resolved Questions". Update "Active State" to reflect current state. Remove information only if it is clearly obsolete. CRITICAL: Update "## Active Task" to reflect the user's most recent unfulfilled input — this includes any question, decision request, or discussion turn that the assistant has not yet answered. Only write "None" if the last exchange was fully resolved.
+Update the summary using this exact structure. PRESERVE all existing information that is still relevant. ADD new completed actions to the numbered list (continue numbering). Move items from "In Progress" to "Completed Actions" when done. Move answered questions to "Resolved Questions". Update "Active State" to reflect current state. Remove information only if it is clearly obsolete. CRITICAL: Update "{HISTORICAL_TASK_HEADING}" to reflect the user's most recent unfulfilled input — this includes any question, decision request, or discussion turn that the assistant has not yet answered. Only write "None" if the last exchange was fully resolved.
 
 {_template_sections}"""
         else:
@@ -2115,6 +2118,11 @@ This compaction should PRIORITISE preserving all information related to the focu
                     "base_url": self.base_url,
                     "api_key": self.api_key,
                     "api_mode": self.api_mode,
+                    # Automatic fast-model routing is only safe when its
+                    # context window can fit this session's actual compression
+                    # threshold. Keep this runtime-only value beside the exact
+                    # provider/model route used for the summary request.
+                    "compression_threshold_tokens": self.threshold_tokens,
                 },
                 "messages": [{"role": "user", "content": prompt}],
                 # NO provider-side max_tokens: thinking models can spend the

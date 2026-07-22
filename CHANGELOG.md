@@ -6,6 +6,11 @@ All notable changes to Fabric are documented in this file.
 
 ### Added
 
+- Fabric Mobile (iOS) grew from a remote text client toward a robust native product: rich assistant-transcript rendering, a searchable pinned session library, reliable remote controls, a lifecycle-safe Live View, and streaming scroll preservation that holds position as tokens arrive.
+- Loop 0 of the mobile upgrade plan landed the shared capability-manifest governance layer and cross-platform wire contracts (a TypeScript reference plus Swift and Kotlin ports) for future device-node families — device node, node invocation, trust center, connected nodes, push, and session admin — all additive-optional and gated behind the durable-Work fail-closed precedent, so nothing activates until a gateway advertises it.
+- A hidden durable-Work inbox model is present but dark: it stays out of the mobile surfaces until its full gateway contract is reviewed and enabled.
+- Loom, a Fabric-native deployment plane, with a Phase 0 CI cost cut that trims spend on pull requests.
+- Multi-agent collaboration guardrails (`AGENT_GUARDRAILS.md`): ownership zones per surface, branch/worktree isolation, the no-self-merge merge gate, and the "green PR ≠ green `main`" cost-gate trap — plus canonical commit-identity enforcement (repository identity only, no AI-tool attribution) applied fail-closed across local git hooks and CI, bootstrapped by `scripts/setup-git-guardrails.sh`.
 - Added a conversation-first iOS home based on the approved mobile direction: a canonical Fabric header, one obvious outcome composer, a solid-purple Start goal action, one prioritized live conversation, and a two-row recent briefing with working resume, see-all, new-chat, and server controls. The production surface truthfully uses the advertised session contract; the unadvertised Durable Work projection remains out of the home until its complete gateway contract is reviewed and enabled.
 - Added exact iOS release provenance: release project generation now requires a clean tracked checkout, derives the Git commit itself, embeds it as `FabricSourceRevision`, and records the packaged revision beside the merged SHA in the TestFlight ledger.
 - Added a fail-closed native iOS goal portfolio that projects verified durable Work Jobs and Attention into mutually exclusive needs-attention, active, outcome, and unsupported sections shared by the upcoming conversation-first, mission-control, and Dispatch surfaces; future Job kinds/statuses remain visible but non-actionable, linked open Attention is never hidden by a terminal or unsupported Job, and result/error bodies stay behind explicit detail fetches.
@@ -23,8 +28,17 @@ All notable changes to Fabric are documented in this file.
 - Extended the Skills Ecosystem Directory and curated taps with the agent-skills atlas research pass: 89 newly tree-verified sources (312 total in the directory) and 134 additional tap entries across 83 repos — first-party packs from AWS, .NET, Flutter, Databricks, Cypress, Flux, GitGuardian, LambdaTest, AllenAI, AntV, and LottieFiles, plus practitioner packs from Addy Osmani (also a runtime hub tap), Anton Babenko, Dean Peters, and others.
 - The Skills Hub now opens on a Recommended view instead of the full grid: ten curated "works well together" stacks (Zero to One, Karpathy-Style Discipline, Design Studio, Launch a Website, Ship a SaaS, Ship an iOS App, Hardware & D2C, Win the Client, Compound Engineering, Superpowers Method) plus hand-picked featured skills including the community `karpathy-guidelines` pack. Stack chips are color-coded by source, community members not yet crawled render as install chips, expanded skill cards show "works well with" companions from skill metadata, and the curated data ships at `/api/skill-stacks.json` with build-time validation against the catalog.
 
+### Changed
+
+- Contributor docs de-duplicated: the skill-authoring "HARDLINE" standards are now maintained in one canonical place (`CONTRIBUTING.md`), with `AGENTS.md` linking to it instead of keeping a second copy that had already drifted. A new "Find your path" read-router in `CONTRIBUTING.md` points contributors to the sections that matter for their change rather than requiring the whole doc set end-to-end.
+
 ### Fixed
 
+- Context compression now hot-applies `compression.threshold` to the live compressor instead of waiting for a restart, and calibrates context pressure using real provider token usage.
+- Durable-Work replay receipts are now truthful, with the durable-Work contract proven by tests.
+- QR pairing intake on iOS is hardened against malformed and hostile payloads.
+- Patched dependency vulnerabilities across the npm and Python manifests.
+- The commit-history audit ignores transient pull-request merge refs, removing false positives on merged branches.
 - The public identity audit now closes every `git cat-file --batch` subprocess stream after full or early generator teardown, eliminating the repeated unclosed-file `ResourceWarning` noise from release-audit test runs.
 - The docs-site Skills Hub no longer falls back to a broken, near-empty legacy snapshot when the unified index is missing: the committed fallback caches were refreshed (OpenAI tap 0 → 44 skills after its `skills/.curated/` move) and the new `venture-studio` and `web-development` categories now render with proper labels and icons.
 

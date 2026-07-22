@@ -408,6 +408,7 @@ struct SessionListView: View {
     @State private var searchQuery = ""
     @State private var renameTarget: ActiveSession?
     @State private var renameDraft = ""
+    @State private var renameFailure: String?
 
     private let pinStore = SessionLibraryPinStore()
 
@@ -550,6 +551,17 @@ struct SessionListView: View {
         } message: { _ in
             Text("The name is saved on the Fabric gateway, so it appears on every device.")
         }
+        .alert(
+            "Conversation not renamed",
+            isPresented: Binding(
+                get: { renameFailure != nil },
+                set: { if !$0 { renameFailure = nil } }
+            )
+        ) {
+            Button("OK") { renameFailure = nil }
+        } message: {
+            Text(renameFailure ?? "The conversation couldn't be renamed. Try again.")
+        }
     }
 
     @ViewBuilder
@@ -647,13 +659,20 @@ struct SessionListView: View {
     private func rename(_ session: ActiveSession, to title: String) async {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, supportsRename else { return }
-        // Failure keeps the previous server title; the reload below shows the
-        // authoritative outcome either way (matching the interrupt action).
-        _ = try? await appModel.api.setSessionTitle(
-            sessionId: session.id,
-            title: trimmed,
-            preferTypedMethod: appModel.supportsGatewayMethod("session.title")
-        )
+        do {
+            _ = try await appModel.api.setSessionTitle(
+                sessionId: session.id,
+                title: trimmed,
+                preferTypedMethod: appModel.supportsGatewayMethod("session.title")
+            )
+        } catch {
+            // Keep raw gateway/transport diagnostics out of presentation while
+            // making rejection visible instead of looking like a dead Save.
+            renameFailure = ChatPresentationSafety.userVisibleFailure(
+                for: error,
+                fallback: "The conversation couldn't be renamed. Check the gateway connection, then try again."
+            )
+        }
         await reload()
     }
 

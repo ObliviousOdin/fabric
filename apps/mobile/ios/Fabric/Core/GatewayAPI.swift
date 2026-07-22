@@ -1881,17 +1881,30 @@ struct GatewayAPI {
             "slash.exec",
             params: ["session_id": sessionId, "command": "/title \(title)"]
         )
-        // `/title` reports semantic failures as ordinary output text, not an
-        // RPC error. Surface the outcomes that mean the rename did NOT
-        // persist (duplicate title, missing row, worker-queued draft) so the
-        // UI cannot claim success for a title the gateway dropped.
-        if let output = (result["output"] as? String)?.lowercased(),
-           output.contains("already in use")
-            || output.contains("not found")
-            || output.contains("queued") {
+        // `/title` reports both semantic success and failure as ordinary
+        // output text. Require its positive confirmation instead of trying to
+        // enumerate every rejection (length, cleanup, uniqueness, missing
+        // session, and future validation rules).
+        return try Self.confirmedSlashSessionTitle(from: result["output"] as? String)
+    }
+
+    static func confirmedSlashSessionTitle(from output: String?) throws -> String {
+        let successPrefix = "Session title set:"
+        let lines = (output ?? "").split(whereSeparator: \.isNewline)
+        guard let confirmation = lines
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .first(where: { $0.hasPrefix(successPrefix) })
+        else {
             throw GatewayClientError.rpc(message: "The gateway did not save this title.")
         }
-        return title
+
+        let confirmed = confirmation
+            .dropFirst(successPrefix.count)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !confirmed.isEmpty else {
+            throw GatewayClientError.rpc(message: "The gateway did not confirm the new title.")
+        }
+        return confirmed
     }
 
     // MARK: - Prompt attachments (`files` feature)

@@ -1112,6 +1112,30 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertTrue(follow.showsJumpToLatest)
     }
 
+    func testSlashRenameRequiresPositiveGatewayConfirmation() throws {
+        XCTAssertEqual(
+            try GatewayAPI.confirmedSlashSessionTitle(
+                from: "  Session title set: Release readiness  "
+            ),
+            "Release readiness"
+        )
+
+        let rejectedOutputs = [
+            "Title too long (101 chars, max 100)",
+            "Title is empty after cleanup. Please use printable characters.",
+            "Title 'Release readiness' is already in use by session other",
+            "Session not found in database.",
+            "Session title queued: Release readiness (will be saved on first message)",
+            "(no output)",
+        ]
+        for output in rejectedOutputs {
+            XCTAssertThrowsError(
+                try GatewayAPI.confirmedSlashSessionTitle(from: output),
+                "Unexpected confirmation for: \(output)"
+            )
+        }
+    }
+
     @MainActor
     func testRenamePrefersTypedMethodAndPublishesConfirmedTitle() async {
         let recorder = RenameRecorder()

@@ -601,8 +601,19 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         closeAgentTerminalByProc(payload?.process_id ?? '')
       } else if (event.type === 'status.update') {
         if (sessionId && payload?.kind === 'compacting') {
-          setSessionCompacting(sessionId, true)
-          compactedTurnRef.current.add(sessionId)
+          const op = typeof payload.op === 'string' ? payload.op : undefined
+
+          // phase='complete'|'error' clears the indicator the moment
+          // compaction ends — even while the SAME turn keeps running model/tool
+          // work for minutes afterwards (#62). phase='start' (or a legacy
+          // payload with no phase) shows it. The op id keeps a late completion
+          // from clearing a newer compaction (handled in setSessionCompacting).
+          if (payload.phase === 'complete' || payload.phase === 'error') {
+            setSessionCompacting(sessionId, false, op)
+          } else {
+            setSessionCompacting(sessionId, true, op)
+            compactedTurnRef.current.add(sessionId)
+          }
         } else if (sessionId && payload?.kind === 'process') {
           // The gateway's notification poller announces background process
           // completions / watch matches here — re-sync the status stack.

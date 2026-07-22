@@ -5566,12 +5566,21 @@ class AIAgent:
         auto-compress abort.  Auto-compress callers use the default
         ``force=False``.
         """
-        from agent.conversation_compression import compress_context
-        return compress_context(
-            self, messages, system_message,
-            approx_tokens=approx_tokens, task_id=task_id, focus_topic=focus_topic,
-            force=force,
-        )
+        from agent.conversation_compression import compress_context, emit_compaction_done
+        try:
+            return compress_context(
+                self, messages, system_message,
+                approx_tokens=approx_tokens, task_id=task_id, focus_topic=focus_topic,
+                force=force,
+            )
+        finally:
+            # Pair the COMPACTION_STATUS "start" (emitted inside
+            # compress_context) with a completion signal on EVERY exit —
+            # success, no-op, or raise — so a driver's "Summarizing thread"
+            # indicator clears the instant compaction ends rather than lingering
+            # until the turn's message.complete cleanup (#62). Gateway-only, so
+            # it adds nothing to CLI/TUI output.
+            emit_compaction_done(self)
 
     def _set_tool_guardrail_halt(self, decision: ToolGuardrailDecision) -> None:
         """Record the first guardrail decision that should stop this turn."""

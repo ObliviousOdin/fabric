@@ -51,6 +51,40 @@ COMPACTION_STATUS = (
     f"🗜️ {COMPACTION_STATUS_MARKER} — summarizing earlier conversation so I can continue..."
 )
 
+# Paired completion marker for the start status above. Emitted through the same
+# ``status_callback`` channel the moment a compaction finishes (success, no-op,
+# or failure), so drivers like the desktop app can clear their "Summarizing
+# thread" indicator immediately instead of waiting for the broad
+# ``message.complete`` cleanup — a long turn often keeps running model/tool work
+# for minutes AFTER compaction ends, and the stale indicator made that look like
+# a 10-15 minute compaction (#62). The gateway matches this marker to emit a
+# ``status.update`` with ``kind="compacting"`` + ``phase="complete"``
+# (tui_gateway/server.py::_status_update). Keep the marker phrase intact if you
+# reword COMPACTION_DONE_STATUS.
+COMPACTION_DONE_MARKER = "Compaction complete"
+COMPACTION_DONE_STATUS = f"✅ {COMPACTION_DONE_MARKER}"
+
+
+def emit_compaction_done(agent: Any) -> None:
+    """Signal drivers that an in-progress auto-compaction has finished.
+
+    Paired with the :data:`COMPACTION_STATUS` start emission. Unlike
+    :meth:`AIAgent._emit_status`, this is *gateway-only* — it does NOT
+    ``_vprint`` — because the CLI / TUI already overwrite a transient status
+    line with the next activity, so a "done" print would only add noise to
+    their output. The desktop, which pins the "Summarizing thread" indicator
+    until told otherwise, consumes the re-tagged ``status.update`` to clear it.
+
+    Never raises: a status hiccup must not interrupt the turn.
+    """
+    cb = getattr(agent, "status_callback", None)
+    if not cb:
+        return
+    try:
+        cb("lifecycle", COMPACTION_DONE_STATUS)
+    except Exception:
+        logger.debug("status_callback error in emit_compaction_done", exc_info=True)
+
 
 def _compression_lock_holder(agent: Any) -> str:
     """Build a unique holder id for the lock: pid:tid:agent-instance:uuid.
@@ -1360,6 +1394,9 @@ def try_shrink_image_parts_in_messages(
 __all__ = [
     "COMPACTION_STATUS",
     "COMPACTION_STATUS_MARKER",
+    "COMPACTION_DONE_STATUS",
+    "COMPACTION_DONE_MARKER",
+    "emit_compaction_done",
     "check_compression_model_feasibility",
     "replay_compression_warning",
     "compress_context",

@@ -77,6 +77,11 @@ export type GatewayEventPayload = {
   count?: number
   // status.update (kind=process → background process completion/watch-match)
   kind?: string
+  // status.update (kind=compacting) — auto-compaction lifecycle (#62).
+  // phase: 'start' shows the indicator, 'complete'/'error' clears it; op is the
+  // per-session operation id so a stale completion can't clear a newer one.
+  phase?: string
+  op?: string
   // session.title (live auto-title push) — stored session id + generated title
   session_id?: string
   title?: string

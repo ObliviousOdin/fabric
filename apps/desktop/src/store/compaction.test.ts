@@ -18,7 +18,9 @@ describe('compaction store', () => {
     setSessionCompacting('session-a', true)
     setSessionCompacting('session-b', true)
 
-    expect($compactingSessions.get()).toEqual({ 'session-a': true, 'session-b': true })
+    // Value is the operation id ('' when the backend sent none); presence is
+    // what marks a session as compacting.
+    expect(Object.keys($compactingSessions.get()).sort()).toEqual(['session-a', 'session-b'])
   })
 
   it('exposes only the active session via the focus-scoped view', () => {
@@ -39,7 +41,7 @@ describe('compaction store', () => {
 
     setSessionCompacting('session-a', false)
 
-    expect($compactingSessions.get()).toEqual({ 'session-b': true })
+    expect(Object.keys($compactingSessions.get())).toEqual(['session-b'])
   })
 
   it('is a no-op when clearing an unknown session', () => {
@@ -49,5 +51,50 @@ describe('compaction store', () => {
     setSessionCompacting('session-missing', false)
 
     expect($compactingSessions.get()).toBe(before)
+  })
+
+  // ── #62: op-scoped lifecycle ──────────────────────────────────────────────
+
+  it('shows on start and clears on the matching completion', () => {
+    setSessionCompacting('s1', true, '1')
+    expect('s1' in $compactingSessions.get()).toBe(true)
+
+    setSessionCompacting('s1', false, '1')
+    expect('s1' in $compactingSessions.get()).toBe(false)
+  })
+
+  it('ignores a stale completion for an older operation', () => {
+    setSessionCompacting('s1', true, '1')
+    setSessionCompacting('s1', false, '1')
+    setSessionCompacting('s1', true, '2')
+    expect($compactingSessions.get().s1).toBe('2')
+
+    // A late/duplicate completion for op 1 must NOT clear op 2's indicator.
+    setSessionCompacting('s1', false, '1')
+    expect($compactingSessions.get().s1).toBe('2')
+
+    setSessionCompacting('s1', false, '2')
+    expect('s1' in $compactingSessions.get()).toBe(false)
+  })
+
+  it('lets a newer start win so its own completion clears', () => {
+    setSessionCompacting('s1', true, '1')
+    setSessionCompacting('s1', true, '2')
+    expect($compactingSessions.get().s1).toBe('2')
+  })
+
+  it('force-clears on a turn boundary regardless of op (undefined op)', () => {
+    setSessionCompacting('s1', true, '7')
+    setSessionCompacting('s1', false)
+    expect('s1' in $compactingSessions.get()).toBe(false)
+  })
+
+  it('never gets stuck when the backend sent no op', () => {
+    setSessionCompacting('s1', true, undefined)
+    expect($compactingSessions.get().s1).toBe('')
+
+    // An unknown ('') op is cleared by any completion so it can't strand.
+    setSessionCompacting('s1', false, '1')
+    expect('s1' in $compactingSessions.get()).toBe(false)
   })
 })

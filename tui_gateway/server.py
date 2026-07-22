@@ -1608,6 +1608,33 @@ def _emit_approval_request(sid: str, data: dict | None) -> None:
         )
 
 
+def _emit_compaction_status(sid: str, phase: str, text: str) -> None:
+    """Emit a session-scoped compaction lifecycle ``status.update``.
+
+    Carries a per-session operation id so a late/duplicate ``complete`` for an
+    older compaction can never clear the indicator for a newer one on the
+    desktop (#62). A fresh id is minted per ``start`` and echoed on the matching
+    ``complete``/``error``, then dropped — pairing each start with its own end.
+    """
+    op = ""
+    with _sessions_lock:
+        session = _sessions.get(sid)
+        if session is not None:
+            if phase == "start":
+                seq = int(session.get("_compaction_seq", 0)) + 1
+                session["_compaction_seq"] = seq
+                op = str(seq)
+                session["_compaction_op"] = op
+            else:
+                op = str(session.get("_compaction_op") or "")
+                session["_compaction_op"] = None
+    _emit(
+        "status.update",
+        sid,
+        {"kind": "compacting", "text": text, "phase": phase, "op": op},
+    )
+
+
 def _status_update(sid: str, kind: str, text: str | None = None):
     body = (text if text is not None else kind).strip()
     if not body:
@@ -1616,11 +1643,22 @@ def _status_update(sid: str, kind: str, text: str | None = None):
     # Auto-compaction reaches us as a generic "lifecycle" status. Re-tag it so
     # drivers (desktop app) can show an explicit "Summarizing…" indicator —
     # otherwise a mid-turn compaction looks like the transcript reset itself.
+    # The start and the paired completion (#62) both arrive as lifecycle
+    # statuses; route each to a phased, op-scoped compacting event so the
+    # desktop can clear the indicator the moment compaction ends instead of
+    # waiting for message.complete.
     if out_kind == "lifecycle":
-        from agent.conversation_compression import COMPACTION_STATUS_MARKER
+        from agent.conversation_compression import (
+            COMPACTION_DONE_MARKER,
+            COMPACTION_STATUS_MARKER,
+        )
 
         if COMPACTION_STATUS_MARKER in body:
-            out_kind = "compacting"
+            _emit_compaction_status(sid, "start", body)
+            return
+        if COMPACTION_DONE_MARKER in body:
+            _emit_compaction_status(sid, "complete", body)
+            return
     _emit("status.update", sid, {"kind": out_kind, "text": body})
 
 

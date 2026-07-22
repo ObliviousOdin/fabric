@@ -10720,3 +10720,126 @@ def test_sync_compression_survives_engine_without_reconfigure(monkeypatch):
     # Must be a silent no-op, not an AttributeError.
     server._sync_agent_compression_with_config("sid", session)
     assert "config_compression_seen" not in session
+
+
+# ── #62: stale "Summarizing thread" — compaction lifecycle status ──────────
+#
+# The desktop pins a "Summarizing thread" indicator on a status.update with
+# kind="compacting" and only ever cleared it on the broad message.complete
+# path, so a long turn that kept running after compaction still showed it for
+# minutes. The gateway now re-tags BOTH the compaction start and its paired
+# completion (COMPACTION_DONE_MARKER) into phased, op-scoped compacting events.
+
+
+def _capture_status_events(monkeypatch):
+    events: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        server,
+        "_emit",
+        lambda event_type, sid, payload=None: events.append((event_type, sid, payload or {})),
+    )
+    return events
+
+
+def test_status_update_retags_compaction_start_with_op(monkeypatch):
+    from agent.conversation_compression import COMPACTION_STATUS
+
+    events = _capture_status_events(monkeypatch)
+    monkeypatch.setitem(server._sessions, "sid-1", {})
+
+    server._status_update("sid-1", "lifecycle", COMPACTION_STATUS)
+
+    assert len(events) == 1
+    ev_type, sid, payload = events[0]
+    assert ev_type == "status.update"
+    assert sid == "sid-1"
+    assert payload["kind"] == "compacting"
+    assert payload["phase"] == "start"
+    # First compaction on this session → op "1", stored for the matching done.
+    assert payload["op"] == "1"
+    assert server._sessions["sid-1"]["_compaction_op"] == "1"
+
+
+def test_status_update_retags_compaction_done_echoing_op(monkeypatch):
+    from agent.conversation_compression import COMPACTION_DONE_STATUS, COMPACTION_STATUS
+
+    events = _capture_status_events(monkeypatch)
+    monkeypatch.setitem(server._sessions, "sid-2", {})
+
+    server._status_update("sid-2", "lifecycle", COMPACTION_STATUS)
+    server._status_update("sid-2", "lifecycle", COMPACTION_DONE_STATUS)
+
+    assert [p["phase"] for _, _, p in events] == ["start", "complete"]
+    # The completion echoes the SAME op the start minted, so the desktop can
+    # match it, and the stored op is dropped so a duplicate can't re-fire.
+    assert events[0][2]["op"] == events[1][2]["op"] == "1"
+    assert server._sessions["sid-2"]["_compaction_op"] is None
+
+
+def test_status_update_op_increments_per_compaction(monkeypatch):
+    from agent.conversation_compression import COMPACTION_DONE_STATUS, COMPACTION_STATUS
+
+    events = _capture_status_events(monkeypatch)
+    monkeypatch.setitem(server._sessions, "sid-3", {})
+
+    server._status_update("sid-3", "lifecycle", COMPACTION_STATUS)
+    server._status_update("sid-3", "lifecycle", COMPACTION_DONE_STATUS)
+    server._status_update("sid-3", "lifecycle", COMPACTION_STATUS)
+
+    ops = [p["op"] for _, _, p in events]
+    phases = [p["phase"] for _, _, p in events]
+    assert phases == ["start", "complete", "start"]
+    # A second compaction mints a distinct op so a late "complete" for op "1"
+    # can never dismiss the indicator raised by op "2".
+    assert ops == ["1", "1", "2"]
+
+
+def test_status_update_compaction_without_session_uses_empty_op(monkeypatch):
+    from agent.conversation_compression import COMPACTION_STATUS
+
+    events = _capture_status_events(monkeypatch)
+    server._sessions.pop("ghost", None)
+
+    # No registered session (e.g. a throwaway compaction agent) → best-effort
+    # empty op rather than raising; the desktop force-clears on '' / undefined.
+    server._status_update("ghost", "lifecycle", COMPACTION_STATUS)
+
+    assert events[0][2]["kind"] == "compacting"
+    assert events[0][2]["op"] == ""
+
+
+def test_status_update_non_compaction_lifecycle_passes_through(monkeypatch):
+    events = _capture_status_events(monkeypatch)
+    monkeypatch.setitem(server._sessions, "sid-4", {})
+
+    server._status_update("sid-4", "lifecycle", "just a normal status line")
+
+    assert len(events) == 1
+    _, _, payload = events[0]
+    assert payload["kind"] == "lifecycle"
+    assert "phase" not in payload and "op" not in payload
+
+
+def test_emit_compaction_done_is_gateway_only(monkeypatch):
+    """The done signal reaches status_callback but must NOT print to CLI/TUI."""
+    from agent.conversation_compression import COMPACTION_DONE_STATUS, emit_compaction_done
+
+    calls: list[tuple[str, str]] = []
+    printed: list[str] = []
+    agent = types.SimpleNamespace(
+        status_callback=lambda kind, text: calls.append((kind, text)),
+        _vprint=lambda *a, **k: printed.append(a[0] if a else ""),
+    )
+
+    emit_compaction_done(agent)
+
+    assert calls == [("lifecycle", COMPACTION_DONE_STATUS)]
+    assert printed == []  # gateway-only: no CLI line
+
+
+def test_emit_compaction_done_no_callback_is_noop():
+    from agent.conversation_compression import emit_compaction_done
+
+    # No status_callback wired (CLI without a gateway) → silent no-op, no raise.
+    emit_compaction_done(types.SimpleNamespace(status_callback=None))
+    emit_compaction_done(types.SimpleNamespace())

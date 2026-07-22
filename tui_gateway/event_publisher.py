@@ -51,7 +51,7 @@ _EVENT_PAYLOAD_KEYS = {
     "error": frozenset({"message"}),
     "session.info": _SESSION_INFO_KEYS,
     "session.title": frozenset({"session_id", "title"}),
-    "status.update": frozenset({"kind", "text"}),
+    "status.update": frozenset({"kind", "op", "phase", "text"}),
     "subagent.complete": frozenset(
         {
             "child_session_id",

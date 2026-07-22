@@ -128,6 +128,32 @@ opens the visual target and action timeline beside the conversation. You can
 pop that same session into an always-on-top window, pause only its visual
 updates, and dock it again without restarting the task.
 
+## Voice notes
+
+Open **Voice Notes** from the sidebar or Command Center to turn a recording
+into a reviewed Markdown note:
+
+1. Enable and configure speech-to-text under **Settings → Voice**. When it is
+   disabled, the Voice Notes setup button opens this panel directly.
+2. Choose **Start recording** and grant microphone access when the operating
+   system asks. Fabric stops automatically at the configured recording limit,
+   which is capped at ten minutes.
+3. Choose **Stop and transcribe**, then correct names or wording in the
+   transcript. A failed transcription keeps the temporary recording available
+   for an explicit retry.
+4. Choose **Create note with Fabric**. Desktop opens a fresh conversation and
+   asks Fabric for a Markdown note containing Summary, Decisions, Tasks,
+   Follow-up, and the reviewed transcript.
+
+The reviewed transcript is treated as source data, not as instructions or
+workspace context. Literal context-reference text such as `@file:` or `@diff`
+remains part of the note and does not attach files or repository changes.
+
+The audio is sent to the speech-to-text provider configured in the active
+profile. Desktop does not save a local copy automatically: leaving the view or
+discarding the draft releases it unless you explicitly choose **Save
+recording**.
+
 ## Design systems and outputs
 
 Open **Design** to turn a brief into a reviewed `/design` prompt. The workspace

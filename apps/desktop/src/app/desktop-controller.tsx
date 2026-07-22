@@ -112,7 +112,15 @@ import { $terminalTakeover } from './right-sidebar/store'
 import { TerminalPaneChrome } from './right-sidebar/terminal/chrome'
 import { PersistentTerminal } from './right-sidebar/terminal/persistent'
 import { closeActiveTerminal } from './right-sidebar/terminal/terminals'
-import { ARTIFACTS_ROUTE, CRON_ROUTE, NEW_CHAT_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from './routes'
+import {
+  ARTIFACTS_ROUTE,
+  CRON_ROUTE,
+  NEW_CHAT_ROUTE,
+  routeSessionId,
+  sessionRoute,
+  SETTINGS_ROUTE,
+  VOICE_SETTINGS_ROUTE
+} from './routes'
 import { SessionPickerOverlay } from './session-picker-overlay'
 import { SessionSwitcher } from './session-switcher'
 import { useContextSuggestions } from './session/hooks/use-context-suggestions'
@@ -135,6 +143,7 @@ import type { StatusbarItem } from './shell/statusbar-controls'
 import type { TitlebarTool } from './shell/titlebar-controls'
 import { useGroupRegistry } from './shell/use-group-registry'
 import { UpdatesOverlay } from './updates-overlay'
+import type { VoiceNoteCreateRequest } from './voice-notes'
 
 const AgentsView = lazy(async () => ({ default: (await import('./agents')).AgentsView }))
 const ArtifactsView = lazy(async () => ({ default: (await import('./artifacts')).ArtifactsView }))
@@ -146,6 +155,7 @@ const MessagingView = lazy(async () => ({ default: (await import('./messaging'))
 const ProfilesView = lazy(async () => ({ default: (await import('./profiles')).ProfilesView }))
 const SettingsView = lazy(async () => ({ default: (await import('./settings')).SettingsView }))
 const SkillsView = lazy(async () => ({ default: (await import('./skills')).SkillsView }))
+const VoiceNotesView = lazy(async () => ({ default: (await import('./voice-notes')).VoiceNotesView }))
 
 // Latest cron-job sessions surfaced in the collapsed "Cron jobs" section. The
 // Cron sessions are written by a background scheduler tick (the desktop
@@ -195,6 +205,7 @@ export function DesktopController() {
   const busyRef = useRef(false)
   const creatingSessionRef = useRef(false)
   const messagingTranscriptSignatureRef = useRef(new Map<string, string>())
+  const pendingVoiceNotePromptRef = useRef<string | null>(null)
 
   const gatewayState = useStore($gatewayState)
   const connection = useStore($connection)
@@ -514,6 +525,10 @@ export function DesktopController() {
 
   const openProviderSettings = useCallback(() => {
     navigate(`${SETTINGS_ROUTE}?tab=providers`)
+  }, [navigate])
+
+  const openVoiceSettings = useCallback(() => {
+    navigate(VOICE_SETTINGS_ROUTE)
   }, [navigate])
 
   const modelMenuContent = useMemo(
@@ -881,6 +896,25 @@ export function DesktopController() {
     sttEnabled,
     updateSessionState
   })
+
+  const startVoiceNoteChat = useCallback(
+    ({ prompt }: VoiceNoteCreateRequest) => {
+      pendingVoiceNotePromptRef.current = prompt
+      startFreshSessionDraft()
+    },
+    [startFreshSessionDraft]
+  )
+
+  useEffect(() => {
+    const prompt = pendingVoiceNotePromptRef.current
+
+    if (!prompt || currentView !== 'chat' || activeSessionId || !freshDraftReady) {
+      return
+    }
+
+    pendingVoiceNotePromptRef.current = null
+    void submitText(prompt, { attachments: [] })
+  }, [activeSessionId, currentView, freshDraftReady, submitText])
 
   // The popped-out pet drives two actions back into the app: send a prompt, and
   // open the most recent thread. Both are registered ONCE through refs that track
@@ -1395,6 +1429,20 @@ export function DesktopController() {
               </Suspense>
             }
             path="design"
+          />
+          <Route
+            element={
+              <Suspense fallback={null}>
+                <VoiceNotesView
+                  maxRecordingSeconds={voiceMaxRecordingSeconds}
+                  onConfigureSpeechToText={openVoiceSettings}
+                  onCreateNote={startVoiceNoteChat}
+                  onTranscribeAudio={transcribeVoiceAudio}
+                  sttEnabled={sttEnabled}
+                />
+              </Suspense>
+            }
+            path="voice-notes"
           />
           <Route
             element={

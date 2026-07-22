@@ -1568,6 +1568,7 @@ export const en: Translations = {
     nav: {
       'new-session': 'New session',
       skills: 'Capabilities',
+      'voice-notes': 'Voice Notes',
       messaging: 'Messaging',
       artifacts: 'Artifacts',
       design: 'Design'
@@ -2536,6 +2537,39 @@ export const en: Translations = {
     secretTitle: 'Secret required',
     secretDesc: 'Fabric needs a credential to continue.',
     secretPlaceholder: 'secret value'
+  },
+
+  voiceNotes: {
+    title: 'Voice Notes',
+    subtitle:
+      'Capture a thought, review the transcript, then let Fabric turn it into a useful note without losing your original words.',
+    setupTitle: 'Speech-to-text is turned off',
+    setupDescription: 'Choose and enable a transcription provider before recording a voice note.',
+    configure: 'Configure speech-to-text',
+    readyTitle: 'Ready when you are',
+    readyDescription: seconds =>
+      `Record up to ${Math.max(1, Math.floor(seconds / 60))} minutes, then review every word before sending it to Fabric.`,
+    startRecording: 'Start recording',
+    recording: 'Recording from your microphone',
+    stopRecording: 'Stop and transcribe',
+    transcribing: 'Transcribing…',
+    transcribingDescription: 'Fabric is using your configured speech-to-text provider.',
+    reviewTitle: 'Review transcript',
+    reviewDescription: 'Correct names or wording before Fabric organizes the note.',
+    transcriptLabel: 'Transcript',
+    transcriptPlaceholder: 'Your transcript will appear here.',
+    createNote: 'Create note with Fabric',
+    creating: 'Opening Fabric…',
+    retryTranscription: 'Retry transcription',
+    recordAgain: 'Record again',
+    saveRecording: 'Save recording',
+    discard: 'Discard',
+    outputTitle: 'Fabric will create',
+    outputDescription: 'A clean Markdown note in a fresh conversation, grounded only in the reviewed transcript.',
+    outputSections: ['Summary', 'Decisions', 'Tasks', 'Follow-up', 'Original transcript'],
+    privacyTitle: 'Audio stays temporary',
+    privacyDescription:
+      'Fabric sends the recording to your configured transcription provider, but does not save a local copy. It is discarded when you leave unless you choose Save recording.'
   },
 
   desktop: {

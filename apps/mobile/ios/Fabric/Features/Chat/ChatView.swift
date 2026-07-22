@@ -1127,13 +1127,125 @@ struct ChatExperienceDebugFixtureView: View {
 }
 #endif
 
-/// Owns transcript scrolling so a completed assistant row can request one
-/// follow-up scroll after its cached rich layout has a measured height.
-/// Without that second signal, a tall code or list block can grow below the
-/// viewport after the ordinary `messages` change already scrolled the plain
-/// streaming row.
+private enum TranscriptScroll {
+    static let coordinateSpace = "fabric.transcript.scroll"
+}
+
+/// Bottom edge of the transcript content, measured in the scroll view's
+/// coordinate space. Compared against the viewport height it yields the reader's
+/// distance from the latest content.
+private struct TranscriptContentMaxYKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// Height of the transcript viewport.
+private struct TranscriptViewportHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// Pure follow-mode policy for the streaming transcript. It is extracted from
+/// the SwiftUI view so every transition — engage, manual disengage, delta
+/// arrival, rich-layout completion, jump, and return-to-bottom — is
+/// deterministically unit-testable without a live scroll view. The view feeds
+/// it measured geometry and explicit reader intent; this type owns the decision
+/// of whether to chase the newest token. Follow is gated on an explicit state,
+/// never on a delay or gesture-timing heuristic.
+struct TranscriptFollowState: Equatable {
+    /// Within this many points of the bottom the viewport counts as "at the
+    /// latest turn". A small tolerance absorbs sub-pixel layout drift and the
+    /// rounding in SwiftUI's scroll geometry.
+    static let bottomTolerance: CGFloat = 24
+
+    /// Whether new content should keep pulling the viewport to the latest token.
+    private(set) var isFollowing: Bool
+    /// Whether content arrived below the viewport while follow was disengaged.
+    private(set) var hasPendingContentBelow: Bool
+
+    init(isFollowing: Bool = true, hasPendingContentBelow: Bool = false) {
+        self.isFollowing = isFollowing
+        self.hasPendingContentBelow = hasPendingContentBelow
+    }
+
+    /// The "Jump to latest" affordance appears only when the reader has moved
+    /// away from the bottom *and* newer content exists below the viewport.
+    var showsJumpToLatest: Bool { !isFollowing && hasPendingContentBelow }
+
+    enum ContentAdvance: Equatable {
+        /// Snap the viewport to the newest content.
+        case scrollToLatest
+        /// Preserve the reader's current position.
+        case hold
+    }
+
+    /// The transcript grew — a streaming delta, a completed turn, or a brand new
+    /// message. A fresh user turn always re-engages follow (you sent it, so you
+    /// expect to watch the reply). Otherwise growth is chased only while
+    /// following, and remembered as pending-below while disengaged.
+    mutating func transcriptDidGrow(newUserTurn: Bool) -> ContentAdvance {
+        if newUserTurn {
+            isFollowing = true
+            hasPendingContentBelow = false
+            return .scrollToLatest
+        }
+        if isFollowing {
+            hasPendingContentBelow = false
+            return .scrollToLatest
+        }
+        hasPendingContentBelow = true
+        return .hold
+    }
+
+    /// A completed row reported its measured rich-layout height. Only a still-
+    /// following viewport may chase that post-completion growth, so a reader who
+    /// has scrolled up is never yanked when Markdown re-lays out.
+    func richLayoutReadyShouldScroll() -> Bool { isFollowing }
+
+    /// The reader dragged the transcript. Pulling more than the tolerance away
+    /// from the bottom is an explicit, timing-free signal to stop following; a
+    /// drag that stays at the bottom leaves follow untouched.
+    mutating func readerDidDrag(distanceFromBottom: CGFloat) {
+        if distanceFromBottom > Self.bottomTolerance {
+            isFollowing = false
+        }
+    }
+
+    /// The viewport settled at a measured distance from the bottom. Reaching the
+    /// bottom re-engages follow; content-growth drift never disengages here, so
+    /// streaming below a scrolled-up reader cannot flip follow back on.
+    mutating func viewportDidSettle(distanceFromBottom: CGFloat) {
+        guard distanceFromBottom <= Self.bottomTolerance else { return }
+        isFollowing = true
+        hasPendingContentBelow = false
+    }
+
+    /// The reader tapped "Jump to latest".
+    mutating func jumpToLatest() {
+        isFollowing = true
+        hasPendingContentBelow = false
+    }
+}
+
+/// Owns transcript scrolling. Follow mode keeps the newest token in view while
+/// the reader is at the bottom, but disengages the moment they scroll up so a
+/// long streaming response can be read from the top without being snapped back
+/// to the latest delta. A "Jump to latest" control returns to — and re-engages
+/// — follow. Both scroll call sites (ordinary `messages` growth and the
+/// completed row's rich-layout follow-up) are gated behind the explicit follow
+/// state so neither can steal the reading position.
 struct TranscriptView: View {
     let messages: [TranscriptMessage]
+
+    @State private var follow = TranscriptFollowState()
+    @State private var distanceFromBottom: CGFloat = 0
+    @State private var contentMaxY: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+    @State private var latestUserMessageID: UUID?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -1143,20 +1255,112 @@ struct TranscriptView: View {
                         MessageBubble(
                             message: message,
                             onRichLayoutReady: message.id == messages.last?.id
-                                ? { proxy.scrollTo(message.id, anchor: .bottom) }
+                                ? {
+                                    if follow.richLayoutReadyShouldScroll() {
+                                        proxy.scrollTo(message.id, anchor: .bottom)
+                                    }
+                                }
                                 : nil
                         )
                         .id(message.id)
                     }
                 }
                 .padding()
+                .background(
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: TranscriptContentMaxYKey.self,
+                            value: geometry.frame(
+                                in: .named(TranscriptScroll.coordinateSpace)
+                            ).maxY
+                        )
+                    }
+                )
+            }
+            .coordinateSpace(.named(TranscriptScroll.coordinateSpace))
+            .background(
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: TranscriptViewportHeightKey.self,
+                        value: geometry.size.height
+                    )
+                }
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { _ in
+                        follow.readerDidDrag(distanceFromBottom: distanceFromBottom)
+                    }
+            )
+            .onPreferenceChange(TranscriptContentMaxYKey.self) { value in
+                contentMaxY = value
+                recomputeDistance()
+            }
+            .onPreferenceChange(TranscriptViewportHeightKey.self) { value in
+                viewportHeight = value
+                recomputeDistance()
             }
             .onChange(of: messages) {
-                if let lastId = messages.last?.id {
+                let currentUserID = messages.last(where: { $0.role == .user })?.id
+                let newUserTurn = currentUserID != nil && currentUserID != latestUserMessageID
+                latestUserMessageID = currentUserID
+                if follow.transcriptDidGrow(newUserTurn: newUserTurn) == .scrollToLatest,
+                   let lastId = messages.last?.id {
                     proxy.scrollTo(lastId, anchor: .bottom)
                 }
             }
+            .onAppear {
+                latestUserMessageID = messages.last(where: { $0.role == .user })?.id
+            }
+            .overlay(alignment: .bottom) {
+                if follow.showsJumpToLatest {
+                    JumpToLatestButton {
+                        follow.jumpToLatest()
+                        if let lastId = messages.last?.id {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                proxy.scrollTo(lastId, anchor: .bottom)
+                            }
+                        }
+                    }
+                    .padding(.bottom, 10)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: follow.showsJumpToLatest)
         }
+    }
+
+    /// Recompute the reader's distance from the bottom from the latest geometry
+    /// and feed it to the follow policy. Called on every content/viewport layout
+    /// change; it only ever re-engages follow (at the bottom) and never
+    /// disengages, so streaming growth below a scrolled-up reader is inert here.
+    private func recomputeDistance() {
+        distanceFromBottom = max(0, contentMaxY - viewportHeight)
+        follow.viewportDidSettle(distanceFromBottom: distanceFromBottom)
+    }
+}
+
+/// Capsule affordance that returns the reader to the newest content and
+/// re-engages follow. Meets the 44-point target and carries an explicit
+/// VoiceOver label/hint.
+private struct JumpToLatestButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Jump to latest", systemImage: "arrow.down.circle.fill")
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 14)
+                .frame(minHeight: FabricTheme.minTarget)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(FabricTheme.textOnBrand)
+        .background(FabricTheme.action, in: Capsule())
+        .overlay(Capsule().stroke(FabricTheme.border.opacity(0.4), lineWidth: 0.5))
+        .shadow(color: Color.black.opacity(0.18), radius: 6, y: 2)
+        .accessibilityIdentifier("transcript-jump-to-latest")
+        .accessibilityLabel("Jump to latest")
+        .accessibilityHint("Scrolls to the newest message and resumes following the response")
     }
 }
 

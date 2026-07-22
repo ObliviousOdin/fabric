@@ -1,0 +1,19 @@
+{
+  "contract": "fabric.phone_audio",
+  "version": 1,
+  "capture_id": "018f8ac2-39a1-75e1-bbd9-0fe8ed42ffde",
+  "mode": "chat",
+  "mime_type": "audio/webm;codecs=opus",
+  "duration_ms": 920,
+  "result": {
+    "schema": "fabric.transcription",
+    "version": 1,
+    "request_id": "capture-018f8ac2-39a1-75e1-bbd9-0fe8ed42ffde",
+    "status": "no_speech",
+    "text": "",
+    "provider": "autowhisper",
+    "duration_ms": 920,
+    "segments": [],
+    "warnings": []
+  }
+}

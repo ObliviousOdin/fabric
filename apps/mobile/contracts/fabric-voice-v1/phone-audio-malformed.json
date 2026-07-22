@@ -1,0 +1,15 @@
+{
+  "contract": "fabric.phone_audio",
+  "version": 1,
+  "capture_id": "capture-invalid-mode",
+  "mode": "meeting",
+  "mime_type": "text/plain",
+  "duration_ms": -1,
+  "result": {
+    "schema": "fabric.transcription",
+    "version": 1,
+    "request_id": "capture-invalid-mode",
+    "status": "completed",
+    "text": "This envelope must be rejected."
+  }
+}

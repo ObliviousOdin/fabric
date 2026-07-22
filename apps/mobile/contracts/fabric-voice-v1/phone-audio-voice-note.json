@@ -1,0 +1,20 @@
+{
+  "contract": "fabric.phone_audio",
+  "version": 1,
+  "capture_id": "018f8ac2-39a1-75e1-bbd9-0fe8ed42ffdd",
+  "mode": "voice_note",
+  "mime_type": "audio/mp4",
+  "duration_ms": 1840,
+  "result": {
+    "schema": "fabric.transcription",
+    "version": 1,
+    "request_id": "capture-018f8ac2-39a1-75e1-bbd9-0fe8ed42ffdd",
+    "status": "completed",
+    "text": "Ship the voice note workflow.",
+    "provider": "apple_speech",
+    "language": "en-US",
+    "duration_ms": 1840,
+    "segments": [],
+    "warnings": []
+  }
+}

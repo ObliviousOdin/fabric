@@ -1,0 +1,12 @@
+{
+  "schema": "fabric.transcription",
+  "version": 1,
+  "request_id": "capture-malformed-1",
+  "status": "failed",
+  "text": "must be empty on failure",
+  "error": {
+    "code": "invalid_audio",
+    "message": "The status invariant is broken.",
+    "retryable": false
+  }
+}

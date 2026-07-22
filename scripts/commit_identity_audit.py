@@ -4,10 +4,12 @@
 This is the single source of truth for the repository's commit-identity
 policy (see AGENT_GUARDRAILS.md, "Commit identity & attribution"):
 
-* Authors and committers must use an allowlisted repository identity
-  (PrimeOdin / ObliviousOdin), the GitHub web-flow committer, or an
-  allowlisted bot. AI coding tools (Claude, Codex, Copilot, ...) must
-  never appear as author, committer, or co-author.
+* Authors must use an allowlisted repository identity
+  (PrimeOdin / ObliviousOdin) or an allowlisted bot. Committers may
+  additionally be the GitHub web-flow identity, which only ever signs
+  server-side operations (squash merges, web edits). AI coding tools
+  (Claude, Codex, Copilot, ...) must never appear as author, committer,
+  or co-author.
 * Commit messages must not carry AI-attribution footers: Co-Authored-By /
   Signed-off-by trailers naming an AI tool or a non-allowlisted identity,
   "Generated with ..." lines, or AI session links.
@@ -95,7 +97,7 @@ def _describe(name: str, email: str) -> str:
 
 
 def _audit_identity_field(
-    *, role: str, name: str, email: str, subject: str
+    *, role: str, name: str, email: str, subject: str, web_flow_ok: bool | None = None
 ) -> list[str]:
     issues: list[str] = []
     where = f"{role} {_describe(name, email)} ({subject!r})"
@@ -105,7 +107,9 @@ def _audit_identity_field(
         issues.append(f"{where}: AI-tool identity {denied.group(1)!r} is forbidden")
         return issues
     allowed = ALLOWED_AUTHOR_EMAILS | ALLOWED_BOT_EMAILS
-    if role == "committer":
+    if web_flow_ok is None:
+        web_flow_ok = role == "committer"
+    if web_flow_ok:
         allowed = allowed | ALLOWED_COMMITTER_ONLY_EMAILS
     if lowered_email not in allowed:
         issues.append(
@@ -236,10 +240,16 @@ def _audit_pending_ident(kind: str) -> list[str]:
     if result.returncode != 0 or not match:
         return [f"unable to resolve the pending {kind} identity"]
     name, email = match.group(1), match.group(2)
-    issues = _audit_identity_field(
-        role="author", name=name, email=email, subject=f"pending {kind}"
+    # web_flow_ok=False on purpose, even for the committer: the web-flow
+    # identity only ever signs server-side operations, so a LOCAL pending
+    # committer claiming it is itself suspicious.
+    return _audit_identity_field(
+        role=kind,
+        name=name,
+        email=email,
+        subject=f"pending {kind}",
+        web_flow_ok=False,
     )
-    return issues
 
 
 def audit_config() -> list[str]:

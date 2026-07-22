@@ -195,6 +195,33 @@ class RepoAuditTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("pending author", result.stderr)
 
+    def test_check_config_labels_pending_committer_violations(self) -> None:
+        self._git("config", "--local", "user.name", CANONICAL_NAME)
+        self._git("config", "--local", "user.email", CANONICAL_EMAIL)
+        self.env["GIT_COMMITTER_NAME"] = "Codex"
+        self.env["GIT_COMMITTER_EMAIL"] = "codex@openai.com"
+        try:
+            result = self._script("--check-config")
+        finally:
+            del self.env["GIT_COMMITTER_NAME"], self.env["GIT_COMMITTER_EMAIL"]
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("committer Codex", result.stderr)
+        self.assertIn("pending committer", result.stderr)
+
+    def test_check_config_rejects_local_web_flow_committer(self) -> None:
+        # The web-flow identity only signs server-side merges; a LOCAL
+        # pending committer claiming it is deliberately rejected.
+        self._git("config", "--local", "user.name", CANONICAL_NAME)
+        self._git("config", "--local", "user.email", CANONICAL_EMAIL)
+        self.env["GIT_COMMITTER_NAME"] = "GitHub"
+        self.env["GIT_COMMITTER_EMAIL"] = "noreply@github.com"
+        try:
+            result = self._script("--check-config")
+        finally:
+            del self.env["GIT_COMMITTER_NAME"], self.env["GIT_COMMITTER_EMAIL"]
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("pending committer", result.stderr)
+
     def test_pre_push_audits_outgoing_commits(self) -> None:
         self._commit("feat: base", name=CANONICAL_NAME, email=CANONICAL_EMAIL)
         base = self._rev_parse("HEAD")

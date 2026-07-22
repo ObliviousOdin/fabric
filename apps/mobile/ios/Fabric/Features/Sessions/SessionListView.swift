@@ -406,8 +406,18 @@ struct SessionListView: View {
     @State private var model = SessionLibraryModel()
     @State private var pinnedSessionKeys: Set<String> = []
     @State private var searchQuery = ""
+    @State private var renameTarget: ActiveSession?
+    @State private var renameDraft = ""
+    @State private var renameFailure: String?
 
     private let pinStore = SessionLibraryPinStore()
+
+    /// Rename requires a live runtime session id — historical rows first
+    /// need a resume, so their rename lives inside the opened conversation.
+    private var supportsRename: Bool {
+        appModel.supportsGatewayMethod("session.title")
+            || appModel.supportsGatewayMethod("slash.exec")
+    }
 
     var body: some View {
         let projection = SessionLibraryProjection(
@@ -522,6 +532,36 @@ struct SessionListView: View {
             prepareForCurrentGateway()
             if appModel.phase == .connected { await reload() }
         }
+        .alert(
+            "Rename conversation",
+            isPresented: Binding(
+                get: { renameTarget != nil },
+                set: { if !$0 { renameTarget = nil } }
+            ),
+            presenting: renameTarget
+        ) { session in
+            TextField("Conversation name", text: $renameDraft)
+            Button("Save") {
+                let newTitle = renameDraft
+                renameTarget = nil
+                Task { await rename(session, to: newTitle) }
+            }
+            .disabled(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Cancel", role: .cancel) { renameTarget = nil }
+        } message: { _ in
+            Text("The name is saved on the Fabric gateway, so it appears on every device.")
+        }
+        .alert(
+            "Conversation not renamed",
+            isPresented: Binding(
+                get: { renameFailure != nil },
+                set: { if !$0 { renameFailure = nil } }
+            )
+        ) {
+            Button("OK") { renameFailure = nil }
+        } message: {
+            Text(renameFailure ?? "The conversation couldn't be renamed. Try again.")
+        }
     }
 
     @ViewBuilder
@@ -573,6 +613,18 @@ struct SessionListView: View {
                 }
             }
         }
+        .contextMenu {
+            // A zero-message session has no gateway DB row yet, so a title
+            // sent through the slash dispatch would be queued and lost.
+            if let session = item.activeSession, supportsRename, session.messageCount > 0 {
+                Button {
+                    renameDraft = item.displayTitle == "Untitled session" ? "" : item.displayTitle
+                    renameTarget = session
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+            }
+        }
         if item.durableSessionKey == nil {
             link
         } else {
@@ -602,6 +654,26 @@ struct SessionListView: View {
             return
         }
         pinnedSessionKeys = pinStore.pinnedSessionKeys(for: gatewayID)
+    }
+
+    private func rename(_ session: ActiveSession, to title: String) async {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, supportsRename else { return }
+        do {
+            _ = try await appModel.api.setSessionTitle(
+                sessionId: session.id,
+                title: trimmed,
+                preferTypedMethod: appModel.supportsGatewayMethod("session.title")
+            )
+        } catch {
+            // Keep raw gateway/transport diagnostics out of presentation while
+            // making rejection visible instead of looking like a dead Save.
+            renameFailure = ChatPresentationSafety.userVisibleFailure(
+                for: error,
+                fallback: "The conversation couldn't be renamed. Check the gateway connection, then try again."
+            )
+        }
+        await reload()
     }
 
     private func togglePin(_ item: SessionLibraryProjection.Item, currentlyPinned: Bool) {

@@ -18,6 +18,9 @@ struct AddGatewayView: View {
     @State private var label = ""
     @State private var urlText = ""
     @State private var mode: Mode = .token
+    // Keeping the password is strictly opt-in: the credential persists only
+    // after the user flips this on.
+    @State private var rememberPassword = false
     @State private var credentialState = GatewayEndpointCredentialState()
     @State private var providerName: String?
     @State private var requiresTotp = false
@@ -192,6 +195,15 @@ struct AddGatewayView: View {
                         TextField("6-digit code", text: $credentialState.otp)
                             .keyboardType(.numberPad)
                             .textContentType(.oneTimeCode)
+                    }
+                    if let parsedURL, GatewayTransportPresentation.allowsTokenCredential(parsedURL) {
+                        Toggle("Remember password on this iPhone", isOn: $rememberPassword)
+                            .frame(minHeight: FabricTheme.minTarget)
+                        if rememberPassword {
+                            Text("The password is protected by the device Keychain and used to sign back in when this Fabric's session expires.")
+                                .font(.footnote)
+                                .foregroundStyle(FabricTheme.textMuted)
+                        }
                     }
                     if let providerName {
                         Text(requiresTotp
@@ -410,7 +422,10 @@ struct AddGatewayView: View {
                 gateway,
                 provider: providerName,
                 password: credentialState.password,
-                otp: credentialState.otp.trimmingCharacters(in: .whitespaces)
+                otp: credentialState.otp.trimmingCharacters(in: .whitespaces),
+                rememberPassword: GatewayTransportPresentation.allowsTokenCredential(currentURL)
+                    ? rememberPassword
+                    : nil
             )
         }
         if appModel.phase == .connected {
@@ -514,6 +529,7 @@ struct SignInSheet: View {
     @State private var username: String
     @State private var password = ""
     @State private var otp = ""
+    @State private var rememberPassword: Bool
     @State private var providerName: String?
     @State private var requiresTotp = false
     @State private var providerDiscoveryFailed = false
@@ -524,6 +540,13 @@ struct SignInSheet: View {
     init(gateway: SavedGateway) {
         self.gateway = gateway
         _username = State(initialValue: gateway.username)
+        // Re-auth seeds the toggle from the user's previous choice: keeping
+        // stays kept, and a server never opted into stays opt-in.
+        _rememberPassword = State(initialValue: GatewayStore.hasStoredPassword(gateway))
+    }
+
+    private var canKeepPassword: Bool {
+        GatewayTransportPresentation.allowsTokenCredential(gateway.baseURL)
     }
 
     var body: some View {
@@ -558,6 +581,15 @@ struct SignInSheet: View {
                         TextField("6-digit code", text: $otp)
                             .keyboardType(.numberPad)
                             .textContentType(.oneTimeCode)
+                    }
+                    if canKeepPassword {
+                        Toggle("Remember password on this iPhone", isOn: $rememberPassword)
+                            .frame(minHeight: FabricTheme.minTarget)
+                        if rememberPassword {
+                            Text("The password is protected by the device Keychain and used to sign back in when this Fabric's session expires.")
+                                .font(.footnote)
+                                .foregroundStyle(FabricTheme.textMuted)
+                        }
                     }
                     if resolvingProvider {
                         ProgressView("Checking sign-in options…")
@@ -632,7 +664,8 @@ struct SignInSheet: View {
             updated,
             provider: providerName,
             password: password,
-            otp: otp.trimmingCharacters(in: .whitespaces)
+            otp: otp.trimmingCharacters(in: .whitespaces),
+            rememberPassword: canKeepPassword ? rememberPassword : nil
         )
         if appModel.phase == .connected {
             dismiss()
@@ -654,6 +687,18 @@ struct SignInSheet: View {
             guard let provider else { return }
             providerName = provider.name
             requiresTotp = provider.requiresTotp
+            // A TOTP provider can never auto-sign-in with a stale code, so
+            // this sheet appears on every session lapse. Prefill the kept
+            // password so only the fresh 6-digit code needs typing. The
+            // transport gate matches every other kept-password consumer.
+            if provider.requiresTotp,
+               canKeepPassword,
+               password.isEmpty,
+               GatewayStore.hasStoredPassword(gateway),
+               let kept = GatewayStore.password(id: gateway.id),
+               !kept.isEmpty {
+                password = kept
+            }
         } catch {
             providerDiscoveryFailed = true
         }

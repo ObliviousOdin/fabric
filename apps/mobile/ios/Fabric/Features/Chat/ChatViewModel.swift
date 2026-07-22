@@ -448,7 +448,7 @@ enum AssistantTurnReducer {
         return "\(prefix):\(nextSequence)"
     }
 
-    private static func trimActivityParts(in parts: inout [AssistantTurnPart]) {
+    static func trimActivityParts(in parts: inout [AssistantTurnPart]) {
         var overflow = parts.reduce(into: 0) { count, part in
             if case .text = part.content { return }
             count += 1
@@ -460,6 +460,165 @@ enum AssistantTurnReducer {
             overflow -= 1
             return true
         }
+    }
+}
+
+/// A user-picked attachment staged for the next prompt. The raw bytes stay
+/// in memory only until the gateway confirms the upload, and are rendered
+/// locally — never fetched over the network.
+struct ChatComposerAttachment: Identifiable, Equatable {
+    enum Kind: String, Equatable {
+        /// PNG/JPEG/GIF/WebP/BMP → `image.attach_bytes` (vision tiles).
+        case image
+        /// `pdf.attach` — the gateway renders each page for vision.
+        case pdf
+        /// Everything else → `file.attach` (readable workspace artifact).
+        case file
+    }
+
+    let id: UUID
+    let kind: Kind
+    let filename: String
+    let data: Data
+    let mimeType: String
+
+    init(
+        id: UUID = UUID(),
+        kind: Kind,
+        filename: String,
+        data: Data,
+        mimeType: String
+    ) {
+        self.id = id
+        self.kind = kind
+        self.filename = filename
+        self.data = data
+        self.mimeType = mimeType
+    }
+}
+
+/// Pure classification and bounds for composer attachments, mirroring the
+/// gateway's magic-byte sniffing and caps so an over-limit or unsupported
+/// upload fails on-device with clear copy instead of a server error.
+enum ChatAttachmentPolicy {
+    /// The gateway itself accepts larger decoded payloads (25 MB images and
+    /// 50 MB PDFs — `_ATTACH_BYTES_MAX_BYTES` / `_PDF_ATTACH_MAX_BYTES` in
+    /// `tui_gateway/server.py`), but every upload travels as ONE base64
+    /// JSON-RPC WebSocket text frame and the serving uvicorn keeps its
+    /// default 16 MiB `ws_max_size`. 10 MB raw (~13.3 MiB encoded plus the
+    /// JSON envelope) is the largest payload that reliably clears that
+    /// transport bound instead of closing the socket mid-send.
+    static let maximumAttachmentBytes = 10 * 1_024 * 1_024
+    static let maximumStagedAttachments = 8
+
+    /// The image formats the server's `_sniff_image_ext` accepts, detected
+    /// by the same magic bytes. BMP additionally requires the header's
+    /// zeroed reserved fields so ordinary text starting with "BM" is not
+    /// misrouted to the image upload the server would then reject.
+    static func sniffedImageMIME(_ data: Data) -> String? {
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
+        if data.starts(with: Data("GIF8".utf8)) { return "image/gif" }
+        if data.count >= 12,
+           data.starts(with: Data("RIFF".utf8)),
+           data.dropFirst(8).prefix(4).elementsEqual(Data("WEBP".utf8)) {
+            return "image/webp"
+        }
+        if data.count >= 14,
+           data.starts(with: Data("BM".utf8)),
+           data.dropFirst(6).prefix(4).allSatisfy({ $0 == 0 }) {
+            return "image/bmp"
+        }
+        return nil
+    }
+
+    static func isPDF(_ data: Data) -> Bool {
+        data.starts(with: Data("%PDF-".utf8))
+    }
+
+    static func isAnimatableGIF(_ data: Data) -> Bool {
+        data.starts(with: Data("GIF8".utf8))
+    }
+
+    private static func fileExtension(forImageMIME mime: String) -> String {
+        switch mime {
+        case "image/png": return "png"
+        case "image/jpeg": return "jpg"
+        case "image/gif": return "gif"
+        case "image/webp": return "webp"
+        default: return "bmp"
+        }
+    }
+
+    /// Build the staged attachment for picked bytes. A name is synthesized
+    /// when the picker did not provide one (photo-library items).
+    static func attachment(
+        data: Data,
+        suggestedName: String?,
+        sequence: Int
+    ) -> ChatComposerAttachment {
+        let providedName: String? = {
+            let trimmed = suggestedName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed?.isEmpty == false ? trimmed : nil
+        }()
+        if let mime = sniffedImageMIME(data) {
+            return ChatComposerAttachment(
+                kind: .image,
+                filename: providedName ?? "photo-\(sequence).\(fileExtension(forImageMIME: mime))",
+                data: data,
+                mimeType: mime
+            )
+        }
+        if isPDF(data) {
+            return ChatComposerAttachment(
+                kind: .pdf,
+                filename: providedName ?? "document-\(sequence).pdf",
+                data: data,
+                mimeType: "application/pdf"
+            )
+        }
+        return ChatComposerAttachment(
+            kind: .file,
+            filename: providedName ?? "attachment-\(sequence)",
+            data: data,
+            mimeType: "application/octet-stream"
+        )
+    }
+
+    /// Caller-owned recovery copy when the attachment cannot be staged;
+    /// nil means it is acceptable.
+    static func stagingProblem(
+        _ attachment: ChatComposerAttachment,
+        alreadyStaged: Int
+    ) -> String? {
+        guard alreadyStaged < maximumStagedAttachments else {
+            return "Up to \(maximumStagedAttachments) attachments can be sent per message."
+        }
+        guard !attachment.data.isEmpty else {
+            return "\"\(attachment.filename)\" is empty and can't be attached."
+        }
+        guard attachment.data.count <= maximumAttachmentBytes else {
+            let megabytes = maximumAttachmentBytes / (1_024 * 1_024)
+            return "\"\(attachment.filename)\" is larger than the \(megabytes) MB attachment limit."
+        }
+        return nil
+    }
+}
+
+/// Presentation-only record of media the user attached to a sent message.
+/// Previews render from these local bytes; nothing is fetched remotely, and
+/// the bytes never enter the on-disk presentation cache.
+struct TranscriptAttachmentPreview: Identifiable, Equatable {
+    let id: UUID
+    let kind: ChatComposerAttachment.Kind
+    let filename: String
+    let data: Data
+
+    /// Bytes are immutable per preview id, so equality is identity. SwiftUI
+    /// re-compares the whole transcript on every streamed delta; this keeps
+    /// that diff from byte-comparing multi-megabyte media each time.
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.kind == rhs.kind && lhs.filename == rhs.filename
     }
 }
 
@@ -480,13 +639,16 @@ struct TranscriptMessage: Identifiable, Equatable {
     var text: String
     var streaming: Bool
     var assistantParts: [AssistantTurnPart]
+    /// Local previews of media the user sent with this message.
+    var attachments: [TranscriptAttachmentPreview]
 
     init(
         id: UUID = UUID(),
         role: Role,
         text: String,
         streaming: Bool = false,
-        assistantParts: [AssistantTurnPart]? = nil
+        assistantParts: [AssistantTurnPart]? = nil,
+        attachments: [TranscriptAttachmentPreview] = []
     ) {
         self.id = id
         self.role = role
@@ -497,52 +659,7 @@ struct TranscriptMessage: Identifiable, Equatable {
                 ? [AssistantTurnPart(id: "text:\(id.uuidString)", content: .text(text))]
                 : []
         )
-    }
-
-    init?(restoring message: SessionTranscriptMessage) {
-        let restoredReasoning: AssistantTurnPart.Reasoning? = {
-            guard message.role == .assistant,
-                  let source = message.reasoning?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !source.isEmpty else { return nil }
-            return AssistantTurnPart.Reasoning(
-                text: ChatPresentationSafety.sanitized(
-                    source,
-                    maximumCharacters: ChatPresentationSafety.maximumReasoningCharacters
-                ),
-                wasTruncated: source.count > ChatPresentationSafety.maximumReasoningCharacters
-            )
-        }()
-
-        if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            guard let restoredReasoning else { return nil }
-            self.init(role: .info, text: "Thinking…\n\(restoredReasoning.text)")
-            return
-        }
-        let role: Role
-        switch message.role {
-        case .user:
-            role = .user
-        case .assistant:
-            role = .assistant
-        case .system, .tool:
-            // Stored system/tool rows are transcript context, not failures.
-            role = .info
-        }
-        if role == .assistant, let restoredReasoning {
-            self.init(
-                role: role,
-                text: message.text,
-                assistantParts: [
-                    AssistantTurnPart(
-                        id: "reasoning:restored",
-                        content: .reasoning(restoredReasoning)
-                    ),
-                    AssistantTurnPart(id: "text:restored", content: .text(message.text)),
-                ]
-            )
-        } else {
-            self.init(role: role, text: message.text)
-        }
+        self.attachments = attachments
     }
 }
 
@@ -1263,6 +1380,24 @@ struct ChatGatewayOperations {
     let steer: (String, String) async throws -> Bool
     let execSlash: (String, String) async throws -> String?
     let submitLegacyBackground: (String, String) async throws -> String?
+    /// (sessionId, title, preferTypedMethod) → server-confirmed title. Like
+    /// the attach defaults below, this fails closed so a fixture that never
+    /// wired rename cannot fake a successful server rename.
+    var renameSession: (String, String, Bool) async throws -> String = { _, _, _ in
+        throw GatewayClientError.rpc(message: "Renaming is unavailable.")
+    }
+    /// (sessionId, data, filename) → server placeholder line. Defaults fail
+    /// closed so a fixture without attachment support cannot fake an upload.
+    var attachImage: (String, Data, String) async throws -> String = { _, _, _ in
+        throw GatewayClientError.rpc(message: "Attachments are unavailable.")
+    }
+    var attachPDF: (String, Data, String) async throws -> String = { _, _, _ in
+        throw GatewayClientError.rpc(message: "Attachments are unavailable.")
+    }
+    /// (sessionId, data, filename, mimeType) → `@file:` prompt reference.
+    var attachFile: (String, Data, String, String) async throws -> String = { _, _, _, _ in
+        throw GatewayClientError.rpc(message: "Attachments are unavailable.")
+    }
 
     static func live(api: GatewayAPI) -> ChatGatewayOperations {
         ChatGatewayOperations(
@@ -1273,6 +1408,18 @@ struct ChatGatewayOperations {
             execSlash: { try await api.execSlashCommand(sessionId: $0, command: $1) },
             submitLegacyBackground: {
                 try await api.submitBackgroundPrompt(sessionId: $0, text: $1)
+            },
+            renameSession: {
+                try await api.setSessionTitle(sessionId: $0, title: $1, preferTypedMethod: $2)
+            },
+            attachImage: {
+                try await api.attachImageBytes(sessionId: $0, data: $1, filename: $2)
+            },
+            attachPDF: {
+                try await api.attachPDF(sessionId: $0, data: $1, filename: $2)
+            },
+            attachFile: {
+                try await api.attachFile(sessionId: $0, data: $1, filename: $2, mimeType: $3)
             }
         )
     }
@@ -1297,6 +1444,19 @@ final class ChatViewModel {
     private(set) var interactionAccessibilityCue: PendingInteractionAccessibilityCue?
     private(set) var sessionReady = false
     private(set) var sessionError: String?
+    /// Server-confirmed conversation title after a successful rename.
+    private(set) var sessionTitle: String?
+    /// Attachments staged for the next plain prompt.
+    private(set) var pendingAttachments: [ChatComposerAttachment] = []
+    /// True while a send is uploading its staged attachments; the composer
+    /// locks its send action so a second tap cannot start an overlapping
+    /// upload batch.
+    private(set) var isUploadingAttachments = false
+    /// Receipts for uploads that already succeeded within the current staged
+    /// batch, keyed by attachment id. A failed batch keeps its items staged;
+    /// the retry replays these receipts instead of double-queuing the bytes
+    /// on the gateway.
+    private var stagedUploadOutcomes: [UUID: StagedUploadOutcome] = [:]
     /// Server-issued Work namespace that fences durable background mutations
     /// and the in-memory Job recovery path. It does not render a Work UI.
     private(set) var workIdentity: FabricWorkSessionIdentity?
@@ -1637,18 +1797,22 @@ final class ChatViewModel {
         // Never retain raw background prompt text after this chat surface is
         // discarded. Durable public Job summaries remain server-authoritative.
         pendingDurableBackgroundMutations.removeAll()
+        // Staged attachment bytes are draft-local; release them with the
+        // surface instead of holding picked media in memory.
+        pendingAttachments.removeAll()
+        stagedUploadOutcomes.removeAll()
     }
 
     /// Route a composer submit the way the TUI does: a busy turn gets a
     /// steering note, "/..." dispatches a slash command, everything else is
-    /// a normal prompt.
+    /// a normal prompt. Staged attachments ride only the plain-prompt path;
+    /// steering notes and slash commands leave them staged.
     func send(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard unknownSendOutcome == nil,
-              let sessionId,
-              !trimmed.isEmpty else { return }
+        guard unknownSendOutcome == nil, let sessionId else { return }
 
         if busy {
+            guard !trimmed.isEmpty else { return }
             await steer(trimmed)
             return
         }
@@ -1658,6 +1822,7 @@ final class ChatViewModel {
             return
         }
 
+        guard !trimmed.isEmpty || !pendingAttachments.isEmpty else { return }
         _ = await submitPrompt(trimmed, sessionId: sessionId)
     }
 
@@ -1680,16 +1845,122 @@ final class ChatViewModel {
     @discardableResult
     private func submitPrompt(_ trimmed: String, sessionId: String) async -> Bool {
         guard canCall("prompt.submit", action: "Sending messages") else { return false }
-        messages.append(TranscriptMessage(role: .user, text: trimmed))
+        guard !isUploadingAttachments else { return false }
+
+        // Upload staged attachments first: the gateway folds queued images
+        // and PDF pages into this prompt's turn, and file refs must appear in
+        // the prompt text. A failed upload keeps EVERY item staged (already-
+        // confirmed receipts are memoized above) and does not submit a
+        // half-described prompt.
+        let staged = pendingAttachments
+        if !staged.isEmpty {
+            isUploadingAttachments = true
+        }
+        defer { isUploadingAttachments = false }
+        for attachment in staged where stagedUploadOutcomes[attachment.id] == nil {
+            do {
+                stagedUploadOutcomes[attachment.id] =
+                    try await uploadAttachment(attachment, sessionId: sessionId)
+            } catch {
+                messages.append(TranscriptMessage(
+                    role: .system,
+                    text: ChatPresentationSafety.userVisibleFailure(
+                        for: error,
+                        fallback: "\"\(attachment.filename)\" couldn't be attached. It stays ready — send again or remove it."
+                    )
+                ))
+                return false
+            }
+        }
+        let outcomes = staged.compactMap { stagedUploadOutcomes[$0.id] }
+        let placeholders = outcomes.map(\.placeholder)
+        let promptLines = outcomes.filter(\.mustAppearInPrompt).map(\.placeholder)
+        let stagedIDs = Set(staged.map(\.id))
+        pendingAttachments.removeAll { stagedIDs.contains($0.id) }
+        for id in stagedIDs { stagedUploadOutcomes.removeValue(forKey: id) }
+
+        var promptText = trimmed
+        if !promptLines.isEmpty {
+            promptText = (trimmed.isEmpty ? promptLines : [trimmed] + promptLines)
+                .joined(separator: "\n")
+        }
+        if promptText.isEmpty {
+            promptText = placeholders.joined(separator: "\n")
+        }
+        guard !promptText.isEmpty else { return false }
+
+        // The placeholder copy is server-authored; it enters presentation
+        // only redacted and bounded, while the wire prompt keeps the exact
+        // refs the gateway issued.
+        let presentationText = trimmed.isEmpty
+            ? ChatPresentationSafety.sanitized(
+                placeholders.joined(separator: "\n"),
+                maximumCharacters: ChatPresentationSafety.maximumActivityDetailCharacters
+            )
+            : trimmed
+        messages.append(TranscriptMessage(
+            role: .user,
+            text: presentationText,
+            attachments: staged.map {
+                TranscriptAttachmentPreview(
+                    id: $0.id,
+                    kind: $0.kind,
+                    filename: $0.filename,
+                    data: $0.data
+                )
+            }
+        ))
         unknownSendOutcome = nil
         busy = true
         do {
-            try await operations.submitPrompt(sessionId, trimmed)
+            try await operations.submitPrompt(sessionId, promptText)
         } catch {
             busy = false
             recordMutationFailure(error, action: .prompt)
         }
         return true
+    }
+
+    private struct StagedUploadOutcome {
+        let placeholder: String
+        let mustAppearInPrompt: Bool
+    }
+
+    /// Send one staged attachment over its advertised RPC. Images and PDFs
+    /// fall back to the readable `file.attach` path when their dedicated
+    /// vision upload is not advertised, so the agent can still open them.
+    private func uploadAttachment(
+        _ attachment: ChatComposerAttachment,
+        sessionId: String
+    ) async throws -> StagedUploadOutcome {
+        switch attachment.kind {
+        case .image where supportsMethod("image.attach_bytes"):
+            return StagedUploadOutcome(
+                placeholder: try await operations.attachImage(
+                    sessionId, attachment.data, attachment.filename
+                ),
+                mustAppearInPrompt: false
+            )
+        case .pdf where supportsMethod("pdf.attach"):
+            return StagedUploadOutcome(
+                placeholder: try await operations.attachPDF(
+                    sessionId, attachment.data, attachment.filename
+                ),
+                mustAppearInPrompt: false
+            )
+        case .image, .pdf, .file:
+            guard supportsMethod("file.attach") else {
+                throw GatewayClientError.rpc(
+                    message: "Attachments are unavailable on this gateway."
+                )
+            }
+            return StagedUploadOutcome(
+                placeholder: try await operations.attachFile(
+                    sessionId, attachment.data, attachment.filename, attachment.mimeType
+                ),
+                mustAppearInPrompt: true
+            )
+        }
     }
 
     /// Explicitly re-hydrate authoritative history after an ambiguous
@@ -2004,6 +2275,100 @@ final class ChatViewModel {
         try? await api.interrupt(sessionId: sessionId)
     }
 
+    /// Whether the composer should offer media attachments at all. Any of
+    /// the three `files`-family uploads is enough — the upload router picks
+    /// the best advertised RPC per item.
+    var supportsAttachments: Bool {
+        supportsMethod("image.attach_bytes")
+            || supportsMethod("pdf.attach")
+            || supportsMethod("file.attach")
+    }
+
+    /// Stage one picked attachment for the next prompt. Rejections surface
+    /// as transcript notices with caller-owned copy; raw picker errors never
+    /// enter presentation.
+    func stageAttachment(_ attachment: ChatComposerAttachment) {
+        if let problem = ChatAttachmentPolicy.stagingProblem(
+            attachment,
+            alreadyStaged: pendingAttachments.count
+        ) {
+            messages.append(TranscriptMessage(
+                role: .system,
+                text: ChatPresentationSafety.sanitized(
+                    problem,
+                    maximumCharacters: ChatPresentationSafety.maximumActivityDetailCharacters
+                )
+            ))
+            return
+        }
+        pendingAttachments.append(attachment)
+    }
+
+    func removeAttachment(id: UUID) {
+        pendingAttachments.removeAll { $0.id == id }
+        // If this item already uploaded in a failed batch, its bytes stay
+        // queued on the gateway and fold into the next prompt; the client
+        // has no un-queue RPC, so only the local receipt is dropped.
+        stagedUploadOutcomes.removeValue(forKey: id)
+    }
+
+    /// Surface a local ingest problem (unreadable photo, denied file) using
+    /// the same caller-owned-copy contract as other failures.
+    func reportAttachmentProblem(_ copy: String) {
+        messages.append(TranscriptMessage(
+            role: .system,
+            text: ChatPresentationSafety.sanitized(
+                copy,
+                maximumCharacters: ChatPresentationSafety.maximumActivityDetailCharacters
+            )
+        ))
+    }
+
+    /// Whether this conversation can be renamed right now. The typed
+    /// `session.title` RPC and the always-shipped `/title` slash dispatch are
+    /// both accepted; either one is enough. A conversation with no turns yet
+    /// is excluded: its gateway DB row does not exist until the first prompt,
+    /// so a slash-dispatched title would only be queued in the worker and
+    /// silently lost.
+    var canRenameSession: Bool {
+        sessionReady && sessionId != nil
+            && !messages.isEmpty
+            && (supportsMethod("session.title") || supportsMethod("slash.exec"))
+    }
+
+    /// Rename this conversation on the gateway. The confirmed title is
+    /// published through `sessionTitle` so navigation chrome and the session
+    /// list agree with the server. Returns false when the gateway rejected or
+    /// couldn't receive the rename.
+    @discardableResult
+    func renameSession(to rawTitle: String) async -> Bool {
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let sessionId, !title.isEmpty else { return false }
+        let preferTyped = supportsMethod("session.title")
+        guard preferTyped || canCall("slash.exec", action: "Renaming this conversation") else {
+            return false
+        }
+        do {
+            // The confirmed title is server-authored on the typed path;
+            // bound and redact it like every other server string that
+            // reaches presentation.
+            sessionTitle = ChatPresentationSafety.sanitized(
+                try await operations.renameSession(sessionId, title, preferTyped),
+                maximumCharacters: 200
+            )
+            return true
+        } catch {
+            messages.append(TranscriptMessage(
+                role: .system,
+                text: ChatPresentationSafety.userVisibleFailure(
+                    for: error,
+                    fallback: "The conversation couldn't be renamed. Check the gateway connection, then try again."
+                )
+            ))
+            return false
+        }
+    }
+
     func respondToApproval(choice: ApprovalChoice) async {
         guard canCall("approval.respond", action: "Approval responses") else { return }
         guard let sessionId, let approval = pendingApproval else { return }
@@ -2274,8 +2639,104 @@ final class ChatViewModel {
         presentationCache.replace(key: key, messages: messages)
     }
 
+    /// Rebuild a renderable transcript from a resume snapshot with the same
+    /// shape a live stream would have produced: stored tool rows become
+    /// completed activity cards inside their assistant turn, and stored
+    /// reasoning becomes the turn's disclosure — instead of the flat mono
+    /// "ledger rows" that made reopened conversations look degraded.
     static func restoredMessages(from live: LiveSession) -> [TranscriptMessage] {
-        var restored = live.messages.compactMap(TranscriptMessage.init(restoring:))
+        var restored: [TranscriptMessage] = []
+        var pendingParts: [AssistantTurnPart] = []
+        var partSequence = 0
+
+        func nextPartID(_ prefix: String) -> String {
+            partSequence += 1
+            return "restored-\(prefix):\(partSequence)"
+        }
+
+        func appendPendingPart(_ part: AssistantTurnPart) {
+            pendingParts.append(part)
+            // The same activity bound the live reducer enforces; text parts
+            // never accumulate here, so a plain count check is equivalent.
+            if pendingParts.count > AssistantTurnReducer.maximumActivityParts {
+                pendingParts.removeFirst(
+                    pendingParts.count - AssistantTurnReducer.maximumActivityParts
+                )
+            }
+        }
+
+        func flushPendingParts() {
+            guard !pendingParts.isEmpty else { return }
+            restored.append(TranscriptMessage(
+                role: .assistant,
+                text: "",
+                assistantParts: pendingParts
+            ))
+            pendingParts.removeAll()
+        }
+
+        func reasoningPart(_ source: String?) -> AssistantTurnPart? {
+            guard let trimmed = source?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else { return nil }
+            return AssistantTurnPart(
+                id: nextPartID("reasoning"),
+                content: .reasoning(.init(
+                    text: ChatPresentationSafety.sanitized(
+                        trimmed,
+                        maximumCharacters: ChatPresentationSafety.maximumReasoningCharacters
+                    ),
+                    wasTruncated: trimmed.count > ChatPresentationSafety.maximumReasoningCharacters
+                ))
+            )
+        }
+
+        for message in live.messages {
+            switch message.role {
+            case .tool:
+                appendPendingPart(AssistantTurnPart(
+                    id: nextPartID("tool"),
+                    content: .tool(.init(
+                        callID: nil,
+                        name: ChatPresentationSafety.toolName(message.toolName),
+                        detail: ChatPresentationSafety.activityDetail(message.text),
+                        state: .complete,
+                        durationSeconds: nil
+                    ))
+                ))
+            case .assistant:
+                let reasoning = reasoningPart(message.reasoning)
+                if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // A reasoning-only turn (extended thinking) stays a
+                    // disclosure inside the turn it introduced.
+                    if let reasoning { appendPendingPart(reasoning) }
+                } else {
+                    var parts = pendingParts
+                    pendingParts.removeAll()
+                    if let reasoning { parts.append(reasoning) }
+                    parts.append(AssistantTurnPart(
+                        id: nextPartID("text"),
+                        content: .text(message.text)
+                    ))
+                    // The appended reasoning can push the turn one past the
+                    // activity bound; apply the live reducer's exact trim.
+                    AssistantTurnReducer.trimActivityParts(in: &parts)
+                    restored.append(TranscriptMessage(
+                        role: .assistant,
+                        text: message.text,
+                        assistantParts: parts
+                    ))
+                }
+            case .user:
+                flushPendingParts()
+                restored.append(TranscriptMessage(role: .user, text: message.text))
+            case .system:
+                // Stored system rows are transcript context, not failures.
+                flushPendingParts()
+                restored.append(TranscriptMessage(role: .info, text: message.text))
+            }
+        }
+        flushPendingParts()
+
         if let inflight = live.inflight {
             if !inflight.user.isEmpty {
                 restored.append(TranscriptMessage(role: .user, text: inflight.user))

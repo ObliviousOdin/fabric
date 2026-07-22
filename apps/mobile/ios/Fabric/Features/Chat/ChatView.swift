@@ -1,5 +1,9 @@
+import ImageIO
+import PhotosUI
+import QuickLook
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// Chat transcript + composer for one Fabric session, with the same
 /// dispatch/remote-control surface the TUI composer exposes: slash
@@ -15,6 +19,8 @@ struct ChatView: View {
     @State private var model: ChatViewModel?
     @State private var draft = ""
     @State private var initialPromptDispatch: InitialPromptDispatch
+    @State private var showRenamePrompt = false
+    @State private var renameDraft = ""
 
     init(
         resumeStoredSessionId: String?,
@@ -51,8 +57,39 @@ struct ChatView: View {
                 ProgressView()
             }
         }
-        .navigationTitle(title)
+        .navigationTitle(model?.sessionTitle ?? title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let model, model.canRenameSession {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        renameDraft = model.sessionTitle
+                            ?? (title == "New chat" ? "" : title)
+                        showRenamePrompt = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .frame(
+                                minWidth: FabricTheme.minTarget,
+                                minHeight: FabricTheme.minTarget
+                            )
+                    }
+                    .accessibilityLabel("Rename conversation")
+                    .accessibilityHint("Sets the name shown for this conversation on every device")
+                }
+            }
+        }
+        .alert("Rename conversation", isPresented: $showRenamePrompt) {
+            TextField("Conversation name", text: $renameDraft)
+            Button("Save") {
+                let model = model
+                let newTitle = renameDraft
+                Task { await model?.renameSession(to: newTitle) }
+            }
+            .disabled(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The name is saved on the Fabric gateway, so it appears in every session list.")
+        }
         .task(id: appModel.connectionGeneration) {
             if model == nil {
                 let vm = ChatViewModel(
@@ -164,6 +201,10 @@ private struct ChatContentView: View {
     @State private var showLiveView = false
     @State private var promptAnswer = ""
     @State private var liveViewModel: LiveViewModel
+    @State private var showPhotoPicker = false
+    @State private var showFileImporter = false
+    @State private var photoSelection: [PhotosPickerItem] = []
+    @State private var attachmentSequence = 0
     @AccessibilityFocusState private var focusedInteractionIdentity: String?
 
     init(
@@ -247,6 +288,21 @@ private struct ChatContentView: View {
                         }
                     }
                 }
+            } else if !model.sessionReady && model.messages.isEmpty {
+                // Opening an old conversation previously showed an empty
+                // transcript with a disabled composer and no explanation
+                // while `session.resume` was in flight.
+                VStack(spacing: 10) {
+                    Spacer()
+                    ProgressView()
+                    Text("Opening conversation…")
+                        .font(.footnote)
+                        .foregroundStyle(FabricTheme.textMuted)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Opening conversation")
             } else {
                 transcript
             }
@@ -287,9 +343,122 @@ private struct ChatContentView: View {
             focusedInteractionIdentity = cue.identity
             UIAccessibility.post(notification: .announcement, argument: cue.announcement)
         }
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $photoSelection,
+            maxSelectionCount: ChatAttachmentPolicy.maximumStagedAttachments,
+            matching: .images
+        )
+        .onChange(of: photoSelection) { _, items in
+            guard !items.isEmpty else { return }
+            photoSelection = []
+            Task { await ingestPhotoPickerItems(items) }
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            ingestFileImporterResult(result)
+        }
         .onDisappear {
             liveViewModel.disappear()
+            // Reap Quick Look temp files, including any orphaned by an app
+            // kill mid-preview in an earlier session of this surface.
+            AttachmentPreviewStore.removeAllTemporaryFiles()
         }
+    }
+
+    // MARK: - Attachment ingest
+
+    private func nextAttachmentSequence() -> Int {
+        attachmentSequence += 1
+        return attachmentSequence
+    }
+
+    private func ingestPhotoPickerItems(_ items: [PhotosPickerItem]) async {
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self),
+                  !data.isEmpty else {
+                model.reportAttachmentProblem(
+                    "A selected photo couldn't be loaded. Try picking it again."
+                )
+                continue
+            }
+            stagePickedData(data, suggestedName: nil)
+        }
+    }
+
+    private func ingestFileImporterResult(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result else { return }
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            // Reject oversized picks from metadata before reading a byte, so
+            // a multi-gigabyte selection cannot balloon memory just to earn
+            // the friendly size-limit copy.
+            let reportedSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+            if let reportedSize, reportedSize > ChatAttachmentPolicy.maximumAttachmentBytes {
+                let megabytes = ChatAttachmentPolicy.maximumAttachmentBytes / (1_024 * 1_024)
+                model.reportAttachmentProblem(
+                    "\"\(url.lastPathComponent)\" is larger than the \(megabytes) MB attachment limit."
+                )
+                continue
+            }
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), !data.isEmpty else {
+                model.reportAttachmentProblem(
+                    "\"\(url.lastPathComponent)\" couldn't be read. Try picking it again."
+                )
+                continue
+            }
+            stagePickedData(data, suggestedName: url.lastPathComponent)
+        }
+    }
+
+    /// Stage picked bytes, converting image formats the gateway's vision
+    /// path cannot ingest (HEIC photo-library images, TIFF) to JPEG first.
+    /// Every server-supported format stays byte-identical — animated GIFs in
+    /// particular.
+    private func stagePickedData(_ data: Data, suggestedName: String?) {
+        var payload = data
+        var name = suggestedName
+        if ChatAttachmentPolicy.sniffedImageMIME(data) == nil,
+           !ChatAttachmentPolicy.isPDF(data),
+           data.count <= ChatAttachmentPolicy.maximumAttachmentBytes,
+           let jpeg = Self.transcodedJPEG(from: data) {
+            payload = jpeg
+            name = suggestedName.map { ($0 as NSString).deletingPathExtension + ".jpg" }
+        }
+        model.stageAttachment(ChatAttachmentPolicy.attachment(
+            data: payload,
+            suggestedName: name,
+            sequence: nextAttachmentSequence()
+        ))
+    }
+
+    /// Convert through ImageIO's bounded thumbnail decoder — never a
+    /// full-resolution raster pass — so a crafted dimension bomb cannot
+    /// exhaust memory the way `UIImage(data:)` would (the ScreenCapture
+    /// validation precedent). 4096 px preserves more detail than the vision
+    /// pipeline consumes. Non-image bytes cheaply return nil and stage as a
+    /// plain file instead.
+    private static func transcodedJPEG(from data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(
+            data as CFData,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ), CGImageSourceGetCount(source) >= 1,
+           let frame = CGImageSourceCreateThumbnailAtIndex(
+               source,
+               0,
+               [
+                   kCGImageSourceCreateThumbnailFromImageAlways: true,
+                   kCGImageSourceCreateThumbnailWithTransform: true,
+                   kCGImageSourceThumbnailMaxPixelSize: 4_096,
+                   kCGImageSourceShouldCache: false,
+               ] as CFDictionary
+           )
+        else { return nil }
+        return UIImage(cgImage: frame).jpegData(compressionQuality: 0.85)
     }
 
     private var transcript: some View {
@@ -384,6 +553,13 @@ private struct ChatContentView: View {
             )
         }
 
+        if !model.pendingAttachments.isEmpty {
+            PendingAttachmentStrip(
+                attachments: model.pendingAttachments,
+                onRemove: { model.removeAttachment(id: $0) }
+            )
+        }
+
         ChatComposerBar(
             draft: $draft,
             busy: model.busy,
@@ -391,7 +567,12 @@ private struct ChatContentView: View {
             hasUnknownSendOutcome: model.unknownSendOutcome != nil,
             supportsMethod: model.supportsGatewayMethod,
             onSend: { text in Task { await model.send(text) } },
-            onInterrupt: { Task { await model.interrupt() } }
+            onInterrupt: { Task { await model.interrupt() } },
+            supportsAttachments: model.supportsAttachments,
+            hasStagedAttachments: !model.pendingAttachments.isEmpty,
+            uploadLocked: model.isUploadingAttachments,
+            onAttachPhotos: { showPhotoPicker = true },
+            onAttachFiles: { showFileImporter = true }
         )
     }
 
@@ -703,6 +884,8 @@ private struct ChatActionStrip: View {
 /// fixture interaction, accessibility labels, command dispatch gating, and
 /// minimum target sizes aligned with the shipping surface.
 private struct ChatComposerBar: View {
+    @FocusState private var draftFocused: Bool
+
     @Binding var draft: String
     let busy: Bool
     let sessionReady: Bool
@@ -710,15 +893,45 @@ private struct ChatComposerBar: View {
     let supportsMethod: (String) -> Bool
     let onSend: (String) -> Void
     let onInterrupt: () -> Void
+    var supportsAttachments = false
+    var hasStagedAttachments = false
+    /// True while a send's attachment uploads are in flight: the send action
+    /// locks so a second tap cannot start an overlapping upload batch.
+    var uploadLocked = false
+    var onAttachPhotos: () -> Void = {}
+    var onAttachFiles: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 8) {
+            if supportsAttachments {
+                Menu {
+                    Button {
+                        onAttachPhotos()
+                    } label: {
+                        Label("Photo Library", systemImage: "photo.on.rectangle")
+                    }
+                    Button {
+                        onAttachFiles()
+                    } label: {
+                        Label("Choose Files", systemImage: "folder")
+                    }
+                } label: {
+                    Image(systemName: "paperclip")
+                        .font(.title3)
+                        .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
+                }
+                .accessibilityLabel("Add attachment")
+                .accessibilityHint("Attach photos, GIFs, PDFs, or files to your next message")
+                .disabled(!sessionReady || hasUnknownSendOutcome || busy || uploadLocked)
+            }
+
             TextField(
                 busy ? "Steer the running turn…" : "Message Fabric… (/ for commands)",
                 text: $draft,
                 axis: .vertical
             )
             .textFieldStyle(.roundedBorder)
+            .focused($draftFocused)
             .lineLimit(1...5)
             .frame(minHeight: FabricTheme.minTarget)
             .accessibilityIdentifier("chat-composer")
@@ -759,7 +972,8 @@ private struct ChatComposerBar: View {
                 .disabled(
                     !sessionReady
                         || hasUnknownSendOutcome
-                        || trimmedDraft.isEmpty
+                        || uploadLocked
+                        || (trimmedDraft.isEmpty && !hasStagedAttachments)
                         || !supportsMethod(draftDispatchMethod)
                 )
             }
@@ -776,12 +990,14 @@ private struct ChatComposerBar: View {
 
     private var draftDispatchMethod: String {
         if busy { return "session.steer" }
-        return trimmedDraft.hasPrefix("/") ? "slash.exec" : "prompt.submit"
+        if trimmedDraft.hasPrefix("/") { return "slash.exec" }
+        return "prompt.submit"
     }
 
     private func submitDraft() {
         let text = draft
         draft = ""
+        draftFocused = false
         onSend(text)
     }
 }
@@ -1289,6 +1505,7 @@ struct TranscriptView: View {
                 )
             }
             .coordinateSpace(.named(TranscriptScroll.coordinateSpace))
+            .scrollDismissesKeyboard(.interactively)
             .background(
                 GeometryReader { geometry in
                     Color.clear.preference(
@@ -1389,15 +1606,20 @@ private struct MessageBubble: View {
         case .user:
             HStack {
                 Spacer(minLength: 40)
-                Text(message.text)
-                    .font(.subheadline)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(FabricTheme.action)
-                    .foregroundStyle(FabricTheme.textOnBrand)
-                    .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radiusLarge))
-                    .accessibilityLabel("You")
-                    .accessibilityValue(message.text)
+                VStack(alignment: .trailing, spacing: 6) {
+                    if !message.attachments.isEmpty {
+                        UserAttachmentGallery(attachments: message.attachments)
+                    }
+                    Text(message.text)
+                        .font(.subheadline)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(FabricTheme.action)
+                        .foregroundStyle(FabricTheme.textOnBrand)
+                        .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radiusLarge))
+                        .accessibilityLabel("You")
+                        .accessibilityValue(message.text)
+                }
             }
         case .assistant:
             HStack(alignment: .top) {
@@ -2320,5 +2542,268 @@ private struct TechnicalTranscriptBlock: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radius))
         .accessibilityElement(children: .contain)
+    }
+}
+
+// MARK: - Attachment presentation
+
+/// Horizontally scrolling previews of media staged for the next message.
+private struct PendingAttachmentStrip: View {
+    let attachments: [ChatComposerAttachment]
+    let onRemove: (UUID) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(attachments) { attachment in
+                    ZStack(alignment: .topTrailing) {
+                        PendingAttachmentTile(attachment: attachment)
+                        Button {
+                            onRemove(attachment.id)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.body)
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(FabricTheme.text, FabricTheme.surfaceRaised)
+                                .frame(minWidth: 28, minHeight: 28)
+                        }
+                        .accessibilityLabel("Remove \(attachment.filename)")
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 6)
+        }
+        .background(FabricTheme.surfaceRaised)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Attachments ready to send")
+    }
+}
+
+private struct PendingAttachmentTile: View {
+    let attachment: ChatComposerAttachment
+
+    var body: some View {
+        Group {
+            if attachment.kind == .image {
+                BoundedImageView(data: attachment.data, contentMode: .scaleAspectFill)
+                    .frame(width: 72, height: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radius))
+            } else {
+                VStack(spacing: 4) {
+                    Image(systemName: attachment.kind == .pdf ? "doc.richtext" : "doc")
+                        .font(.title3)
+                        .foregroundStyle(FabricTheme.action)
+                    Text(attachment.filename)
+                        .font(.caption2)
+                        .foregroundStyle(FabricTheme.textMuted)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(6)
+                .frame(width: 96, height: 72)
+                .background(FabricTheme.surfaceInset)
+                .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radius))
+            }
+        }
+        .accessibilityLabel(attachment.filename)
+    }
+}
+
+/// Media the user sent with a message, rendered from the local bytes —
+/// nothing is fetched over the network. Tapping opens the system Quick Look
+/// preview (pinch zoom, animated GIF playback, full PDF reader).
+private struct UserAttachmentGallery: View {
+    let attachments: [TranscriptAttachmentPreview]
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            ForEach(attachments) { attachment in
+                TranscriptAttachmentView(attachment: attachment)
+            }
+        }
+    }
+}
+
+private struct TranscriptAttachmentView: View {
+    let attachment: TranscriptAttachmentPreview
+    @State private var previewURL: URL?
+
+    var body: some View {
+        Button {
+            previewURL = AttachmentPreviewStore.writeTemporaryFile(
+                data: attachment.data,
+                filename: attachment.filename
+            )
+        } label: {
+            if attachment.kind == .image {
+                BoundedImageView(data: attachment.data, contentMode: .scaleAspectFit)
+                    .frame(maxWidth: 220)
+                    .frame(height: 160)
+                    .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radiusLarge))
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: attachment.kind == .pdf ? "doc.richtext" : "doc")
+                        .foregroundStyle(FabricTheme.action)
+                    Text(attachment.filename)
+                        .font(.caption)
+                        .foregroundStyle(FabricTheme.text)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(FabricTheme.surfaceInset)
+                .clipShape(Capsule())
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: FabricTheme.minTarget)
+        .accessibilityLabel(accessibilityDescription)
+        .accessibilityHint("Opens a full-screen preview")
+        .quickLookPreview($previewURL)
+        .onChange(of: previewURL) { previous, current in
+            if current == nil {
+                AttachmentPreviewStore.removeTemporaryFile(previous)
+            }
+        }
+    }
+
+    private var accessibilityDescription: String {
+        switch attachment.kind {
+        case .image: return "Attached image \(attachment.filename)"
+        case .pdf: return "Attached PDF \(attachment.filename)"
+        case .file: return "Attached file \(attachment.filename)"
+        }
+    }
+}
+
+/// Writes attachment bytes to a protected app-temporary file so Quick Look
+/// can present them; the file is removed as soon as the preview dismisses.
+private enum AttachmentPreviewStore {
+    static func writeTemporaryFile(data: Data, filename: String) -> URL? {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AttachmentPreviews", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.complete]
+        )
+        let safeName = filename
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "\\", with: "_")
+        let url = directory.appendingPathComponent(
+            UUID().uuidString + "-" + (safeName.isEmpty ? "attachment" : safeName)
+        )
+        do {
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    static func removeTemporaryFile(_ url: URL?) {
+        guard let url else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Remove the whole preview directory. iOS only purges tmp under
+    /// storage pressure, so surface teardown sweeps deterministically.
+    static func removeAllTemporaryFiles() {
+        try? FileManager.default.removeItem(
+            at: FileManager.default.temporaryDirectory
+                .appendingPathComponent("AttachmentPreviews", isDirectory: true)
+        )
+    }
+}
+
+/// Renders local image bytes, animating multi-frame GIFs. SwiftUI's `Image`
+/// cannot play GIF data; `UIImageView` can, given the decoded frames. Every
+/// frame is decoded through ImageIO's thumbnail path at a bounded pixel size,
+/// and animation stops adding frames at a fixed decoded-byte budget, so even
+/// a pathological GIF cannot balloon transcript memory. Only bytes the user
+/// picked on this device ever reach this view.
+private struct BoundedImageView: UIViewRepresentable {
+    /// Frames render at most this many pixels on their long edge — plenty for
+    /// a transcript preview; Quick Look shows the full-resolution original.
+    static let maximumFramePixelSize = 1_024
+    /// Total decoded animation budget (RGBA bytes across kept frames).
+    static let maximumAnimatedDecodedBytes = 48 * 1_024 * 1_024
+    static let maximumGIFFrames = 120
+
+    let data: Data
+    let contentMode: UIView.ContentMode
+
+    func makeUIView(context: Context) -> UIImageView {
+        let view = UIImageView()
+        view.contentMode = contentMode
+        view.clipsToBounds = true
+        view.isAccessibilityElement = false
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        view.image = Self.decodedImage(from: data)
+        return view
+    }
+
+    func updateUIView(_ view: UIImageView, context: Context) {
+        view.contentMode = contentMode
+        if view.image == nil {
+            view.image = Self.decodedImage(from: data)
+        }
+    }
+
+    static func decodedImage(from data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(
+            data as CFData,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ) else { return nil }
+
+        let frameCount = CGImageSourceGetCount(source)
+        guard ChatAttachmentPolicy.isAnimatableGIF(data), frameCount > 1 else {
+            return boundedFrame(source: source, index: 0).map(UIImage.init(cgImage:))
+        }
+
+        var frames: [UIImage] = []
+        var duration: Double = 0
+        var decodedBytes = 0
+        for index in 0..<min(frameCount, maximumGIFFrames) {
+            guard let frame = boundedFrame(source: source, index: index) else { continue }
+            decodedBytes += frame.width * frame.height * 4
+            guard frames.isEmpty || decodedBytes <= maximumAnimatedDecodedBytes else { break }
+            frames.append(UIImage(cgImage: frame))
+            duration += frameDelay(source: source, index: index)
+        }
+        guard let first = frames.first else { return nil }
+        guard frames.count > 1 else { return first }
+        return UIImage.animatedImage(
+            with: frames,
+            duration: max(duration, 0.04 * Double(frames.count))
+        )
+    }
+
+    private static func boundedFrame(source: CGImageSource, index: Int) -> CGImage? {
+        CGImageSourceCreateThumbnailAtIndex(
+            source,
+            index,
+            [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maximumFramePixelSize,
+                kCGImageSourceShouldCache: false,
+            ] as CFDictionary
+        )
+    }
+
+    private static func frameDelay(source: CGImageSource, index: Int) -> Double {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+              let gif = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any]
+        else { return 0.1 }
+        let delay = (gif[kCGImagePropertyGIFUnclampedDelayTime] as? NSNumber)?.doubleValue
+            ?? (gif[kCGImagePropertyGIFDelayTime] as? NSNumber)?.doubleValue
+            ?? 0.1
+        // Browsers normalize near-zero GIF delays the same way.
+        return delay < 0.02 ? 0.1 : delay
     }
 }

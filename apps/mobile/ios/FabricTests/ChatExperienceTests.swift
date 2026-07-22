@@ -236,12 +236,21 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertEqual(reasoning.text, "Final reasoning summary")
     }
 
+    @MainActor
     func testRestoredAssistantTextRetainsReasoningBeforeTheAnswer() throws {
-        let message = try XCTUnwrap(TranscriptMessage(restoring: SessionTranscriptMessage(
-            role: .assistant,
-            text: "Ready to ship.",
-            reasoning: "Checked the release gates."
-        )))
+        let live = LiveSession(
+            sessionId: "runtime-1",
+            storedSessionId: "stored-1",
+            messages: [
+                SessionTranscriptMessage(
+                    role: .assistant,
+                    text: "Ready to ship.",
+                    reasoning: "Checked the release gates."
+                ),
+            ]
+        )
+
+        let message = try XCTUnwrap(ChatViewModel.restoredMessages(from: live).first)
 
         XCTAssertEqual(message.role, .assistant)
         XCTAssertEqual(message.text, "Ready to ship.")
@@ -255,14 +264,23 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertEqual(text, "Ready to ship.")
     }
 
+    @MainActor
     func testRestoredReasoningIsRedactedAndBounded() throws {
         let source = "token=restore-secret "
             + String(repeating: "r", count: ChatPresentationSafety.maximumReasoningCharacters + 500)
-        let message = try XCTUnwrap(TranscriptMessage(restoring: SessionTranscriptMessage(
-            role: .assistant,
-            text: "A bounded answer.",
-            reasoning: source
-        )))
+        let live = LiveSession(
+            sessionId: "runtime-1",
+            storedSessionId: "stored-1",
+            messages: [
+                SessionTranscriptMessage(
+                    role: .assistant,
+                    text: "A bounded answer.",
+                    reasoning: source
+                ),
+            ]
+        )
+
+        let message = try XCTUnwrap(ChatViewModel.restoredMessages(from: live).first)
 
         guard case .reasoning(let reasoning) = message.assistantParts.first?.content else {
             return XCTFail("Expected restored reasoning disclosure")
@@ -1094,6 +1112,262 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertTrue(follow.showsJumpToLatest)
     }
 
+    func testSlashRenameRequiresPositiveGatewayConfirmation() throws {
+        XCTAssertEqual(
+            try GatewayAPI.confirmedSlashSessionTitle(
+                from: "  Session title set: Release readiness  "
+            ),
+            "Release readiness"
+        )
+
+        let rejectedOutputs = [
+            "Title too long (101 chars, max 100)",
+            "Title is empty after cleanup. Please use printable characters.",
+            "Title 'Release readiness' is already in use by session other",
+            "Session not found in database.",
+            "Session title queued: Release readiness (will be saved on first message)",
+            "(no output)",
+        ]
+        for output in rejectedOutputs {
+            XCTAssertThrowsError(
+                try GatewayAPI.confirmedSlashSessionTitle(from: output),
+                "Unexpected confirmation for: \(output)"
+            )
+        }
+    }
+
+    @MainActor
+    func testRenamePrefersTypedMethodAndPublishesConfirmedTitle() async {
+        let recorder = RenameRecorder()
+        var operations = makeOperations(counter: ChatMutationCounter(), failure: .socketClosed)
+        operations.renameSession = { _, title, preferTyped in
+            recorder.record(title: title, preferTyped: preferTyped)
+            return "Server: \(title)"
+        }
+        let model = makeModel(
+            methods: ["session.create", "prompt.submit", "session.title", "slash.exec"],
+            operations: operations
+        )
+        await model.start()
+
+        let renamed = await model.renameSession(to: "  Release readiness  ")
+
+        XCTAssertTrue(renamed)
+        XCTAssertEqual(recorder.titles, ["Release readiness"])
+        XCTAssertEqual(recorder.preferTyped, [true])
+        XCTAssertEqual(model.sessionTitle, "Server: Release readiness")
+    }
+
+    @MainActor
+    func testRenameFallsBackToSlashDispatchWhenTypedMethodIsAbsent() async {
+        let recorder = RenameRecorder()
+        var operations = makeOperations(counter: ChatMutationCounter(), failure: .socketClosed)
+        operations.renameSession = { _, title, preferTyped in
+            recorder.record(title: title, preferTyped: preferTyped)
+            return title
+        }
+        let model = makeModel(
+            methods: ["session.create", "prompt.submit", "slash.exec"],
+            operations: operations
+        )
+        await model.start()
+
+        let renamed = await model.renameSession(to: "Sprint notes")
+
+        XCTAssertTrue(renamed)
+        XCTAssertEqual(recorder.preferTyped, [false])
+        XCTAssertEqual(model.sessionTitle, "Sprint notes")
+        // The rename affordance itself stays hidden until the conversation
+        // has a turn: a rowless draft's slash title would be queued and lost.
+        XCTAssertFalse(model.canRenameSession)
+    }
+
+    @MainActor
+    func testRenameFailureKeepsTitleAndAppendsRecoveryCopyWithoutRawError() async {
+        var operations = makeOperations(counter: ChatMutationCounter(), failure: .socketClosed)
+        operations.renameSession = { _, _, _ in
+            throw GatewayClientError.rpc(message: "boom token=raw-secret")
+        }
+        let model = makeModel(
+            methods: ["session.create", "prompt.submit", "slash.exec"],
+            operations: operations
+        )
+        await model.start()
+
+        let renamed = await model.renameSession(to: "New name")
+
+        XCTAssertFalse(renamed)
+        XCTAssertNil(model.sessionTitle)
+        let notice = model.messages.last
+        XCTAssertEqual(notice?.role, .system)
+        XCTAssertEqual(notice?.text.contains("raw-secret"), false)
+        XCTAssertEqual(notice?.text.contains("renamed"), true)
+    }
+
+    @MainActor
+    func testAttachmentsUploadBeforePromptAndFileRefsEnterPromptText() async {
+        let uploads = AttachmentUploadRecorder()
+        var operations = makeSucceedingOperations(recorder: uploads)
+        operations.attachImage = { _, _, filename in
+            uploads.imageFilenames.append(filename)
+            return "[User attached image: \(filename)]"
+        }
+        operations.attachFile = { _, _, filename, _ in
+            uploads.fileFilenames.append(filename)
+            return "@file:\(filename)"
+        }
+        let model = makeModel(
+            methods: ["session.create", "prompt.submit", "image.attach_bytes", "file.attach"],
+            operations: operations
+        )
+        await model.start()
+
+        model.stageAttachment(ChatComposerAttachment(
+            kind: .image,
+            filename: "build.gif",
+            data: Data("GIF89a-fixture".utf8),
+            mimeType: "image/gif"
+        ))
+        model.stageAttachment(ChatComposerAttachment(
+            kind: .file,
+            filename: "notes.txt",
+            data: Data("notes".utf8),
+            mimeType: "application/octet-stream"
+        ))
+        await model.send("Look at this")
+
+        XCTAssertEqual(uploads.imageFilenames, ["build.gif"])
+        XCTAssertEqual(uploads.fileFilenames, ["notes.txt"])
+        XCTAssertEqual(uploads.submittedPrompts, ["Look at this\n@file:notes.txt"])
+        XCTAssertTrue(model.pendingAttachments.isEmpty)
+        let userRow = model.messages.last { $0.role == .user }
+        XCTAssertEqual(userRow?.text, "Look at this")
+        XCTAssertEqual(userRow?.attachments.map(\.filename), ["build.gif", "notes.txt"])
+    }
+
+    @MainActor
+    func testFailedAttachmentUploadKeepsItemStagedAndDoesNotSubmit() async {
+        let uploads = AttachmentUploadRecorder()
+        var operations = makeSucceedingOperations(recorder: uploads)
+        operations.attachImage = { _, _, _ in
+            throw GatewayClientError.rpc(message: "disk full token=raw-secret")
+        }
+        let model = makeModel(
+            methods: ["session.create", "prompt.submit", "image.attach_bytes"],
+            operations: operations
+        )
+        await model.start()
+
+        model.stageAttachment(ChatComposerAttachment(
+            kind: .image,
+            filename: "photo.png",
+            data: Data([0x89, 0x50, 0x4E, 0x47]),
+            mimeType: "image/png"
+        ))
+        await model.send("See the photo")
+
+        XCTAssertTrue(uploads.submittedPrompts.isEmpty)
+        XCTAssertEqual(model.pendingAttachments.map(\.filename), ["photo.png"])
+        XCTAssertFalse(model.messages.contains { $0.role == .user })
+        let notice = model.messages.last
+        XCTAssertEqual(notice?.role, .system)
+        XCTAssertEqual(notice?.text.contains("raw-secret"), false)
+        XCTAssertEqual(notice?.text.contains("photo.png"), true)
+    }
+
+    @MainActor
+    func testAttachmentOnlySendUsesServerPlaceholderAsPromptText() async {
+        let uploads = AttachmentUploadRecorder()
+        var operations = makeSucceedingOperations(recorder: uploads)
+        operations.attachImage = { _, _, filename in "[User attached image: \(filename)]" }
+        let model = makeModel(
+            methods: ["session.create", "prompt.submit", "image.attach_bytes"],
+            operations: operations
+        )
+        await model.start()
+
+        model.stageAttachment(ChatComposerAttachment(
+            kind: .image,
+            filename: "demo.gif",
+            data: Data("GIF89a".utf8),
+            mimeType: "image/gif"
+        ))
+        await model.send("   ")
+
+        XCTAssertEqual(uploads.submittedPrompts, ["[User attached image: demo.gif]"])
+        let userRow = model.messages.last { $0.role == .user }
+        XCTAssertEqual(userRow?.text, "[User attached image: demo.gif]")
+        XCTAssertEqual(userRow?.attachments.count, 1)
+    }
+
+    func testAttachmentPolicyClassifiesByTheServerMagicBytes() {
+        let gif = ChatAttachmentPolicy.attachment(
+            data: Data("GIF89a....".utf8),
+            suggestedName: nil,
+            sequence: 1
+        )
+        XCTAssertEqual(gif.kind, .image)
+        XCTAssertEqual(gif.mimeType, "image/gif")
+        XCTAssertEqual(gif.filename, "photo-1.gif")
+        XCTAssertTrue(ChatAttachmentPolicy.isAnimatableGIF(gif.data))
+
+        let pdf = ChatAttachmentPolicy.attachment(
+            data: Data("%PDF-1.7 fixture".utf8),
+            suggestedName: "Report.PDF",
+            sequence: 2
+        )
+        XCTAssertEqual(pdf.kind, .pdf)
+        XCTAssertEqual(pdf.filename, "Report.PDF")
+
+        let other = ChatAttachmentPolicy.attachment(
+            data: Data("plain text".utf8),
+            suggestedName: "notes.txt",
+            sequence: 3
+        )
+        XCTAssertEqual(other.kind, .file)
+        XCTAssertEqual(other.mimeType, "application/octet-stream")
+    }
+
+    @MainActor
+    func testStagingRejectsOversizedAndOvercountedAttachmentsWithNotices() async {
+        let model = makeModel(
+            methods: ["session.create", "prompt.submit", "image.attach_bytes"],
+            operations: makeOperations(counter: ChatMutationCounter(), failure: .socketClosed)
+        )
+        await model.start()
+
+        let oversized = ChatComposerAttachment(
+            kind: .image,
+            filename: "huge.png",
+            data: Data(count: ChatAttachmentPolicy.maximumAttachmentBytes + 1),
+            mimeType: "image/png"
+        )
+        model.stageAttachment(oversized)
+        XCTAssertTrue(model.pendingAttachments.isEmpty)
+        XCTAssertEqual(model.messages.last?.role, .system)
+        XCTAssertEqual(model.messages.last?.text.contains("huge.png"), true)
+
+        for index in 0..<ChatAttachmentPolicy.maximumStagedAttachments {
+            model.stageAttachment(ChatComposerAttachment(
+                kind: .file,
+                filename: "file-\(index)",
+                data: Data("x".utf8),
+                mimeType: "application/octet-stream"
+            ))
+        }
+        model.stageAttachment(ChatComposerAttachment(
+            kind: .file,
+            filename: "one-too-many",
+            data: Data("x".utf8),
+            mimeType: "application/octet-stream"
+        ))
+        XCTAssertEqual(
+            model.pendingAttachments.count,
+            ChatAttachmentPolicy.maximumStagedAttachments
+        )
+        XCTAssertFalse(model.pendingAttachments.contains { $0.filename == "one-too-many" })
+    }
+
     @MainActor
     private func makeModel(
         methods: Set<String>,
@@ -1104,6 +1378,25 @@ final class ChatExperienceTests: XCTestCase {
             resumeStoredSessionId: nil,
             supportsMethod: methods.contains,
             operations: operations
+        )
+    }
+
+    /// Operations whose prompt path succeeds and records the submitted text,
+    /// for attachment-flow assertions.
+    private func makeSucceedingOperations(
+        recorder: AttachmentUploadRecorder
+    ) -> ChatGatewayOperations {
+        ChatGatewayOperations(
+            createSession: {
+                LiveSession(sessionId: "runtime-1", storedSessionId: "stored-1")
+            },
+            resumeSession: { _ in
+                LiveSession(sessionId: "runtime-1", storedSessionId: "stored-1")
+            },
+            submitPrompt: { _, text in recorder.submittedPrompts.append(text) },
+            steer: { _, _ in true },
+            execSlash: { _, _ in nil },
+            submitLegacyBackground: { _, _ in nil }
         )
     }
 
@@ -1168,4 +1461,20 @@ private final class ChatMutationCounter {
         case .legacyBackground: return background
         }
     }
+}
+
+private final class RenameRecorder {
+    private(set) var titles: [String] = []
+    private(set) var preferTyped: [Bool] = []
+
+    func record(title: String, preferTyped: Bool) {
+        titles.append(title)
+        self.preferTyped.append(preferTyped)
+    }
+}
+
+private final class AttachmentUploadRecorder {
+    var submittedPrompts: [String] = []
+    var imageFilenames: [String] = []
+    var fileFilenames: [String] = []
 }

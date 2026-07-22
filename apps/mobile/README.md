@@ -188,6 +188,7 @@ apps/mobile/
 ├── README.md            ← this file (assessment + decision record)
 ├── ios/                 ← SwiftUI app, XcodeGen project manifest
 │   ├── project.yml
+│   ├── VOICE.md          ← native dictation/TTS boundary + device release gate
 │   └── Fabric/
 │       ├── App/         ← app entry, root navigation model
 │       ├── Core/        ← FabricKit: JSON-RPC client, typed API, keychain store
@@ -240,6 +241,15 @@ the same chat screen:
   unblocked from the phone.
 - **Process control** — per-session background processes (`process.list`)
   with output tails and kill (`process.kill`).
+- **Native iOS voice** — the Chat microphone uses Apple Speech and the phone's
+  audio input to place partial dictation in the draft without auto-sending.
+  Completed assistant messages can be read aloud with an installed iPhone voice;
+  Settings provides voice selection, preview, permission status, and honest
+  on-device/Apple-service disclosure. This phone-side path bypasses the Fabric
+  gateway; for languages without supported on-device recognition, iOS may send
+  audio to Apple's speech service. Gateway-host `voice.record` / `voice.tts`
+  operations never capture or play phone audio. Android voice and a
+  continuous/model-backed Talk contract remain future work.
 
 The iOS durable Work client also validates and reconciles the versioned
 `fabric.work` Job/Attention ledger. `FabricGoalPortfolio` is the shared native

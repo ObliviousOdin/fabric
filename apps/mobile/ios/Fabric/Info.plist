@@ -44,6 +44,10 @@
 	<string>Fabric uses the camera to scan the pairing QR code shown by `fabric mobile`.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Fabric connects to the Fabric gateway running on your local network or tailnet.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Fabric uses the microphone only when you tap Dictate to turn speech into a message draft.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Fabric uses Apple Speech to turn the words you dictate into a message draft.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

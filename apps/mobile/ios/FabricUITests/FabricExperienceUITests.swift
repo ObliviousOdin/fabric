@@ -128,6 +128,12 @@ final class FabricExperienceUITests: XCTestCase {
         let voiceRow = app.descendants(matching: .any)["settings-voice-row"].firstMatch
         scrollTo(voiceRow, in: app)
         XCTAssertTrue(voiceRow.exists)
+        voiceRow.tap()
+        XCTAssertTrue(app.navigationBars["Voice"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Dictate into the Chat composer"].exists)
+        XCTAssertTrue(app.buttons["Preview voice"].exists)
+        app.navigationBars["Voice"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 3))
 
         let diagnostics = app.buttons.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Diagnostics")
@@ -198,14 +204,36 @@ final class FabricExperienceUITests: XCTestCase {
         allowOnce.tap()
         XCTAssertFalse(allowOnce.isEnabled)
 
-        XCTAssertTrue(app.buttons["Commands"].exists)
-        XCTAssertTrue(app.buttons["Run draft in background"].exists)
+        let commands = app.buttons["Commands"]
+        let background = app.buttons["Run draft in background"]
+        XCTAssertTrue(commands.exists)
+        XCTAssertTrue(background.exists)
         XCTAssertTrue(app.buttons["Processes"].exists)
         XCTAssertTrue(app.buttons["Live View"].exists)
-        XCTAssertTrue(app.textFields["chat-composer"].exists)
+        let composer = app.textFields["chat-composer"]
+        XCTAssertTrue(composer.exists)
+        XCTAssertEqual(composer.value as? String, "Prepare the verified build notes")
+        XCTAssertTrue(app.buttons["Read aloud"].exists)
+
+        let dictate = app.buttons["Start dictation"]
+        XCTAssertTrue(dictate.exists)
+        dictate.tap()
+        let dictatedDraft = "Prepare the verified build notes with dictated release context"
+        XCTAssertEqual(composer.value as? String, dictatedDraft)
+        XCTAssertFalse(app.staticTexts[dictatedDraft].exists)
+
+        let stopDictation = app.buttons["Stop dictation"]
+        XCTAssertTrue(stopDictation.waitForExistence(timeout: 2))
+        XCTAssertFalse(commands.isEnabled)
+        XCTAssertFalse(background.isEnabled)
+        XCTAssertFalse(app.buttons["Send message"].isEnabled)
+        stopDictation.tap()
+        XCTAssertTrue(app.buttons["Start dictation"].waitForExistence(timeout: 2))
+        XCTAssertTrue(commands.isEnabled)
+        XCTAssertTrue(background.isEnabled)
 
         app.buttons["Send message"].tap()
-        XCTAssertTrue(app.staticTexts["Prepare the verified build notes"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts[dictatedDraft].waitForExistence(timeout: 2))
     }
 
     /// Opt-in production-wiring smoke against a disposable source gateway.
@@ -390,13 +418,19 @@ final class FabricExperienceUITests: XCTestCase {
         XCTAssertTrue(allowOnce.isHittable)
         allowOnce.tap()
         let fixtureStatus = app.staticTexts["chat-fixture-status"]
-        XCTAssertTrue(fixtureStatus.waitForExistence(timeout: 2))
+        XCTAssertTrue(fixtureStatus.waitForExistence(timeout: 4))
         XCTAssertEqual(fixtureStatus.label, "Approval response: Once")
 
         for label in ["Commands", "Run draft in background", "Processes", "Live View"] {
             let action = app.buttons[label]
             scrollTo(action, in: app, preferredScrollView: controlDock)
             XCTAssertTrue(action.isHittable, "\(label) must remain reachable at AX XXXL")
+        }
+
+        for label in ["Read aloud", "Start dictation"] {
+            let voiceControl = app.buttons[label]
+            scrollTo(voiceControl, in: app, preferredScrollView: controlDock)
+            XCTAssertTrue(voiceControl.isHittable, "\(label) must remain reachable at AX XXXL")
         }
 
         let composer = app.textFields["chat-composer"]

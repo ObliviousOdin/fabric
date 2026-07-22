@@ -41,6 +41,8 @@ final class SettingsExperienceRedactionTests: XCTestCase {
         XCTAssertTrue(report.contains("gateway_identity: [redacted]"))
         XCTAssertTrue(report.contains("execution_contract: verified"))
         XCTAssertTrue(report.contains("camera_permission: denied"))
+        XCTAssertTrue(report.contains("microphone_permission: denied"))
+        XCTAssertTrue(report.contains("speech_recognition_permission: denied"))
         XCTAssertTrue(report.contains("local_network_permission: notInspectable"))
 
         for privateValue in [
@@ -156,6 +158,20 @@ final class SettingsExperienceRedactionTests: XCTestCase {
                 value: "Denied",
                 detail: "Denied",
                 systemImage: "camera.fill",
+                state: .denied
+            ),
+            microphone: SettingsPermissionPresentation(
+                name: "Microphone",
+                value: "Denied",
+                detail: "Denied",
+                systemImage: "mic.slash.fill",
+                state: .denied
+            ),
+            speechRecognition: SettingsPermissionPresentation(
+                name: "Speech Recognition",
+                value: "Denied",
+                detail: "Denied",
+                systemImage: "waveform.slash",
                 state: .denied
             ),
             localNetwork: SettingsPermissionPresentation(

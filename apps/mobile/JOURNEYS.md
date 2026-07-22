@@ -23,7 +23,7 @@ cites the owning Swift file/symbol.
 | 2 | First launch, permissions & onboarding | ◐ | No progressive-consent broker for device sensors | **critical** | 5 |
 | 3 | Pairing (critical activation) | ◐ | Device enrollment/OAuth/private-CA trust are still absent | **critical** | 5 / 9 |
 | 4 | Daily text chat & session management | ◐ | No generated file/artifact or model-control surface | high | 3 / 9 |
-| 5 | Voice / Talk mode | ○ | No phone-side audio transport | high | 9 |
+| 5 | Voice / Talk mode | ◐ | Native dictation/read-aloud exist; no continuous Talk transport | high | 9 |
 | 6 | Approvals & human-in-the-loop | ◐ | No expiry, free-text denial, or cross-surface attention | high | 5 / 8 |
 | 7 | Device capability invocation | ○ | No `node.invoke` transport (the peak differentiator) | **critical** | 5 / 6 |
 | 8 | Content sharing (share sheet) | ○ | No share extension | high | 9 |
@@ -60,9 +60,9 @@ Get the app installed and opened for the first time.
 
 Understand the app and grant necessary, least-privilege access.
 
-- ✅ Camera permission is correctly declared and scoped **to QR scanning only**
-  (`Info.plist` `NSCameraUsageDescription`, `project.yml`). It is the *only*
-  device-sensor permission the app declares.
+- ✅ Camera permission is correctly declared and scoped **to QR scanning only**.
+  Microphone and Speech Recognition are separately declared and requested only
+  after the user taps Dictate in Chat (`Info.plist`, `project.yml`).
 - ✅ The reusable fail-closed gate infrastructure that every permission surface
   should build on already exists (`AppModel.supportsGatewayMethod`,
   `GatewayCapabilityNegotiation`).
@@ -78,8 +78,9 @@ Understand the app and grant necessary, least-privilege access.
   capability-request handling, no just-in-time consent for a sensor an agent
   asks for. The "ask only when needed" surface does not exist. *(critical —
   `progressive-consent-broker`)*
-- ○ No Notifications or Microphone consent (the stated least-privilege default),
-  because neither push nor phone audio exists yet.
+- ○ No Notifications consent because push does not exist yet. Native dictation
+  now owns its microphone/speech consent locally and does not imply a general
+  agent sensor grant.
 
 ## 3. Pairing (critical activation path) — ◐
 
@@ -120,17 +121,25 @@ Seamless continuity of conversation and context.
 - ○ **No model switch or reasoning-effort control** mid-session. *(high)*
 - ◐ Unified diffs now receive add/remove presentation, while GFM tables, math,
   and language-aware code syntax highlighting remain. *(medium/low)*
-- ○ No **Listen/TTS** affordance; no **session rename/archive**. *(medium/low)*
+- ✅ Completed assistant responses have a **Read aloud / Stop speaking**
+  affordance backed by an installed iPhone voice; Settings offers voice
+  selection and a local preview.
+- ○ No **session rename/archive**. *(medium/low)*
 
-## 5. Voice / Talk mode — ○
+## 5. Voice / Talk mode — ◐
 
 Natural hands-free voice conversation.
 
-- ○ **No phone-side audio.** `voice.record`/`voice.tts` use the *gateway host*
-  mic/speakers by design (documented in `GatewayAPI.swift`), so there is no Talk
-  Mode, push-to-talk, realtime levels, or background audio on the phone. Needs a
-  new phone-audio transport contract and one `AVAudioSession` owner shared with
-  Listen/TTS. *(high — `phone-voice-transport`)*
+- ✅ Chat has explicit phone-side dictation (`SFSpeechRecognizer` +
+  `AVAudioEngine`) that writes partial speech into the draft and never submits
+  automatically. It prefers on-device recognition when Apple Speech advertises
+  it. Read-aloud uses `AVSpeechSynthesizer`; neither path reuses gateway-host
+  audio RPCs.
+- ○ **No continuous Talk mode or model-backed phone-audio transport.**
+  `voice.record`/`voice.tts` still use the *gateway host* mic/speakers by design
+  (documented in `GatewayAPI.swift`). Realtime levels, conversation turn-taking,
+  background audio, and a provider-neutral audio wire contract remain future
+  work. *(high — `phone-voice-transport`)*
 - Always-listening voice-wake is deferred until a scoped model exists. *(low)*
 
 ## 6. Approvals & human-in-the-loop — ◐

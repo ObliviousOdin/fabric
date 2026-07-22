@@ -13,6 +13,7 @@
 		0871E7FC1CABD42A8047DD87 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0AF1262DB9585F020AAAE281 /* PrivacyInfo.xcprivacy */; };
 		09EC30B4BA7A02EF673E7CA8 /* ConversationHomeSnapshotStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1115A84EAC8EA84FD0D8B42F /* ConversationHomeSnapshotStoreTests.swift */; };
 		0A51A07BA6F4732F8713F4B5 /* SettingsExperiencePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B22A436C1F7C0C3A476BADBF /* SettingsExperiencePresentation.swift */; };
+		0ABC921B3156910ECA6C6124 /* DeviceVoiceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8501E33D650BB51EA86AF38D /* DeviceVoiceController.swift */; };
 		0DF48BADC421CB14C566FC95 /* LiveViewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2198E6499B493895E81AF58A /* LiveViewSheet.swift */; };
 		11C2A0339266E125E2CF6771 /* SettingsDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64B398565988477E9C37E782 /* SettingsDiagnosticsView.swift */; };
 		1215316E5900C93641EDB572 /* FabricExperienceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09B2E752F7BF6312FE3B114E /* FabricExperienceUITests.swift */; };
@@ -79,6 +80,7 @@
 		EC08DB1E77335FBA687E9E6D /* WorkInboxModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A76BB1B38FE0A6D88E2E25C /* WorkInboxModel.swift */; };
 		FB3621F863B08DEDE4B439DB /* GatewayEndpointIdentityText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72F2B280B1145468B9FCD052 /* GatewayEndpointIdentityText.swift */; };
 		FBCDDC3E67F081CED07D3187 /* ConnectExperienceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1663F67028ED8AADE2C347A7 /* ConnectExperienceSupport.swift */; };
+		FC9A50C834017E785AAF3C90 /* DeviceVoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD6073AF5147615FFFACFCB /* DeviceVoiceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -141,6 +143,7 @@
 		7D800CE43C245A4797EC940A /* ConversationHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationHomeView.swift; sourceTree = "<group>"; };
 		7FD48E3CADC1A4F2709D5D66 /* gateway-capabilities-incompatible.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-incompatible.json"; sourceTree = "<group>"; };
 		82269ED2BBD6CF3FEBA37C14 /* gateway-capabilities-v1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-v1.json"; sourceTree = "<group>"; };
+		8501E33D650BB51EA86AF38D /* DeviceVoiceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceVoiceController.swift; sourceTree = "<group>"; };
 		862242C81C035F5D894EF771 /* ConnectExperienceStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectExperienceStateTests.swift; sourceTree = "<group>"; };
 		866F3A31E7680B3C401BFD26 /* RemoteControlSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlSheets.swift; sourceTree = "<group>"; };
 		873D6FDF5E7DB46AA7754215 /* GoalPortfolioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalPortfolioTests.swift; sourceTree = "<group>"; };
@@ -148,6 +151,7 @@
 		8E788461E2DF03CA0F6128F9 /* GatewayStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayStore.swift; sourceTree = "<group>"; };
 		8EC16A8344D8694E0445ED56 /* AddGatewayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddGatewayView.swift; sourceTree = "<group>"; };
 		94A8ED8E93E58F02C35EE9E1 /* cursor-expired.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "cursor-expired.json"; sourceTree = "<group>"; };
+		9CD6073AF5147615FFFACFCB /* DeviceVoiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceVoiceTests.swift; sourceTree = "<group>"; };
 		A1C2E17FA35CD5F43CEAA5DB /* Fabric.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Fabric.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A3D8FF63DA666046CAE8A11B /* replaced-ledger.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "replaced-ledger.json"; sourceTree = "<group>"; };
 		B0C7BFE683A90163E7E3F9FB /* PairingPayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingPayloadTests.swift; sourceTree = "<group>"; };
@@ -187,6 +191,7 @@
 				862242C81C035F5D894EF771 /* ConnectExperienceStateTests.swift */,
 				FD666BEFE17AC010F380D524 /* ConversationHomeModelTests.swift */,
 				1115A84EAC8EA84FD0D8B42F /* ConversationHomeSnapshotStoreTests.swift */,
+				9CD6073AF5147615FFFACFCB /* DeviceVoiceTests.swift */,
 				53A856CAC846194DFE6D0435 /* GatewayCapabilitiesTests.swift */,
 				22F3B674B1FDAA9B17D25D65 /* GatewayConnectionIssueTests.swift */,
 				873D6FDF5E7DB46AA7754215 /* GoalPortfolioTests.swift */,
@@ -358,6 +363,7 @@
 		DFC333FB049B1632A8B75E31 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				8501E33D650BB51EA86AF38D /* DeviceVoiceController.swift */,
 				CA7446C8E083BBFBD1A3EC29 /* FabricGoalPortfolio.swift */,
 				DAF5503C200A9D187123A534 /* FabricWorkContract.swift */,
 				CB978B8F714B72E27A81EFA6 /* FabricWorkSync.swift */,
@@ -551,6 +557,7 @@
 				A8D2D8F733CB10FE4D5D34F5 /* ConnectedGatewayIntroPresentationTests.swift in Sources */,
 				62664DFEAF6876B11FE2F7CC /* ConversationHomeModelTests.swift in Sources */,
 				09EC30B4BA7A02EF673E7CA8 /* ConversationHomeSnapshotStoreTests.swift in Sources */,
+				FC9A50C834017E785AAF3C90 /* DeviceVoiceTests.swift in Sources */,
 				010D7C7747AE0E123A4145D0 /* GatewayCapabilitiesTests.swift in Sources */,
 				302F10703CE4002BEE0E91D9 /* GatewayConnectionIssueTests.swift in Sources */,
 				C4CCFA6AC80CB1CD02AD925C /* GoalPortfolioTests.swift in Sources */,
@@ -579,6 +586,7 @@
 				24D62AD2C04431BC2CDE5C6C /* ConversationHomeDebugFixtures.swift in Sources */,
 				5C382289748FACDC6BDA4954 /* ConversationHomeModel.swift in Sources */,
 				279614AD2D28DABCCA5B365E /* ConversationHomeView.swift in Sources */,
+				0ABC921B3156910ECA6C6124 /* DeviceVoiceController.swift in Sources */,
 				2C2940D3C0550EE4588B5929 /* FabricGoalPortfolio.swift in Sources */,
 				144E9F91E4AD4F76C9ECC634 /* FabricMobileApp.swift in Sources */,
 				C2A694075BB866A62DBE5290 /* FabricTheme.swift in Sources */,

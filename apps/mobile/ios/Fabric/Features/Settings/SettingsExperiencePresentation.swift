@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Speech
 
 enum SettingsExperienceTone: Equatable {
     case neutral
@@ -74,21 +75,20 @@ struct SettingsPetPresentation: Equatable {
     }
 }
 
-/// Informational-only voice row. Voice runs on the gateway host; there is no
-/// phone-audio contract to negotiate yet, so the row deliberately offers no
-/// picker or toggle.
+/// Native iPhone voice presentation. Gateway-host voice remains a separate
+/// capability; these controls use the phone's microphone and installed voices.
 struct SettingsVoicePresentation: Equatable {
     let title: String
     let detail: String
     let systemImage: String
     let tone: SettingsExperienceTone
 
-    static func make() -> SettingsVoicePresentation {
+    static func make(selectedVoiceName: String = "Best installed voice") -> SettingsVoicePresentation {
         SettingsVoicePresentation(
             title: "Voice",
-            detail: "Voice runs on the gateway host today. Choosing a voice from this iPhone needs a phone-audio contract that this gateway doesn't advertise yet.",
+            detail: "Dictation and read-aloud run from this iPhone. Dictation prefers on-device recognition when iOS supports it; otherwise Apple Speech may use its service. Read-aloud: \(selectedVoiceName).",
             systemImage: "waveform",
-            tone: .info
+            tone: .success
         )
     }
 }
@@ -553,11 +553,17 @@ struct SettingsPermissionPresentation: Equatable {
 
 struct SettingsPermissionInventory: Equatable {
     let camera: SettingsPermissionPresentation
+    let microphone: SettingsPermissionPresentation
+    let speechRecognition: SettingsPermissionPresentation
     let localNetwork: SettingsPermissionPresentation
 
     static func current() -> SettingsPermissionInventory {
         SettingsPermissionInventory(
             camera: cameraPermission(AVCaptureDevice.authorizationStatus(for: .video)),
+            microphone: microphonePermission(AVAudioApplication.shared.recordPermission),
+            speechRecognition: speechRecognitionPermission(
+                SFSpeechRecognizer.authorizationStatus()
+            ),
             localNetwork: SettingsPermissionPresentation(
                 name: "Local Network",
                 value: "Status not exposed by iOS",
@@ -612,6 +618,92 @@ struct SettingsPermissionInventory: Equatable {
             )
         }
     }
+
+    static func microphonePermission(
+        _ status: AVAudioApplication.recordPermission
+    ) -> SettingsPermissionPresentation {
+        switch status {
+        case .granted:
+            return SettingsPermissionPresentation(
+                name: "Microphone",
+                value: "Allowed",
+                detail: "Used only while you dictate a message in Chat.",
+                systemImage: "mic",
+                state: .allowed
+            )
+        case .denied:
+            return SettingsPermissionPresentation(
+                name: "Microphone",
+                value: "Denied",
+                detail: "Dictation is unavailable until you allow Microphone access in iOS Settings.",
+                systemImage: "mic.slash.fill",
+                state: .denied
+            )
+        case .undetermined:
+            return SettingsPermissionPresentation(
+                name: "Microphone",
+                value: "Not requested",
+                detail: "Fabric asks only when you tap the microphone in Chat.",
+                systemImage: "mic",
+                state: .notRequested
+            )
+        @unknown default:
+            return SettingsPermissionPresentation(
+                name: "Microphone",
+                value: "Unavailable",
+                detail: "This iOS version returned an unknown microphone permission state.",
+                systemImage: "questionmark.circle",
+                state: .restricted
+            )
+        }
+    }
+
+    static func speechRecognitionPermission(
+        _ status: SFSpeechRecognizerAuthorizationStatus
+    ) -> SettingsPermissionPresentation {
+        switch status {
+        case .authorized:
+            return SettingsPermissionPresentation(
+                name: "Speech Recognition",
+                value: "Allowed",
+                detail: "Turns words you dictate into a message draft. Fabric prefers on-device recognition when iOS supports it.",
+                systemImage: "waveform",
+                state: .allowed
+            )
+        case .denied:
+            return SettingsPermissionPresentation(
+                name: "Speech Recognition",
+                value: "Denied",
+                detail: "Dictation is unavailable until you allow Speech Recognition in iOS Settings.",
+                systemImage: "waveform.slash",
+                state: .denied
+            )
+        case .restricted:
+            return SettingsPermissionPresentation(
+                name: "Speech Recognition",
+                value: "Restricted",
+                detail: "This device does not currently permit Fabric to use speech recognition.",
+                systemImage: "waveform.slash",
+                state: .restricted
+            )
+        case .notDetermined:
+            return SettingsPermissionPresentation(
+                name: "Speech Recognition",
+                value: "Not requested",
+                detail: "Fabric asks only when you tap the microphone in Chat.",
+                systemImage: "waveform",
+                state: .notRequested
+            )
+        @unknown default:
+            return SettingsPermissionPresentation(
+                name: "Speech Recognition",
+                value: "Unavailable",
+                detail: "This iOS version returned an unknown speech-recognition permission state.",
+                systemImage: "questionmark.circle",
+                state: .restricted
+            )
+        }
+    }
 }
 
 struct SettingsDiagnosticsEnvironment: Equatable {
@@ -659,6 +751,8 @@ enum SettingsDiagnosticsReport {
             "published_gateway_methods: \(contract.publishedMethodCount.map(String.init) ?? "unavailable")",
             "execution_contract: \(executionState)",
             "camera_permission: \(permissions.camera.state.rawValue)",
+            "microphone_permission: \(permissions.microphone.state.rawValue)",
+            "speech_recognition_permission: \(permissions.speechRecognition.state.rawValue)",
             "local_network_permission: \(permissions.localNetwork.state.rawValue)",
             "raw_connection_error: [excluded]",
             "credentials_auth_material: [excluded]",
@@ -772,6 +866,20 @@ extension SettingsPermissionInventory {
             value: "Not requested",
             detail: "Fabric asks only when you choose to scan a pairing code.",
             systemImage: "camera",
+            state: .notRequested
+        ),
+        microphone: SettingsPermissionPresentation(
+            name: "Microphone",
+            value: "Not requested",
+            detail: "Fabric asks only when you tap the microphone in Chat.",
+            systemImage: "mic",
+            state: .notRequested
+        ),
+        speechRecognition: SettingsPermissionPresentation(
+            name: "Speech Recognition",
+            value: "Not requested",
+            detail: "Fabric asks only when you tap the microphone in Chat.",
+            systemImage: "waveform",
             state: .notRequested
         ),
         localNetwork: SettingsPermissionPresentation(

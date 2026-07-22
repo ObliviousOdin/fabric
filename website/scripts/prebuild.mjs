@@ -216,3 +216,34 @@ runPython(llmsScript, "generate-llms-txt.py");
 // 5) automation-blueprints-index.json — Automation Blueprints catalog page. Non-fatal; the page
 //    renders an empty state if the generator can't run.
 runPython(cronBlueprintsScript, "extract-automation-blueprints.py");
+
+// 6) Changelog page — mirror the repository-root CHANGELOG.md into the docs
+//    site so the single source of truth stays one file. The generated page is
+//    gitignored; `npm run build` (which runs this prebuild) always regenerates
+//    it, and CI builds the docs the same way, so the two never drift.
+try {
+  const changelogSource = join(repoDir, "CHANGELOG.md");
+  const changelogTarget = join(websiteDir, "docs", "changelog.md");
+  if (existsSync(changelogSource)) {
+    const raw = readFileSync(changelogSource, "utf8");
+    // Drop the leading "# Changelog" H1; the frontmatter title supplies it.
+    const body = raw.replace(/^#\s+Changelog[^\n]*\n/, "");
+    const frontmatter = [
+      "---",
+      "title: Changelog",
+      "description: Notable changes to Fabric, release by release.",
+      "sidebar_label: Changelog",
+      "---",
+      "",
+      "{/* Generated from the repository-root CHANGELOG.md by",
+      "    website/scripts/prebuild.mjs. Edit CHANGELOG.md, not this file. */}",
+      "",
+    ].join("\n");
+    writeFileSync(changelogTarget, frontmatter + body);
+    console.log("[prebuild] generated docs/changelog.md from CHANGELOG.md");
+  } else {
+    console.warn("[prebuild] CHANGELOG.md not found; skipping changelog page");
+  }
+} catch (error) {
+  console.warn(`[prebuild] changelog page generation failed: ${error}`);
+}

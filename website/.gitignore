@@ -11,6 +11,8 @@ src/data/skills.json
 src/data/skills-meta.json
 static/llms.txt
 static/llms-full.txt
+# Generated from the repository-root CHANGELOG.md by scripts/prebuild.mjs.
+docs/changelog.md
 
 # Misc
 .DS_Store

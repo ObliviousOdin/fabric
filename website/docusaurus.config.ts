@@ -163,6 +163,11 @@ const config: Config = {
           position: "left",
         },
         {
+          to: "/changelog",
+          label: "Changelog",
+          position: "left",
+        },
+        {
           to: "/getting-started/installation",
           label: "Install",
           position: "right",
@@ -190,6 +195,7 @@ const config: Config = {
             { label: "User Guide", to: "/user-guide/" },
             { label: "Developer Guide", to: "/developer-guide/architecture" },
             { label: "Reference", to: "/reference/" },
+            { label: "Changelog", to: "/changelog" },
           ],
         },
         {

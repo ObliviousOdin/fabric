@@ -229,6 +229,55 @@ describe('useBrowserLiveStreams', () => {
     expect(requestMock.mock.calls.filter(([method]) => method === 'visual.frame')).toHaveLength(3)
   })
 
+  it('backs off polling while frames are static and resumes full cadence on change (#64)', async () => {
+    prepareCompletedBrowser()
+    const starts: number[] = []
+    let frameData = 'static'
+
+    const requestMock = vi.fn(async (method: string) => {
+      if (method === 'visual.status') {
+        return { available: true, min_interval_ms: 500, transport: 'gateway_pull' }
+      }
+
+      starts.push(Date.now())
+
+      return { available: true, data: frameData, mime_type: 'image/jpeg' }
+    })
+
+    renderHook(() =>
+      useBrowserLiveStreams({
+        activeSessionId: 'session-1',
+        enabled: true,
+        requestVisualGateway: requestMock as unknown as RequestGateway
+      })
+    )
+    await flushAsync()
+
+    // Full 500 ms cadence until two identical frames confirm the page is static.
+    expect(starts).toEqual([0])
+    await advance(500)
+    await advance(500)
+    expect(starts).toEqual([0, 500, 1_000])
+
+    // Now static: the interval doubles — the next pull is at 2000 ms, not 1500.
+    await advance(999)
+    expect(starts).toEqual([0, 500, 1_000])
+    await advance(1)
+    expect(starts).toEqual([0, 500, 1_000, 2_000])
+
+    // Still static: doubles again toward the cap (next at 4000 ms).
+    await advance(2_000)
+    expect(starts).toEqual([0, 500, 1_000, 2_000, 4_000])
+
+    // The page changes: the very next frame (at the capped 4 s later = 8000 ms)
+    // differs, so the idle streak resets and full 500 ms cadence resumes.
+    frameData = 'moved'
+    await advance(4_000)
+    expect(starts.at(-1)).toBe(8_000)
+    await advance(500)
+    expect(starts.at(-1)).toBe(8_500)
+  })
+
   it('honors a server throttle delay longer than the local interval', async () => {
     prepareCompletedBrowser()
     const starts: number[] = []

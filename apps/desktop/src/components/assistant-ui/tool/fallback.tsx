@@ -291,11 +291,15 @@ function ToolEntry({ part }: ToolEntryProps) {
   // Stale parts (no result, but message stopped running) get a synthetic empty
   // result so buildToolView treats them as completed-no-output. Keyed on
   // stablePart so it recomputes only when this tool's data changes.
+  // Build the pretty-printed raw args/result only when the row is expanded —
+  // a collapsed historical tool card should not pay a full JSON.stringify of a
+  // (up to ~100KB) payload at mount just to keep it hidden (#64). Re-runs when
+  // `open` flips, which is the moment the body actually needs the raw text.
   const view = useMemo(() => {
     const p = !isPending && result === undefined ? { ...stablePart, result: {} } : stablePart
 
-    return buildToolView(p, inlineDiff)
-  }, [inlineDiff, isPending, result, stablePart])
+    return buildToolView(p, inlineDiff, open)
+  }, [inlineDiff, isPending, open, result, stablePart])
 
   // Surface a previewable artifact (HTML file / localhost URL) as a compact link
   // in the composer status stack rather than a bulky inline card. Uses the same
@@ -359,7 +363,8 @@ function ToolEntry({ part }: ToolEntryProps) {
     part.toolName === 'web_search' &&
     part.result !== undefined &&
     toolViewMode !== 'technical' &&
-    Boolean(view.rawResult.trim())
+    // hasRawResult stays valid while rawResult is deferred for the collapsed row.
+    view.hasRawResult
 
   const hasExpandableContent = Boolean(
     view.imageUrl || view.inlineDiff || showDetail || hasSearchHits || toolViewMode === 'technical'

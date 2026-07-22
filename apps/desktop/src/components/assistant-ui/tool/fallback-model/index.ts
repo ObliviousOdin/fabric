@@ -1392,7 +1392,7 @@ function dynamicTitle(
   return fallback
 }
 
-export function buildToolView(part: ToolPart, inlineDiff: string): ToolView {
+export function buildToolView(part: ToolPart, inlineDiff: string, includeRaw = true): ToolView {
   const argsRecord = parseMaybeObject(part.args)
   const resultRecord = parseMaybeObject(part.result)
   const meta = toolMeta(part.toolName)
@@ -1443,17 +1443,28 @@ export function buildToolView(part: ToolPart, inlineDiff: string): ToolView {
   // rendering would duplicate output.
   const hasSplitStreams = rendersAnsi && (Boolean(stdout) || Boolean(stderrRaw))
 
+  // Cheap, serialization-free proxy for "there is raw result content" so a
+  // collapsed row can still decide whether to show the expand affordance while
+  // the full prettyJson is deferred (#64).
+  const hasRawResult =
+    part.result !== undefined &&
+    part.result !== null &&
+    !(typeof part.result === 'string' && part.result.trim() === '')
+
   return {
     countLabel: resultCount ? formatCountLabel(resultCount) : undefined,
     detail,
     detailLabel: error ? 'Error details' : toolDetailLabel(part.toolName),
     durationLabel: durationLabel(resultRecord),
+    hasRawResult,
     icon: meta.icon,
     imageUrl: toolImageUrl(argsRecord, resultRecord),
     inlineDiff,
     previewTarget: toolPreviewTarget(part.toolName, argsRecord, resultRecord),
-    rawArgs: prettyJson(part.args),
-    rawResult: prettyJson(part.result),
+    // Only pay the full JSON.stringify (then clamp) when the body is actually
+    // rendered — i.e. the disclosure is open. Collapsed historical rows skip it.
+    rawArgs: includeRaw ? prettyJson(part.args) : '',
+    rawResult: includeRaw ? prettyJson(part.result) : '',
     rendersAnsi: rendersAnsi || undefined,
     searchHits: searchHits?.length ? searchHits : undefined,
     stderr: hasSplitStreams ? stderrRaw || undefined : undefined,

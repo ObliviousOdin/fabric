@@ -9,7 +9,7 @@ import { type Translations, useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
   $liveViews,
-  $liveViewStreamFrames,
+  $liveViewStreamFrame,
   hideLiveView,
   type LiveViewAction,
   type LiveViewState,
@@ -231,9 +231,10 @@ export function LiveViewPane({
 }) {
   const { t } = useI18n()
   const views = useStore($liveViews)
-  const streamFrames = useStore($liveViewStreamFrames)
+  // Subscribe to only THIS session's frame so another session streaming in the
+  // background doesn't re-render (and re-decode) this pane every 500 ms (#64).
+  const streamFrame = useStore($liveViewStreamFrame(sessionId))
   const storedState = views[sessionId]
-  const streamFrame = streamFrames[sessionId]
   const state = storedState && streamFrame ? { ...storedState, frameUrl: streamFrame } : storedState
   const paused = storedState?.paused
 

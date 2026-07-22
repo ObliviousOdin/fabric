@@ -423,6 +423,30 @@ describe('buildToolView caps serialized result size', () => {
   })
 })
 
+// #64: a collapsed row must skip the full prettyJson (the load-bearing eager
+// cost) while still knowing whether an expand affordance is warranted.
+describe('buildToolView defers raw serialization when collapsed', () => {
+  it('omits rawArgs/rawResult but keeps hasRawResult when includeRaw is false', () => {
+    const huge = 'y'.repeat(MAX_TOOL_RENDER_CHARS * 3)
+    const p = part({ args: { path: 'a.txt' }, result: { content: huge }, toolName: 'read_file' })
+
+    const collapsed = buildToolView(p, '', false)
+    expect(collapsed.rawArgs).toBe('')
+    expect(collapsed.rawResult).toBe('')
+    expect(collapsed.hasRawResult).toBe(true) // expand affordance still offered
+
+    const expanded = buildToolView(p, '', true)
+    expect(expanded.rawResult.length).toBeGreaterThan(0)
+    expect(expanded.hasRawResult).toBe(true)
+  })
+
+  it('reports no raw result for an empty/absent result', () => {
+    expect(buildToolView(part({ result: undefined, toolName: 'read_file' }), '').hasRawResult).toBe(false)
+    expect(buildToolView(part({ result: '   ', toolName: 'terminal' }), '').hasRawResult).toBe(false)
+    expect(buildToolView(part({ result: { ok: true }, toolName: 'read_file' }), '').hasRawResult).toBe(true)
+  })
+})
+
 describe('countDiffLineStats', () => {
   it('counts added and removed lines', () => {
     expect(countDiffLineStats(`--- a/x\n+++ b/x\n@@\n-old\n+new\n context\n+another`)).toEqual({ added: 2, removed: 1 })

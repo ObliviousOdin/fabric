@@ -36,8 +36,17 @@ export interface ToolView {
   imageUrl?: string
   inlineDiff: string
   previewTarget?: string
+  /** Pretty-printed args/result for the expanded body. Built lazily: for a
+   *  collapsed row `buildToolView` is called with `includeRaw=false` and these
+   *  are empty strings, so a historical transcript doesn't pay a full
+   *  JSON.stringify of every (up to ~100KB) tool payload at mount (#64). Use
+   *  `hasRawResult` for collapsed-state decisions. */
   rawArgs: string
   rawResult: string
+  /** Whether there is raw result content worth an expand affordance. Always
+   *  computed cheaply (no serialization) so it is valid even while `rawResult`
+   *  is deferred. */
+  hasRawResult: boolean
   /** Set for tools whose output naturally contains ANSI escape codes
    *  (terminal/execute_code) so the renderer knows to run them through
    *  the ANSI parser instead of printing them as literals. */

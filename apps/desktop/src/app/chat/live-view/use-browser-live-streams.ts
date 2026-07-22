@@ -25,6 +25,12 @@ interface StreamHandle {
   retryAttempt: number
   retryTimer: number | null
   stopped: boolean
+  // Adaptive idle backoff (#64): a completed Browser Live View keeps polling,
+  // but a static page returns byte-identical frames. Track the last frame and
+  // how many identical ones we've seen in a row so a motionless view slows its
+  // poll cadence instead of decoding/transporting the same JPEG at full rate.
+  lastFrame: string | null
+  idleStreak: number
 }
 
 type GatewayRequest = <T>(
@@ -45,6 +51,25 @@ const RETRY_MAX_ATTEMPTS = 5
 const MAX_FRAME_BASE64_CHARS = 256_000
 const MAX_SERVER_INTERVAL_MS = 60_000
 const TRANSIENT_FRAME_REASONS = new Set(['browser_session_busy', 'frame_throttled'])
+// Idle backoff (#64): once this many consecutive frames are byte-identical the
+// page is treated as static and the poll interval grows (doubling per extra
+// identical frame) up to the cap. A single changed frame resets to full
+// cadence, so worst-case staleness is bounded by the cap while a motionless
+// view stops polling at 500 ms forever.
+const IDLE_FRAME_BACKOFF_AFTER = 2
+const IDLE_FRAME_MAX_INTERVAL_MS = 4_000
+
+// The effective poll delay for a handle given how long the view has been
+// static. Returns the base cadence while active, then backs off geometrically.
+function idleIntervalMs(handle: StreamHandle): number {
+  if (handle.idleStreak < IDLE_FRAME_BACKOFF_AFTER) {
+    return handle.frameIntervalMs
+  }
+
+  const steps = handle.idleStreak - IDLE_FRAME_BACKOFF_AFTER + 1
+
+  return Math.min(IDLE_FRAME_MAX_INTERVAL_MS, handle.frameIntervalMs * 2 ** steps)
+}
 
 function browserFrame(response: BrowserFrameResponse): string | null {
   if (
@@ -228,6 +253,17 @@ export function useBrowserLiveStreams({
 
           if (frame) {
             handle.retryAttempt = 0
+
+            // Static-page backoff: count byte-identical frames so a motionless
+            // view polls progressively slower; any change snaps back to full
+            // cadence so live motion stays responsive (#64).
+            if (frame === handle.lastFrame) {
+              handle.idleStreak += 1
+            } else {
+              handle.idleStreak = 0
+              handle.lastFrame = frame
+            }
+
             setLiveViewStreaming(sessionId, true)
             setLiveViewStreamFrame(sessionId, frame)
           } else if (!TRANSIENT_FRAME_REASONS.has(response.reason ?? '')) {
@@ -243,7 +279,7 @@ export function useBrowserLiveStreams({
             ? Math.min(MAX_SERVER_INTERVAL_MS, Math.max(0, rawServerDelay))
             : 0
 
-          schedulePull(sessionId, handle, Math.max(serverDelay, handle.frameIntervalMs - elapsed))
+          schedulePull(sessionId, handle, Math.max(serverDelay, idleIntervalMs(handle) - elapsed))
         })
         .catch(() => {
           if (handle.abortController === abortController) {
@@ -321,7 +357,9 @@ export function useBrowserLiveStreams({
         pollTimer: null,
         retryAttempt: 0,
         retryTimer: null,
-        stopped: false
+        stopped: false,
+        lastFrame: null,
+        idleStreak: 0
       }
 
       handlesRef.current.set(sessionId, handle)

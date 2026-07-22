@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   $liveViews,
+  $liveViewStreamFrame,
   $liveViewStreamFrames,
   completeLiveViewTool,
   dockLiveView,
@@ -139,6 +140,23 @@ describe('live view tool lifecycle', () => {
     expect($liveViews.get()).toBe(metadata)
     expect($liveViews.get().s1.frameUrl).toBeUndefined()
     expect($liveViewStreamFrames.get().s1).toBe('data:image/jpeg;base64,frame')
+  })
+
+  it('exposes a per-session frame atom scoped to its own session (#64)', () => {
+    startLiveViewTool('s1', { name: 'browser_navigate', tool_id: 't1' })
+    startLiveViewTool('s2', { name: 'browser_navigate', tool_id: 't2' })
+
+    const frameS1 = $liveViewStreamFrame('s1')
+    // Cached: repeated calls share one atom, so useStore doesn't re-subscribe.
+    expect($liveViewStreamFrame('s1')).toBe(frameS1)
+
+    setLiveViewStreamFrame('s1', 'data:image/jpeg;base64,one')
+    expect(frameS1.get()).toBe('data:image/jpeg;base64,one')
+
+    // A frame for s2 must not appear in s1's keyed view.
+    setLiveViewStreamFrame('s2', 'data:image/jpeg;base64,two')
+    expect(frameS1.get()).toBe('data:image/jpeg;base64,one')
+    expect($liveViewStreamFrame('s2').get()).toBe('data:image/jpeg;base64,two')
   })
 
   it('clears stored and streaming frames when the viewer is dismissed', () => {

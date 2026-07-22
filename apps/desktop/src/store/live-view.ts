@@ -1,4 +1,4 @@
-import { atom } from 'nanostores'
+import { atom, computed, type ReadableAtom } from 'nanostores'
 
 import type { GatewayEventPayload } from '@/lib/chat-messages'
 
@@ -52,6 +52,23 @@ const pendingPipRequests = new Map<string, number>()
 export const $liveViews = atom<Record<string, LiveViewState>>({})
 /** High-frequency Browser frames live outside session metadata so route-level subscribers stay cold. */
 export const $liveViewStreamFrames = atom<Record<string, string>>({})
+
+// Per-session frame view (#64). A pane subscribing to the whole frames map
+// re-renders on ANY session's frame; this keyed computed lets a pane re-render
+// only when ITS OWN session's frame changes. Cached so repeated calls with the
+// same id share one atom (mirrors $toolDisclosureOpen).
+const streamFrameAtomCache = new Map<string, ReadableAtom<string | undefined>>()
+
+export function $liveViewStreamFrame(sessionId: string): ReadableAtom<string | undefined> {
+  let cached = streamFrameAtomCache.get(sessionId)
+
+  if (!cached) {
+    cached = computed($liveViewStreamFrames, frames => frames[sessionId])
+    streamFrameAtomCache.set(sessionId, cached)
+  }
+
+  return cached
+}
 
 function acceptedImageDataUrl(value: string | undefined): string | undefined {
   if (

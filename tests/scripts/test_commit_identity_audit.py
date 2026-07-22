@@ -181,12 +181,62 @@ class RepoAuditTests(unittest.TestCase):
         result = self._script("--check-config")
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_check_config_rejects_env_identity_override(self) -> None:
+        # Codex review finding: GIT_AUTHOR_* (and --author, which git exports
+        # to hooks) must not slip past a config-only check.
+        self._git("config", "--local", "user.name", CANONICAL_NAME)
+        self._git("config", "--local", "user.email", CANONICAL_EMAIL)
+        self.env["GIT_AUTHOR_NAME"] = "Claude"
+        self.env["GIT_AUTHOR_EMAIL"] = "noreply@anthropic.com"
+        try:
+            result = self._script("--check-config")
+        finally:
+            del self.env["GIT_AUTHOR_NAME"], self.env["GIT_AUTHOR_EMAIL"]
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("pending author", result.stderr)
+
+    def test_pre_push_audits_outgoing_commits(self) -> None:
+        self._commit("feat: base", name=CANONICAL_NAME, email=CANONICAL_EMAIL)
+        base = self._rev_parse("HEAD")
+        self._commit("feat: bad", name="Claude", email="noreply@anthropic.com")
+        head = self._rev_parse("HEAD")
+        line = f"refs/heads/task {head} refs/heads/task {base}\n"
+        result = self._script_stdin("--pre-push", stdin=line)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("AI-tool identity", result.stderr)
+
+    def test_pre_push_skips_ref_deletion_and_passes_clean_range(self) -> None:
+        self._commit("feat: base", name=CANONICAL_NAME, email=CANONICAL_EMAIL)
+        base = self._rev_parse("HEAD")
+        self._commit("feat: good", name=CANONICAL_NAME, email=CANONICAL_EMAIL)
+        head = self._rev_parse("HEAD")
+        lines = (
+            f"refs/heads/gone {'0' * 40} refs/heads/gone {head}\n"
+            f"refs/heads/task {head} refs/heads/task {base}\n"
+        )
+        result = self._script_stdin("--pre-push", stdin=lines)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def _rev_parse(self, rev: str) -> str:
+        return subprocess.run(
+            ["git", "rev-parse", rev],
+            cwd=self.repo, check=True, env=self.env,
+            capture_output=True, text=True,
+        ).stdout.strip()
+
+    def _script_stdin(self, *args: str, stdin: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            cwd=self.repo, env=self.env, capture_output=True, text=True,
+            input=stdin,
+        )
+
 
 class HookWiringTests(unittest.TestCase):
     """The committed hooks and bootstrap must stay wired to the audit."""
 
     def test_hooks_exist_and_call_the_audit(self) -> None:
-        for hook in ("pre-commit", "commit-msg"):
+        for hook in ("pre-commit", "commit-msg", "pre-push"):
             path = ROOT / ".githooks" / hook
             self.assertTrue(path.is_file(), hook)
             self.assertTrue(os.access(path, os.X_OK), f"{hook} must be executable")

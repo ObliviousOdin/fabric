@@ -208,12 +208,16 @@ commits are the only reliable input; CI is the backstop.
    `bash scripts/setup-git-guardrails.sh` — sets the canonical identity
    (repo-local), enables the committed hooks (`core.hooksPath .githooks`), and
    turns on `user.useConfigOnly`.
-2. **Hooks** (committed in `.githooks/`): `pre-commit` rejects a commit made
-   under a non-allowlisted identity; `commit-msg` rejects forbidden trailers
-   and footers before the commit exists.
+2. **Hooks** (committed in `.githooks/`): `pre-commit` rejects a commit whose
+   *resolved* identity is not allowlisted — it checks `git var
+   GIT_AUTHOR_IDENT`/`GIT_COMMITTER_IDENT`, so `--author` and `GIT_AUTHOR_*`
+   overrides are caught, not just `git config`; `commit-msg` rejects forbidden
+   trailers and footers before the commit exists; `pre-push` audits the actual
+   outgoing commits (same code path as CI), catching anything created with
+   `--no-verify`.
 3. **CI** (`public-ci.yml`): audits every PR's full commit range
-   (`base..head`) and every push to `main`. `--no-verify` gets you past the
-   hooks, never past CI.
+   (`base..head`) and every push to `main`. Nothing local is trusted; CI
+   re-checks the real commit objects.
 
 **If you inherited a dirty commit** (wrong author or forbidden trailer):
 

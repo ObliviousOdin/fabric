@@ -214,6 +214,34 @@ def read_message_file(path: Path) -> str:
     return "\n".join(lines)
 
 
+_IDENT_RE = re.compile(r"^(.*) <([^<>]*)> \d+ [+-]\d{4}$")
+
+
+def _audit_pending_ident(kind: str) -> list[str]:
+    """Audit git's effective author/committer ident for the pending commit.
+
+    ``git var`` resolves ``GIT_AUTHOR_*`` / ``GIT_COMMITTER_*`` overrides and
+    the ``--author`` flag (git exports it to hooks), so this catches
+    identities that never touch ``git config``.
+    """
+
+    result = subprocess.run(
+        ["git", "var", f"GIT_{kind.upper()}_IDENT"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    ident = result.stdout.strip()
+    match = _IDENT_RE.match(ident)
+    if result.returncode != 0 or not match:
+        return [f"unable to resolve the pending {kind} identity"]
+    name, email = match.group(1), match.group(2)
+    issues = _audit_identity_field(
+        role="author", name=name, email=email, subject=f"pending {kind}"
+    )
+    return issues
+
+
 def audit_config() -> list[str]:
     """Audit the effective git identity for the working repository."""
 
@@ -243,6 +271,35 @@ def audit_config() -> list[str]:
                 f"identity; expected {CANONICAL_EMAIL} "
                 "(scripts/setup-git-guardrails.sh)"
             )
+    # Config alone can be sidestepped with --author / GIT_AUTHOR_* overrides;
+    # the resolved idents cannot.
+    for kind in ("author", "committer"):
+        issues.extend(_audit_pending_ident(kind))
+    return issues
+
+
+def audit_pre_push(lines: Sequence[str]) -> list[str]:
+    """Audit the commits about to be pushed (pre-push hook stdin lines).
+
+    Each line is ``<local_ref> <local_sha> <remote_ref> <remote_sha>``.
+    This audits real commit objects — the same code path as CI — so commits
+    created past the commit hooks (``--no-verify``) are still caught before
+    they leave the machine.
+    """
+
+    issues: list[str] = []
+    for line in lines:
+        fields = line.split()
+        if len(fields) != 4:
+            continue
+        _, local_sha, _, remote_sha = fields
+        if _ZERO_SHA_RE.match(local_sha):
+            continue  # deleting a remote ref pushes no commits
+        if _ZERO_SHA_RE.match(remote_sha):
+            # New remote ref: audit only commits not already on any remote.
+            issues.extend(audit_commits([local_sha, "--not", "--remotes"]))
+        else:
+            issues.extend(audit_commits([f"{remote_sha}..{local_sha}"]))
     return issues
 
 
@@ -259,6 +316,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="audit the effective git user.name/user.email",
     )
+    mode.add_argument(
+        "--pre-push",
+        action="store_true",
+        help="audit outgoing commits from pre-push hook lines on stdin",
+    )
     return parser
 
 
@@ -267,6 +329,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.check_config:
             issues = audit_config()
+        elif args.pre_push:
+            issues = audit_pre_push(sys.stdin.read().splitlines())
         elif args.message_file is not None:
             issues = audit_message(read_message_file(args.message_file))
         elif args.commit:

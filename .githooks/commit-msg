@@ -1,0 +1,8 @@
+#!/bin/sh
+# Reject commit messages carrying AI-attribution trailers or footers
+# (Co-Authored-By: Claude ..., "Generated with ...", session links).
+# Installed via: scripts/setup-git-guardrails.sh (sets core.hooksPath).
+# Policy source of truth: scripts/commit_identity_audit.py
+set -e
+repo_root="$(git rev-parse --show-toplevel)"
+exec python3 "$repo_root/scripts/commit_identity_audit.py" --message-file "$1"

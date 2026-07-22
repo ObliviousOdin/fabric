@@ -120,6 +120,15 @@ GitHub's **Keep my email addresses private** and **Block command line pushes
 that expose my email** settings. Other contributors must keep using their own
 Git identity and should not run this maintainer-specific command.
 
+Maintainers and AI-agent sessions should prefer the one-command bootstrap,
+which also installs the committed commit-identity hooks (`.githooks/`) that
+back the CI enforcement in `scripts/commit_identity_audit.py` — see
+[`AGENT_GUARDRAILS.md`](AGENT_GUARDRAILS.md) §3.3:
+
+```bash
+bash scripts/setup-git-guardrails.sh
+```
+
 ### Prerequisites
 
 | Requirement | Notes |

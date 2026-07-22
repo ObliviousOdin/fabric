@@ -54,6 +54,18 @@ jobs:
       - name: Audit public product identity
         run: python3 scripts/fabric-brand-audit.py --mode public
 
+      - name: Audit pull request commit identity
+        if: github.event_name == 'pull_request'
+        run: >-
+          python3 scripts/commit_identity_audit.py
+          --range "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+
+      - name: Audit pushed commit identity
+        if: github.event_name == 'push'
+        run: >-
+          python3 scripts/commit_identity_audit.py
+          --range "${{ github.event.before }}..${{ github.sha }}"
+
       - name: Validate installer syntax
         run: bash -n scripts/install.sh
 

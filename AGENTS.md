@@ -4,6 +4,12 @@ Instructions for AI coding assistants and developers working on the fabric-agent
 
 **Never give up on the right solution.**
 
+> **Multiple agents on this repo?** Read [`AGENT_GUARDRAILS.md`](AGENT_GUARDRAILS.md)
+> first — it is the cross-agent collaboration + merge contract (ownership zones,
+> branch/PR/merge gates, the PR-vs-`main` cost-gate trap, and guardrails distilled
+> from real past CI failures). This file (`AGENTS.md`) remains the deep engineering
+> reference; the two are meant to be read together.
+
 ## What Fabric Is
 
 Fabric is a personal AI agent that runs the same agent core across a CLI, a

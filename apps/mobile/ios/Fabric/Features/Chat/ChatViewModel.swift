@@ -909,6 +909,48 @@ struct PendingInteractionAccessibilityCoordinator {
     }
 }
 
+/// Presentation vocabulary for the pet companion. Raw values are the UI
+/// states the sprite alias mapping in `PetSpriteView` consumes.
+enum PetState: String {
+    case idle
+    case wave
+    case run
+    case failed
+    case review
+    case jump
+    case waiting
+}
+
+/// Pure activity→pet-state projection mirroring `agent/pet/state.py`:
+/// error > celebrate > justCompleted > awaitingInput > toolRunning >
+/// reasoning > busy > idle. Steady flags (toolRunning/reasoning) only count
+/// while the turn is busy, so an interrupted turn cannot pin the running or
+/// review animation.
+struct PetActivitySnapshot: Equatable {
+    var busy = false
+    var awaitingInput = false
+    var toolRunning = false
+    var reasoning = false
+    var errorBeat = false
+    var celebrateBeat = false
+    // Pre-wired to keep the priority order identical to `agent/pet/state.py`.
+    // The mobile event stream carries no plan-finished/todo signal yet, so
+    // `message.complete` fires `celebrate` (jump) to match the desktop app; the
+    // calmer `wave` becomes reachable once such a signal exists.
+    var justCompletedBeat = false
+
+    static func derive(_ s: PetActivitySnapshot) -> PetState {
+        if s.errorBeat { return .failed }
+        if s.celebrateBeat { return .jump }
+        if s.justCompletedBeat { return .wave }
+        if s.awaitingInput { return .waiting }
+        if s.busy, s.toolRunning { return .run }
+        if s.busy, s.reasoning { return .review }
+        if s.busy { return .run }
+        return .idle
+    }
+}
+
 /// Capability-derived composition contract for the compact action strip.
 /// Unsupported actions are absent rather than permanently disabled; temporary
 /// state (offline, empty draft, missing Work identity) is handled separately.
@@ -1466,6 +1508,19 @@ final class ChatViewModel {
     /// Reference-only current Work state. It is populated exclusively by
     /// validated bootstrap/delta pages, never by an event hint.
     private(set) var durableWorkProjection: FabricWorkProjection?
+    /// Cumulative token/context usage. Seeded from the create/resume response
+    /// and merged from `session.info` / `message.complete` events with
+    /// desktop-parity overlay semantics (newer keys win only when present).
+    private(set) var usage: SessionUsage?
+    /// Live activity flags feeding the pet companion. `busy` is mirrored from
+    /// this view model's own in-flight-turn state when the state is derived.
+    private(set) var petActivity = PetActivitySnapshot()
+
+    var petState: PetState {
+        var snapshot = petActivity
+        snapshot.busy = busy
+        return PetActivitySnapshot.derive(snapshot)
+    }
 
     /// Product-facing Work state shared by every future home/mission-control
     /// direction. It remains a pure projection; rendering stays out of this
@@ -1491,6 +1546,7 @@ final class ChatViewModel {
     private var pendingDurableBackgroundMutations: [PendingDurableBackgroundMutation] = []
     private var workSyncInFlight = false
     private var workSyncNeedsAnotherPass = false
+    private var petTransientBeatTask: Task<Void, Never>?
 
     static func approval(from event: GatewayEvent) -> PendingApproval? {
         guard
@@ -1589,6 +1645,55 @@ final class ChatViewModel {
         workIdentity = identity
     }
 
+    private func mergeUsage(from payload: [String: Any]) {
+        guard let raw = payload["usage"] as? [String: Any],
+              let parsed = SessionUsage.from(payload: raw) else { return }
+        usage = usage?.merging(parsed) ?? parsed
+    }
+
+    private func updatePetSteadyFlags(for eventType: String) {
+        switch eventType {
+        case "reasoning.delta", "reasoning.available", "thinking.delta":
+            petActivity.reasoning = true
+        case "tool.start", "tool.progress", "tool.generating":
+            petActivity.toolRunning = true
+            petActivity.reasoning = false
+        case "tool.complete":
+            petActivity.toolRunning = false
+        default:
+            break
+        }
+    }
+
+    private enum PetTransientBeat {
+        case celebrate
+        case error
+
+        var decay: Duration {
+            switch self {
+            case .celebrate: return .milliseconds(2_200)
+            case .error: return .milliseconds(1_600)
+            }
+        }
+    }
+
+    /// Setting a transient beat clears its siblings first, so a completion
+    /// can never render `failed` off a stale error flag (and vice versa).
+    private func triggerPetBeat(_ beat: PetTransientBeat) {
+        petTransientBeatTask?.cancel()
+        petActivity.errorBeat = beat == .error
+        petActivity.celebrateBeat = beat == .celebrate
+        petActivity.justCompletedBeat = false
+        petTransientBeatTask = Task { [weak self] in
+            try? await Task.sleep(for: beat.decay)
+            guard !Task.isCancelled, let self else { return }
+            switch beat {
+            case .celebrate: self.petActivity.celebrateBeat = false
+            case .error: self.petActivity.errorBeat = false
+            }
+        }
+    }
+
     private func enqueueInteraction(_ interaction: PendingInteraction) {
         interactionQueue.enqueue(interaction)
         publishActiveInteraction()
@@ -1605,6 +1710,7 @@ final class ChatViewModel {
     }
 
     private func publishActiveInteraction() {
+        petActivity.awaitingInput = interactionQueue.first != nil
         let previousApprovalID = pendingApproval?.requestId
         pendingApproval = nil
         pendingPrompt = nil
@@ -1666,6 +1772,9 @@ final class ChatViewModel {
             }
             storedSessionId = durableId
             installWorkIdentity(live.workIdentity)
+            if let seeded = live.usage {
+                usage = usage?.merging(seeded) ?? seeded
+            }
             if restoring {
                 messages = Self.restoredMessages(from: live)
                 busy = live.running
@@ -1714,6 +1823,8 @@ final class ChatViewModel {
         sessionReady = false
         pendingEvents.removeAll()
         clearInteractions()
+        petActivity.toolRunning = false
+        petActivity.reasoning = false
         statusLine = nil
     }
 
@@ -1760,6 +1871,9 @@ final class ChatViewModel {
             statusLine = nil
             self.storedSessionId = durableId
             installWorkIdentity(live.workIdentity)
+            if let seeded = live.usage {
+                usage = usage?.merging(seeded) ?? seeded
+            }
             sessionId = live.sessionId
             let events = Self.eventsForReplay(
                 pendingEvents,
@@ -1793,6 +1907,8 @@ final class ChatViewModel {
         starting = false
         unsubscribe?()
         unsubscribe = nil
+        petTransientBeatTask?.cancel()
+        petTransientBeatTask = nil
         pendingEvents.removeAll()
         // Never retain raw background prompt text after this chat surface is
         // discarded. Durable public Job summaries remain server-authoritative.
@@ -2487,6 +2603,7 @@ final class ChatViewModel {
             // clearing the old binding rather than retaining a stale profile
             // namespace. A legacy gateway cannot manufacture a Work identity.
             installWorkIdentity(FabricWorkSessionIdentity.from(sessionInfo: event.payload))
+            mergeUsage(from: event.payload)
 
         case "work.changed":
             // A hint never mutates local Job state by itself. It only wakes a
@@ -2500,6 +2617,8 @@ final class ChatViewModel {
         case "message.start":
             busy = true
             statusLine = nil
+            petActivity.toolRunning = false
+            petActivity.reasoning = false
             clearInteractions()
             messages.append(TranscriptMessage(role: .assistant, text: "", streaming: true))
 
@@ -2507,11 +2626,16 @@ final class ChatViewModel {
              "tool.start", "tool.progress", "tool.generating", "tool.complete":
             guard let turnEvent = AssistantTurnReducer.event(from: event) else { return }
             busy = true
+            updatePetSteadyFlags(for: event.type)
             foldIntoStreamingAssistant(turnEvent)
 
         case "message.complete":
             busy = false
             statusLine = nil
+            mergeUsage(from: event.payload)
+            petActivity.toolRunning = false
+            petActivity.reasoning = false
+            triggerPetBeat(.celebrate)
             guard let turnEvent = AssistantTurnReducer.event(from: event) else { return }
             foldIntoStreamingAssistant(turnEvent, createWhenMissing: event.payloadText?.isEmpty == false)
             if event.payload["history_persisted"] is Bool {
@@ -2522,6 +2646,7 @@ final class ChatViewModel {
 
         case "thinking.delta":
             statusLine = "Thinking…"
+            updatePetSteadyFlags(for: event.type)
 
         case "status.update":
             let kind = event.payload["kind"] as? String
@@ -2591,6 +2716,9 @@ final class ChatViewModel {
 
         case "error":
             busy = false
+            petActivity.toolRunning = false
+            petActivity.reasoning = false
+            triggerPetBeat(.error)
             messages.append(TranscriptMessage(
                 role: .system,
                 text: Self.safeGatewayErrorMessage(from: event)

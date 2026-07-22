@@ -247,6 +247,115 @@ final class GatewayCapabilitiesTests: XCTestCase {
         XCTAssertTrue(reason.contains("push"))
     }
 
+    private let petsFamilyMethods = [
+        "pet.info",
+        "pet.info.meta",
+        "pet.gallery",
+        "pet.select",
+        "pet.disable",
+        "pet.thumb",
+    ]
+
+    func testPetsFamilyVerifiesWhenAdvertisedWithItsFullMethodSet() throws {
+        var payload = try fixtureObject("gateway-capabilities-v1.json")
+        var methods = try XCTUnwrap(payload["methods"] as? [Any])
+        methods.append(contentsOf: petsFamilyMethods as [Any])
+        payload["methods"] = methods
+        var features = try XCTUnwrap(payload["features"] as? [String: Any])
+        features["pets"] = true
+        payload["features"] = features
+
+        let negotiation = GatewayCapabilitiesParser.parse(payload)
+
+        guard case .verified(let capabilities) = negotiation else {
+            return XCTFail("Expected verified capabilities, got \(negotiation)")
+        }
+        XCTAssertEqual(capabilities.features["pets"], true)
+        XCTAssertTrue(negotiation.supportsGatewayFeature("pets"))
+        for method in petsFamilyMethods {
+            XCTAssertTrue(negotiation.supportsGatewayMethod(method), method)
+        }
+    }
+
+    func testPetsAdvertisedWithoutItsMethodsIsInvalid() throws {
+        var payload = try fixtureObject("gateway-capabilities-v1.json")
+        var features = try XCTUnwrap(payload["features"] as? [String: Any])
+        features["pets"] = true
+        payload["features"] = features
+
+        guard case .invalid(let reason) = GatewayCapabilitiesParser.parse(payload) else {
+            return XCTFail("Expected pets without its method family to be invalid")
+        }
+        XCTAssertTrue(reason.contains("pets"))
+    }
+
+    func testBaseFixtureLeavesPetsUnavailable() throws {
+        let negotiation = GatewayCapabilitiesParser.parse(
+            try fixtureObject("gateway-capabilities-v1.json")
+        )
+
+        guard case .verified(let capabilities) = negotiation else {
+            return XCTFail("Expected verified capabilities, got \(negotiation)")
+        }
+        XCTAssertEqual(capabilities.features["pets"], false)
+        XCTAssertFalse(negotiation.supportsGatewayFeature("pets"))
+    }
+
+    func testPetSpriteSheetDecodesOnlyEnabledPayloadsWithSaneGeometry() {
+        let payload: [String: Any] = [
+            "enabled": true,
+            "slug": "buddy",
+            "displayName": "Buddy",
+            "mime": "image/webp",
+            "spritesheetBase64": "AAAA",
+            "spritesheetRevision": "12345:678",
+            "frameW": 192,
+            "frameH": 208,
+            "framesPerState": 8,
+            "framesByState": ["idle": 4],
+            "framesByRow": ["idle": 4, "waving": 6],
+            "loopMs": 900,
+            "scale": 1.0,
+            "stateRows": ["idle", "waving"],
+        ]
+
+        let sheet = PetSpriteSheet.from(payload: payload)
+        XCTAssertEqual(sheet?.slug, "buddy")
+        XCTAssertEqual(sheet?.displayName, "Buddy")
+        XCTAssertEqual(sheet?.spritesheetRevision, "12345:678")
+        XCTAssertEqual(sheet?.frameW, 192)
+        XCTAssertEqual(sheet?.frameH, 208)
+        XCTAssertEqual(sheet?.framesByRow["waving"], 6)
+        XCTAssertEqual(sheet?.stateRows, ["idle", "waving"])
+
+        var widerPhysicalRow = payload
+        widerPhysicalRow["framesPerState"] = 6
+        widerPhysicalRow["framesByRow"] = ["idle": 4, "waving": 8]
+        XCTAssertEqual(PetSpriteSheet.from(payload: widerPhysicalRow)?.framesByRow["waving"], 8)
+
+        XCTAssertNil(PetSpriteSheet.from(payload: ["enabled": false]))
+
+        var degenerate = payload
+        degenerate["frameW"] = 0
+        XCTAssertNil(PetSpriteSheet.from(payload: degenerate))
+
+        var overflowingWidth = payload
+        overflowingWidth["frameW"] = Int.max
+        XCTAssertNil(PetSpriteSheet.from(payload: overflowingWidth))
+
+        var overflowingHeight = payload
+        overflowingHeight["frameH"] = Int.max
+        XCTAssertNil(PetSpriteSheet.from(payload: overflowingHeight))
+
+        var oversizedRows = payload
+        oversizedRows["stateRows"] = Array(repeating: "idle", count: 129)
+        XCTAssertNil(PetSpriteSheet.from(payload: oversizedRows))
+
+        var oversizedFrameCount = payload
+        oversizedFrameCount["framesByRow"] = ["idle": Int.max]
+        XCTAssertNil(PetSpriteSheet.from(payload: oversizedFrameCount))
+    }
+
     func testScopedGrantsIsAPureFlagWithNoMethodSetCheck() throws {
         let canonical = try fixtureObject("gateway-capabilities-v1.json")
 

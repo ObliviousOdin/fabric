@@ -136,6 +136,42 @@ class GatewayCapabilitiesTest {
     }
 
     @Test
+    fun supportsPetsOnlyWhenAdvertisedTrueWithItsCompleteMethodSet() {
+        val petMethods = listOf(
+            "pet.info",
+            "pet.info.meta",
+            "pet.gallery",
+            "pet.select",
+            "pet.disable",
+            "pet.thumb",
+        )
+        val verified = parseGatewayCapabilities(
+            withFeature(
+                capabilitiesPayload(
+                    methods = listOf(
+                        "session.create",
+                        "session.resume",
+                        "session.list",
+                        "session.active_list",
+                        "prompt.submit",
+                        "session.interrupt",
+                    ) + petMethods,
+                ),
+                "pets",
+                JsonPrimitive(true),
+            ),
+        )
+        assertTrue(verified is GatewayCapabilityNegotiation.Verified)
+        assertTrue(verified.supportsGatewayFeature("pets"))
+
+        val contradiction = parseGatewayCapabilities(
+            withFeature(capabilitiesPayload(), "pets", JsonPrimitive(true)),
+        )
+        assertTrue(contradiction is GatewayCapabilityNegotiation.Invalid)
+        assertTrue((contradiction as GatewayCapabilityNegotiation.Invalid).reason.contains("pets"))
+    }
+
+    @Test
     fun featureRegistryFixtureMatchesTheCompiledRegistry() {
         val registry = contractFixture("gateway-feature-registry-v1.json")
         val contract = registry["contract"] as JsonObject

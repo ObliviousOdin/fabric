@@ -1368,6 +1368,180 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertFalse(model.pendingAttachments.contains { $0.filename == "one-too-many" })
     }
 
+    // MARK: - Session usage (token/context readout)
+
+    func testSessionUsageParsesWireKeysAndKeepsAMissingContextGaugeMissing() throws {
+        let full = try XCTUnwrap(SessionUsage.from(payload: [
+            "model": "fable-5",
+            "input": 1_200,
+            "output": 400,
+            "reasoning": 90,
+            "prompt": 1_150,
+            "completion": 450,
+            "total": 1_600,
+            "calls": 7,
+            "context_used": 52_000,
+            "context_max": 200_000,
+            "context_percent": 26,
+            "compressions": 1,
+            "active_subagents": 2,
+        ]))
+        XCTAssertEqual(full.model, "fable-5")
+        XCTAssertEqual(full.input, 1_200)
+        XCTAssertEqual(full.output, 400)
+        XCTAssertEqual(full.reasoning, 90)
+        XCTAssertEqual(full.totalTokens, 1_600)
+        XCTAssertEqual(full.calls, 7)
+        XCTAssertEqual(full.contextUsed, 52_000)
+        XCTAssertEqual(full.contextMax, 200_000)
+        XCTAssertEqual(full.contextPercent, 26)
+        XCTAssertEqual(full.compressions, 1)
+        XCTAssertEqual(full.activeSubagents, 2)
+
+        // A context engine without a real current-window reading omits the
+        // gauge; the client must keep it unknown rather than defaulting to 0.
+        let contextless = try XCTUnwrap(SessionUsage.from(payload: [
+            "model": "fable-5",
+            "total": 1_900_000,
+            "calls": 12,
+        ]))
+        XCTAssertNil(contextless.contextUsed)
+        XCTAssertNil(contextless.contextMax)
+        XCTAssertNil(contextless.contextPercent)
+
+        XCTAssertNil(SessionUsage.from(payload: ["unrelated": "value"]))
+    }
+
+    func testSessionUsageMergingOverlaysOnlyKeysPresentInTheNewerPayload() throws {
+        let older = try XCTUnwrap(SessionUsage.from(payload: [
+            "model": "fable-5",
+            "total": 100,
+            "calls": 2,
+            "context_percent": 10,
+            "context_used": 20_000,
+            "context_max": 200_000,
+        ]))
+        let newer = try XCTUnwrap(SessionUsage.from(payload: [
+            "total": 250,
+            "calls": 3,
+        ]))
+
+        let merged = older.merging(newer)
+
+        XCTAssertEqual(merged.totalTokens, 250)
+        XCTAssertEqual(merged.calls, 3)
+        XCTAssertEqual(merged.model, "fable-5", "Newer nils must not erase older values")
+        XCTAssertEqual(merged.contextPercent, 10)
+        XCTAssertEqual(merged.contextUsed, 20_000)
+        XCTAssertEqual(merged.contextMax, 200_000)
+    }
+
+    @MainActor
+    func testUsageSeedsFromTheCreateResponseAndMergesOwnSessionEventsOnly() async throws {
+        let seeded = try XCTUnwrap(SessionUsage.from(payload: [
+            "model": "fable-5",
+            "total": 120,
+            "calls": 2,
+            "context_used": 24_000,
+            "context_max": 200_000,
+            "context_percent": 12,
+        ]))
+        let client = JsonRpcGatewayClient()
+        let model = ChatViewModel(
+            api: GatewayAPI(client: client),
+            resumeStoredSessionId: nil,
+            supportsMethod: { $0 == "session.create" },
+            operations: ChatGatewayOperations(
+                createSession: {
+                    LiveSession(
+                        sessionId: "runtime-1",
+                        storedSessionId: "stored-1",
+                        usage: seeded
+                    )
+                },
+                resumeSession: { _ in
+                    LiveSession(sessionId: "runtime-1", storedSessionId: "stored-1")
+                },
+                submitPrompt: { _, _ in },
+                steer: { _, _ in true },
+                execSlash: { _, _ in nil },
+                submitLegacyBackground: { _, _ in nil }
+            )
+        )
+        await model.start()
+        XCTAssertEqual(model.usage, seeded)
+
+        client.onEvent?(GatewayEvent(
+            type: "session.info",
+            sessionId: "runtime-1",
+            payload: ["usage": ["total": 400, "calls": 3]]
+        ))
+        XCTAssertEqual(model.usage?.totalTokens, 400)
+        XCTAssertEqual(model.usage?.calls, 3)
+        XCTAssertEqual(model.usage?.model, "fable-5")
+        XCTAssertEqual(
+            model.usage?.contextPercent,
+            12,
+            "A payload without context keys must not erase the gauge"
+        )
+
+        client.onEvent?(GatewayEvent(
+            type: "session.info",
+            sessionId: "another-session",
+            payload: ["usage": ["total": 999_999]]
+        ))
+        XCTAssertEqual(model.usage?.totalTokens, 400, "Other sessions' usage must be ignored")
+
+        client.onEvent?(GatewayEvent(
+            type: "message.complete",
+            sessionId: "runtime-1",
+            payload: ["text": "Done", "usage": ["total": 512, "calls": 4]]
+        ))
+        XCTAssertEqual(model.usage?.totalTokens, 512)
+        XCTAssertEqual(model.usage?.calls, 4)
+        model.stop()
+    }
+
+    // MARK: - Pet activity projection
+
+    func testPetActivityDeriveHonorsPriorityOrder() {
+        var snapshot = PetActivitySnapshot()
+        XCTAssertEqual(PetActivitySnapshot.derive(snapshot), .idle)
+
+        snapshot.busy = true
+        XCTAssertEqual(PetActivitySnapshot.derive(snapshot), .run)
+        snapshot.reasoning = true
+        XCTAssertEqual(PetActivitySnapshot.derive(snapshot), .review)
+        snapshot.toolRunning = true
+        XCTAssertEqual(PetActivitySnapshot.derive(snapshot), .run)
+        snapshot.awaitingInput = true
+        XCTAssertEqual(PetActivitySnapshot.derive(snapshot), .waiting)
+        snapshot.justCompletedBeat = true
+        XCTAssertEqual(PetActivitySnapshot.derive(snapshot), .wave)
+        snapshot.celebrateBeat = true
+        XCTAssertEqual(PetActivitySnapshot.derive(snapshot), .jump)
+        snapshot.errorBeat = true
+        XCTAssertEqual(PetActivitySnapshot.derive(snapshot), .failed, "Error beats celebrate")
+    }
+
+    func testPetActivityDeriveIgnoresSteadyFlagsWhenTheTurnIsNotBusy() {
+        var interrupted = PetActivitySnapshot()
+        interrupted.toolRunning = true
+        interrupted.reasoning = true
+        XCTAssertEqual(
+            PetActivitySnapshot.derive(interrupted),
+            .idle,
+            "An interrupted turn must not pin the run/review animation"
+        )
+
+        interrupted.awaitingInput = true
+        XCTAssertEqual(
+            PetActivitySnapshot.derive(interrupted),
+            .waiting,
+            "Awaiting input does not require a busy turn"
+        )
+    }
+
     @MainActor
     private func makeModel(
         methods: Set<String>,

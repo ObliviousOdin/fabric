@@ -60,6 +60,23 @@ struct DevicePresentationCacheStore {
     }
 }
 
+/// Availability of the optional pet companion for the current connection.
+enum PetExperienceState: Equatable {
+    /// The negotiation lacks the `pets` family (or is not verified yet).
+    case unsupported
+    /// Supported, but `display.pet.enabled` is false server-side.
+    case disabled
+    case loading
+    case active(PetDisplay)
+    /// Supported but a pet RPC failed; the message is user-facing.
+    case unavailable(String)
+}
+
+/// The currently adopted pet, ready to render.
+struct PetDisplay: Equatable {
+    let sheet: PetSpriteSheet
+}
+
 /// Root app state: the saved-gateway library, the shared gateway client, and
 /// the connect/disconnect lifecycle. One socket is active at a time (the
 /// desktop renderer is single-socket too); switching servers closes the
@@ -83,6 +100,7 @@ final class AppModel {
     private(set) var connectedIntroGatewayId: String?
     private(set) var connectionGeneration = 0
     private(set) var capabilityNegotiation: GatewayCapabilityNegotiation?
+    private(set) var petState: PetExperienceState = .unsupported
 
     private let client: JsonRpcGatewayClient
     private var connectionAttempt = 0
@@ -95,6 +113,12 @@ final class AppModel {
     private let presentationCacheStore: DevicePresentationCacheStore
     private let removeGatewayFromStore: (String) throws -> Void
     private let resetGatewayStore: () throws -> Void
+    private var petThumbnailCache: [String: String] = [:]
+    /// Bumped at the start of every pet refresh (and on an explicit disable) so a
+    /// slow in-flight `pet.info` response cannot overwrite a newer adoption or
+    /// disable that resolved first — pet RPCs run concurrently on the gateway
+    /// worker pool, so responses can reorder within one connection.
+    private var petRefreshEpoch = 0
     let api: GatewayAPI
 
     var activeGateway: SavedGateway? {
@@ -449,7 +473,13 @@ final class AppModel {
         phase = automaticReconnect ? .reconnecting : .connecting
         connectingGatewayId = gateway.id
         capabilityNegotiation = .negotiating
-        if !automaticReconnect { activeGatewayId = nil }
+        if !automaticReconnect {
+            // A user-initiated connect may target a different gateway; its
+            // pet identity must not leak across the switch.
+            activeGatewayId = nil
+            petState = .unsupported
+            petThumbnailCache.removeAll()
+        }
         lastConnectError = nil
         do {
             let url = try await wsURL()
@@ -482,6 +512,9 @@ final class AppModel {
             lastConnectError = nil
             onConnected?()
             phase = .connected
+            Task { [weak self] in
+                await self?.refreshPet()
+            }
             if !GatewayStore.hasCompletedConnectionIntro(id: gateway.id) {
                 connectedIntroGatewayId = gateway.id
             }
@@ -518,6 +551,11 @@ final class AppModel {
     func sceneBecameActive() {
         isForeground = true
         if phase == .reconnecting { scheduleReconnect(immediate: true) }
+        if phase == .connected {
+            Task { [weak self] in
+                await self?.refreshPet()
+            }
+        }
     }
 
     func sceneEnteredBackground() {
@@ -609,6 +647,8 @@ final class AppModel {
         connectedIntroGatewayId = nil
         activeGatewayId = nil
         capabilityNegotiation = nil
+        petState = .unsupported
+        petThumbnailCache.removeAll()
         phase = .disconnected
         client.close()
         for gatewayID in authGatewayIDs {
@@ -628,6 +668,77 @@ final class AppModel {
 
     func supportsGatewayMethod(_ method: String) -> Bool {
         capabilityNegotiation?.supportsGatewayMethod(method) ?? false
+    }
+
+    // MARK: - Pets
+
+    var supportsPets: Bool {
+        capabilityNegotiation?.supportsGatewayFeature("pets") == true
+    }
+
+    /// Refresh the pet companion from the gateway. The cheap `pet.info.meta`
+    /// probe runs first so an unchanged spritesheet revision keeps the loaded
+    /// sheet instead of re-downloading the full atlas.
+    func refreshPet(force: Bool = false) async {
+        guard supportsPets else {
+            petState = .unsupported
+            return
+        }
+        let generation = connectionGeneration
+        petRefreshEpoch += 1
+        let epoch = petRefreshEpoch
+        do {
+            let meta = try await api.petInfoMeta()
+            guard connectionGeneration == generation, petRefreshEpoch == epoch, phase == .connected else { return }
+            guard meta.enabled else {
+                petState = .disabled
+                return
+            }
+            if !force,
+               case .active(let display) = petState,
+               let revision = meta.spritesheetRevision,
+               display.sheet.spritesheetRevision == revision {
+                return
+            }
+            petState = .loading
+            let sheet = try await api.petInfo()
+            guard connectionGeneration == generation, petRefreshEpoch == epoch, phase == .connected else { return }
+            petState = sheet.map { .active(PetDisplay(sheet: $0)) } ?? .disabled
+        } catch {
+            guard connectionGeneration == generation, petRefreshEpoch == epoch, phase == .connected else { return }
+            petState = .unavailable("Pets are advertised but unreachable right now. Fabric retries automatically when you reconnect or return to the app.")
+        }
+    }
+
+    func adoptPet(slug: String) async throws {
+        _ = try await api.petSelect(slug: slug)
+        await refreshPet(force: true)
+    }
+
+    func disablePet() async throws {
+        let generation = connectionGeneration
+        try await api.petDisable()
+        guard connectionGeneration == generation, phase == .connected else { return }
+        // Supersede any in-flight refresh so a stale pet.info can't re-enable the UI.
+        petRefreshEpoch += 1
+        petState = .disabled
+    }
+
+    func loadPetGallery(localOnly: Bool) async throws -> PetGalleryState {
+        try await api.petGallery(localOnly: localOnly)
+    }
+
+    /// Picker preview thumbnail (PNG data URI), nil on any failure — the
+    /// picker shows its placeholder instead of an error.
+    func petThumbnail(slug: String, url: String?) async -> String? {
+        if let cached = petThumbnailCache[slug] { return cached }
+        do {
+            guard let dataUri = try await api.petThumb(slug: slug, url: url) else { return nil }
+            petThumbnailCache[slug] = dataUri
+            return dataUri
+        } catch {
+            return nil
+        }
     }
 
 #if DEBUG

@@ -301,6 +301,51 @@ describe("optional gateway capability families", () => {
     });
   });
 
+  it("supports pets only when advertised true with its complete method set", () => {
+    const additive = structuredClone(validFixture) as Record<string, unknown>;
+    const features = additive.features as Record<string, unknown>;
+    const methods = additive.methods as string[];
+    features.pets = true;
+    methods.push(
+      "pet.info",
+      "pet.info.meta",
+      "pet.gallery",
+      "pet.select",
+      "pet.disable",
+      "pet.thumb",
+    );
+
+    const result = parseGatewayCapabilities(additive);
+    expect(result).toMatchObject({
+      kind: "verified",
+      capabilities: { features: { pets: true } },
+    });
+    expect(supportsGatewayFeature(result, "pets")).toBe(true);
+  });
+
+  it("rejects pets advertised true without its required methods", () => {
+    const contradictory = structuredClone(validFixture) as Record<
+      string,
+      unknown
+    >;
+    (contradictory.features as Record<string, unknown>).pets = true;
+
+    expect(parseGatewayCapabilities(contradictory)).toMatchObject({
+      kind: "invalid",
+      message: expect.stringContaining("pets"),
+    });
+  });
+
+  it("treats an absent pets family as not advertised", () => {
+    const result = parseGatewayCapabilities(validFixture);
+
+    expect(result.kind).toBe("verified");
+    expect(
+      result.kind === "verified" && result.capabilities.features.pets,
+    ).toBe(false);
+    expect(supportsGatewayFeature(result, "pets")).toBe(false);
+  });
+
   it("treats scoped_grants as a pure flag with no method-set check", () => {
     const absent = parseGatewayCapabilities(validFixture);
     expect(

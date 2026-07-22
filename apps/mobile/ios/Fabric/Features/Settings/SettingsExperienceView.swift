@@ -66,24 +66,36 @@ struct SettingsExperienceContent: View {
     let permissions: SettingsPermissionInventory
     let actions: SettingsExperienceActions
 
+    // Optional so the deterministic debug fixture can render without ever
+    // constructing an AppModel; the pet row then presents as unsupported.
+    @Environment(AppModel.self) private var appModel: AppModel?
+
     @State private var pendingServerAction: SettingsServerManagementAction?
     @State private var localDataAlert: SettingsLocalDataAlert?
+    @State private var showPetPicker = false
+    @State private var petActionError: String?
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
-                connectionSection
-                executionSection
+                serverSection
+                personalizationSection
                 permissionsSection
-                softwareSection
-                supportSection
+                aboutSection
+                privacySection
                 serverManagementSection
+                deviceDataSection
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
             .padding(.bottom, 40)
         }
         .background(FabricTheme.canvas.ignoresSafeArea())
+        .sheet(isPresented: $showPetPicker) {
+            if let appModel {
+                SettingsPetPickerSheet(appModel: appModel)
+            }
+        }
         .confirmationDialog(
             pendingServerAction?.confirmationTitle ?? "Server action",
             isPresented: Binding(
@@ -109,8 +121,8 @@ struct SettingsExperienceContent: View {
         }
     }
 
-    private var connectionSection: some View {
-        SettingsExperienceSection(title: "Connection") {
+    private var serverSection: some View {
+        SettingsExperienceSection(title: "Server") {
             VStack(alignment: .leading, spacing: 16) {
                 SettingsStatusHeader(status: presentation.connection)
 
@@ -156,22 +168,219 @@ struct SettingsExperienceContent: View {
                         .foregroundStyle(FabricTheme.textMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                Divider().overlay(FabricTheme.border)
+                SettingsStatusHeader(status: presentation.execution)
             }
         }
     }
 
-    private var executionSection: some View {
-        SettingsExperienceSection(title: "Execution") {
-            SettingsStatusHeader(status: presentation.execution)
+    private var personalizationSection: some View {
+        SettingsExperienceSection(title: "Personalization") {
+            VStack(alignment: .leading, spacing: 0) {
+                petRows
+                Divider().overlay(FabricTheme.border)
+                voiceRow
+            }
         }
+    }
+
+    @ViewBuilder
+    private var petRows: some View {
+        let petState = appModel?.petState ?? .unsupported
+        let pet = SettingsPetPresentation.make(
+            supportsPets: appModel?.supportsPets == true,
+            state: petState
+        )
+        switch petState {
+        case .active(let display):
+            activePetRows(display: display, pet: pet)
+        case .disabled:
+            disabledPetRow(pet: pet)
+        case .loading:
+            petStatusRow(pet: pet, showsProgress: true)
+        case .unsupported:
+            petStatusRow(pet: pet, showsProgress: appModel?.supportsPets == true)
+        case .unavailable:
+            petStatusRow(pet: pet, showsProgress: false)
+        }
+        if let petActionError {
+            Text(petActionError)
+                .font(.footnote)
+                .foregroundStyle(FabricTheme.warning)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 10)
+        }
+    }
+
+    private func petStatusRow(pet: SettingsPetPresentation, showsProgress: Bool) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: pet.systemImage)
+                .foregroundStyle(pet.tone.color)
+                .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(pet.title)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(FabricTheme.text)
+                Text(pet.detail)
+                    .font(.footnote)
+                    .foregroundStyle(pet.tone == .warning ? FabricTheme.warning : FabricTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            if showsProgress {
+                ProgressView()
+            }
+        }
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("settings-pets-row")
+    }
+
+    private func disabledPetRow(pet: SettingsPetPresentation) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: pet.systemImage)
+                .foregroundStyle(FabricTheme.textMuted)
+                .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(pet.title)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(FabricTheme.text)
+                Text(pet.detail)
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            Toggle("Pet companion", isOn: petToggle)
+                .labelsHidden()
+                .tint(FabricTheme.action)
+        }
+        .frame(minHeight: FabricTheme.minTarget)
+        .padding(.vertical, 8)
+        .accessibilityIdentifier("settings-pets-row")
+    }
+
+    private func activePetRows(display: PetDisplay, pet: SettingsPetPresentation) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                PetSpriteView(sheet: display.sheet, state: .idle, height: 56)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(pet.title)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(FabricTheme.text)
+                    Text(pet.detail)
+                        .font(.footnote)
+                        .foregroundStyle(FabricTheme.textMuted)
+                }
+                Spacer(minLength: 12)
+                Toggle("Pet companion", isOn: petToggle)
+                    .labelsHidden()
+                    .tint(FabricTheme.action)
+            }
+            .frame(minHeight: FabricTheme.minTarget)
+            .padding(.vertical, 8)
+            .accessibilityIdentifier("settings-pets-row")
+
+            Divider().overlay(FabricTheme.border)
+
+            Button {
+                petActionError = nil
+                showPetPicker = true
+            } label: {
+                SettingsNavigationRow(
+                    title: "Choose pet",
+                    detail: "Browse and adopt a different companion",
+                    systemImage: "pawprint.circle"
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("settings-pets-choose")
+        }
+    }
+
+    private var petToggle: Binding<Bool> {
+        Binding(
+            get: {
+                if case .active = appModel?.petState { return true }
+                return false
+            },
+            set: { enabled in
+                if enabled {
+                    enablePetCompanion()
+                } else {
+                    disablePetCompanion()
+                }
+            }
+        )
+    }
+
+    private func enablePetCompanion() {
+        guard let appModel else { return }
+        petActionError = nil
+        Task { @MainActor in
+            do {
+                let gallery = try await appModel.loadPetGallery(localOnly: true)
+                let adoptable = gallery.active.isEmpty
+                    ? gallery.pets.first(where: \.installed)?.slug
+                    : gallery.active
+                if let adoptable {
+                    try await appModel.adoptPet(slug: adoptable)
+                } else {
+                    showPetPicker = true
+                }
+            } catch {
+                petActionError = "Couldn't turn on the pet companion. Try again."
+            }
+        }
+    }
+
+    private func disablePetCompanion() {
+        guard let appModel else { return }
+        petActionError = nil
+        Task { @MainActor in
+            do {
+                try await appModel.disablePet()
+            } catch {
+                petActionError = "Couldn't turn off the pet companion. Try again."
+            }
+        }
+    }
+
+    private var voiceRow: some View {
+        let voice = SettingsVoicePresentation.make()
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: voice.systemImage)
+                .foregroundStyle(voice.tone.color)
+                .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(voice.title)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(FabricTheme.text)
+                Text(voice.detail)
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("settings-voice-row")
     }
 
     private var permissionsSection: some View {
         SettingsExperienceSection(title: "iPhone permissions") {
-            VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 SettingsPermissionRow(permission: permissions.camera)
-                Divider().overlay(FabricTheme.border)
-                SettingsPermissionRow(permission: permissions.localNetwork)
+                Text("Local Network access: status not exposed by iOS.")
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 12)
                 Divider().overlay(FabricTheme.border)
                 Button(action: actions.onOpenSystemSettings) {
                     HStack(spacing: 12) {
@@ -197,8 +406,8 @@ struct SettingsExperienceContent: View {
         }
     }
 
-    private var softwareSection: some View {
-        SettingsExperienceSection(title: "App and gateway") {
+    private var aboutSection: some View {
+        SettingsExperienceSection(title: "About") {
             VStack(spacing: 0) {
                 SettingsValueRow(label: "Fabric Mobile", value: presentation.clientBuild.version)
                 SettingsValueRow(label: "Build", value: presentation.clientBuild.build)
@@ -249,8 +458,8 @@ struct SettingsExperienceContent: View {
         }
     }
 
-    private var supportSection: some View {
-        SettingsExperienceSection(title: "Privacy and support") {
+    private var privacySection: some View {
+        SettingsExperienceSection(title: "Privacy and diagnostics") {
             VStack(alignment: .leading, spacing: 0) {
                 NavigationLink {
                     SettingsDiagnosticsView(
@@ -287,7 +496,6 @@ struct SettingsExperienceContent: View {
         }
     }
 
-    @ViewBuilder
     private var serverManagementSection: some View {
         SettingsExperienceSection(title: "Server management") {
             VStack(spacing: 0) {
@@ -320,79 +528,75 @@ struct SettingsExperienceContent: View {
             }
             .disabled(presentation.gateway == nil)
         }
+    }
 
-        SettingsExperienceSection(title: "Device storage") {
-            SettingsManagementButton(
-                title: "Clear cached presentation data",
-                detail: "Remove device-only Home and conversation snapshots; keep servers and credentials",
-                systemImage: "arrow.clockwise.circle",
-                color: FabricTheme.action
-            ) {
-                pendingServerAction = .clearCachedPresentationData
-            }
-        }
-
-        SettingsExperienceSection(title: "Reset") {
-            SettingsManagementButton(
-                title: "Reset Fabric on this iPhone",
-                detail: "Remove all saved servers, credentials, and device-only presentation state",
-                systemImage: "iphone.and.arrow.forward.outward",
-                color: FabricTheme.danger
-            ) {
-                pendingServerAction = .resetLocalApp
+    private var deviceDataSection: some View {
+        SettingsExperienceSection(title: "Device data") {
+            VStack(spacing: 0) {
+                SettingsManagementButton(
+                    title: "Clear cached presentation data",
+                    detail: "Remove device-only Home and conversation snapshots; keep servers and credentials",
+                    systemImage: "arrow.clockwise.circle",
+                    color: FabricTheme.action
+                ) {
+                    pendingServerAction = .clearCachedPresentationData
+                }
+                Divider().overlay(FabricTheme.border)
+                SettingsManagementButton(
+                    title: "Reset Fabric on this iPhone",
+                    detail: "Remove all saved servers, credentials, and device-only presentation state",
+                    systemImage: "iphone.and.arrow.forward.outward",
+                    color: FabricTheme.danger
+                ) {
+                    pendingServerAction = .resetLocalApp
+                }
             }
         }
     }
 
     @ViewBuilder
     private var confirmationButtons: some View {
-        switch pendingServerAction {
-        case .switchServer:
-            Button("Switch Servers") {
+        // Titles and destructive styling come from the tested action enum so
+        // the dialog can never drift from the copy the tests pin down.
+        if let action = pendingServerAction {
+            Button(
+                action.confirmationButtonTitle,
+                role: action.isDestructive ? .destructive : nil
+            ) {
                 pendingServerAction = nil
-                actions.onSwitchServer()
+                perform(action)
             }
-        case .repairServer:
-            Button("Pair Again") {
-                pendingServerAction = nil
-                actions.onRepairServer()
-            }
-        case .forgetServer:
-            Button("Forget Server", role: .destructive) {
-                do {
-                    try actions.onForgetServer()
-                    pendingServerAction = nil
-                } catch {
-                    pendingServerAction = nil
-                    localDataAlert = .forgetGatewayFailed
-                }
-            }
-        case .clearCachedPresentationData:
-            Button("Clear Cache") {
-                do {
-                    try actions.onClearCachedPresentationData()
-                    pendingServerAction = nil
-                    localDataAlert = .cacheCleared
-                } catch {
-                    pendingServerAction = nil
-                    localDataAlert = .cacheClearFailed
-                }
-            }
-        case .resetLocalApp:
-            Button("Reset Fabric", role: .destructive) {
-                do {
-                    try actions.onResetLocalApp()
-                    pendingServerAction = nil
-                } catch {
-                    pendingServerAction = nil
-                    localDataAlert = .resetFailed
-                }
-            }
-        case nil:
-            EmptyView()
         }
         Button("Cancel", role: .cancel) {
             pendingServerAction = nil
+        }
+    }
+
+    private func perform(_ action: SettingsServerManagementAction) {
+        switch action {
+        case .switchServer:
+            actions.onSwitchServer()
+        case .repairServer:
+            actions.onRepairServer()
+        case .forgetServer:
+            do {
+                try actions.onForgetServer()
+            } catch {
+                localDataAlert = .forgetGatewayFailed
+            }
+        case .clearCachedPresentationData:
+            do {
+                try actions.onClearCachedPresentationData()
+                localDataAlert = .cacheCleared
+            } catch {
+                localDataAlert = .cacheClearFailed
+            }
+        case .resetLocalApp:
+            do {
+                try actions.onResetLocalApp()
+            } catch {
+                localDataAlert = .resetFailed
+            }
         }
     }
 }
@@ -605,6 +809,211 @@ private struct SettingsManagementButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Two-phase pet gallery picker: the installed-only gallery renders instantly,
+/// then the full petdex merge replaces it when the network fetch lands. A
+/// failed full fetch keeps the local rows usable.
+private struct SettingsPetPickerSheet: View {
+    let appModel: AppModel
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var gallery: PetGalleryState?
+    @State private var searchText = ""
+    @State private var loadFailed = false
+    @State private var adoptingSlug: String?
+    @State private var adoptionError: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if let adoptionError {
+                        Text(adoptionError)
+                            .font(.footnote)
+                            .foregroundStyle(FabricTheme.warning)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.vertical, 10)
+                    }
+                    if visiblePets.isEmpty {
+                        emptyState
+                    } else {
+                        ForEach(visiblePets) { entry in
+                            petRow(entry)
+                            if entry.id != visiblePets.last?.id {
+                                Divider().overlay(FabricTheme.border)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+            }
+            .background(FabricTheme.canvas.ignoresSafeArea())
+            .searchable(text: $searchText, prompt: "Search pets")
+            .navigationTitle("Choose a pet")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .task { await loadGallery() }
+        }
+        .tint(FabricTheme.action)
+    }
+
+    private var visiblePets: [PetGalleryEntry] {
+        guard let gallery else { return [] }
+        let pets = gallery.pets.filter { !Self.isHiddenSlug($0.slug) }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return pets }
+        return pets.filter {
+            $0.displayName.lowercased().contains(query) || $0.slug.lowercased().contains(query)
+        }
+    }
+
+    /// The default `clawd` family stays a host-surface concern; matches
+    /// `^clawd(-|$)` case-insensitively.
+    private static func isHiddenSlug(_ slug: String) -> Bool {
+        let lowered = slug.lowercased()
+        return lowered == "clawd" || lowered.hasPrefix("clawd-")
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if gallery == nil {
+            if loadFailed {
+                Text("Couldn't load the pet gallery from the gateway. Try again later.")
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 24)
+            } else {
+                HStack {
+                    Spacer(minLength: 0)
+                    ProgressView()
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 24)
+            }
+        } else {
+            Text("No pets match your search.")
+                .font(.footnote)
+                .foregroundStyle(FabricTheme.textMuted)
+                .padding(.vertical, 24)
+        }
+    }
+
+    private func petRow(_ entry: PetGalleryEntry) -> some View {
+        let isActive = entry.slug == gallery?.active
+        return Button {
+            adopt(entry)
+        } label: {
+            HStack(spacing: 12) {
+                SettingsPetThumbView(entry: entry, appModel: appModel)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(entry.displayName)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(FabricTheme.text)
+                    if let caption = Self.caption(for: entry, isActive: isActive) {
+                        Text(caption)
+                            .font(.footnote)
+                            .foregroundStyle(isActive ? FabricTheme.action : FabricTheme.textMuted)
+                    }
+                }
+                Spacer(minLength: 12)
+                if adoptingSlug == entry.slug {
+                    ProgressView()
+                } else if isActive {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(FabricTheme.action)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(minHeight: FabricTheme.minTarget)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(adoptingSlug != nil)
+        .accessibilityLabel(isActive ? "\(entry.displayName), active pet" : entry.displayName)
+    }
+
+    private static func caption(for entry: PetGalleryEntry, isActive: Bool) -> String? {
+        var parts: [String] = []
+        if isActive { parts.append("Active") }
+        if entry.generated { parts.append("Generated") }
+        if entry.installed { parts.append("Installed") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func loadGallery() async {
+        if let local = try? await appModel.loadPetGallery(localOnly: true) {
+            gallery = local
+        }
+        do {
+            gallery = try await appModel.loadPetGallery(localOnly: false)
+            loadFailed = false
+        } catch {
+            loadFailed = gallery == nil
+        }
+    }
+
+    private func adopt(_ entry: PetGalleryEntry) {
+        guard adoptingSlug == nil else { return }
+        adoptionError = nil
+        adoptingSlug = entry.slug
+        Task { @MainActor in
+            do {
+                try await appModel.adoptPet(slug: entry.slug)
+                adoptingSlug = nil
+                dismiss()
+            } catch {
+                adoptingSlug = nil
+                adoptionError = "Couldn't adopt \(entry.displayName). Try again."
+            }
+        }
+    }
+}
+
+/// One picker thumbnail, resolved fail-open through the AppModel cache. The
+/// dataUri payload after the comma is base64 PNG; anything malformed keeps
+/// the placeholder symbol.
+private struct SettingsPetThumbView: View {
+    let entry: PetGalleryEntry
+    let appModel: AppModel
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Image(systemName: "pawprint.fill")
+                    .foregroundStyle(FabricTheme.textMuted)
+            }
+        }
+        .frame(width: 44, height: 44)
+        .accessibilityHidden(true)
+        .task(id: entry.slug) {
+            guard image == nil else { return }
+            guard let dataUri = await appModel.petThumbnail(
+                slug: entry.slug,
+                url: entry.spritesheetUrl.isEmpty ? nil : entry.spritesheetUrl
+            ),
+                let comma = dataUri.firstIndex(of: ","),
+                let data = Data(base64Encoded: String(dataUri[dataUri.index(after: comma)...])),
+                let decoded = UIImage(data: data)
+            else { return }
+            image = decoded
+        }
     }
 }
 

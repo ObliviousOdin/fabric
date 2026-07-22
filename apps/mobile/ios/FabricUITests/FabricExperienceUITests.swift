@@ -117,7 +117,17 @@ final class FabricExperienceUITests: XCTestCase {
         let app = launchFixture("settings")
 
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts["Connection"].exists)
+        XCTAssertTrue(app.staticTexts["Server"].exists)
+
+        let personalization = app.staticTexts["Personalization"]
+        scrollTo(personalization, in: app)
+        XCTAssertTrue(personalization.exists)
+        let petsRow = app.descendants(matching: .any)["settings-pets-row"].firstMatch
+        scrollTo(petsRow, in: app)
+        XCTAssertTrue(petsRow.exists)
+        let voiceRow = app.descendants(matching: .any)["settings-voice-row"].firstMatch
+        scrollTo(voiceRow, in: app)
+        XCTAssertTrue(voiceRow.exists)
 
         let diagnostics = app.buttons.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Diagnostics")
@@ -300,7 +310,7 @@ final class FabricExperienceUITests: XCTestCase {
 
         app.buttons["Settings"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Connection"].exists)
+        XCTAssertTrue(app.staticTexts["Server"].exists)
         if testsGatedSignIn {
             let connectedServer = app.descendants(matching: .any).matching(
                 NSPredicate(format: "label == %@", "Connected server")

@@ -26,6 +26,7 @@ import io.github.obliviousodin.fabric.mobile.core.supportsGatewayMethod
 import io.github.obliviousodin.fabric.mobile.ui.ChatScreen
 import io.github.obliviousodin.fabric.mobile.ui.GatewayListScreen
 import io.github.obliviousodin.fabric.mobile.ui.SessionsScreen
+import io.github.obliviousodin.fabric.mobile.ui.SocialStudioScreen
 import io.github.obliviousodin.fabric.mobile.ui.theme.FabricTheme
 
 class MainActivity : ComponentActivity() {
@@ -110,6 +111,10 @@ private fun FabricRoot(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 enabled = phase == ConnectionPhase.Connected,
                 capabilityNegotiation = capabilityNegotiation,
+            )
+            is Screen.Social -> SocialStudioScreen(
+                viewModel = viewModel,
+                enabled = phase == ConnectionPhase.Connected,
             )
             is Screen.Chat -> ChatScreen(
                 controller = current.controller,

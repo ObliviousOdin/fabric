@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.CircularProgressIndicator
@@ -113,6 +114,9 @@ fun SessionsScreen(
                 // the library, which is the switcher for other saved servers.
                 title = { Text(viewModel.activeGateway?.label ?: "Sessions", maxLines = 1) },
                 actions = {
+                    IconButton(onClick = viewModel::openSocial, enabled = enabled) {
+                        Icon(Icons.Filled.Campaign, contentDescription = "Social Studio")
+                    }
                     IconButton(onClick = { reloadKey++ }, enabled = enabled) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }

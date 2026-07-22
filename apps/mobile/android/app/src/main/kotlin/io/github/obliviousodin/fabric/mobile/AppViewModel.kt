@@ -13,8 +13,13 @@ import io.github.obliviousodin.fabric.mobile.core.GatewayStore
 import io.github.obliviousodin.fabric.mobile.core.JsonRpcGatewayClient
 import io.github.obliviousodin.fabric.mobile.core.PairingPayload
 import io.github.obliviousodin.fabric.mobile.core.SavedGateway
+import io.github.obliviousodin.fabric.mobile.core.SessionSummary
+import io.github.obliviousodin.fabric.mobile.core.SessionTranscriptMessage
+import io.github.obliviousodin.fabric.mobile.core.SocialArtifact
+import io.github.obliviousodin.fabric.mobile.core.SocialSourceMessage
 import io.github.obliviousodin.fabric.mobile.core.allowsBaselineSessionCalls
 import io.github.obliviousodin.fabric.mobile.core.blockingMessage
+import io.github.obliviousodin.fabric.mobile.core.extractSocialArtifacts
 import io.github.obliviousodin.fabric.mobile.core.supportsGatewayMethod
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -26,8 +31,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /** Root navigation destinations; state-driven to avoid a nav dependency. */
+/** A conversation that produced at least one post-ready Social Studio artifact. */
+data class SocialSessionEntry(val session: SessionSummary, val artifacts: List<SocialArtifact>)
+
 sealed interface Screen {
     data object Sessions : Screen
+    data object Social : Screen
     data class Chat(val controller: ChatSessionController, val title: String) : Screen
 }
 
@@ -456,6 +465,54 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         activeChat()?.stop()
         _screen.value = Screen.Sessions
     }
+
+    // ── Social Studio ────────────────────────────────────────────────────────
+
+    fun openSocial() {
+        _screen.value = Screen.Social
+    }
+
+    /** Open a fresh chat seeded with the composed post prompt for review/send. */
+    fun startChatWithPrompt(prompt: String) {
+        openChat(resumeStoredSessionId = null, title = "New chat")
+        activeChat()?.send(prompt)
+    }
+
+    /**
+     * Scan recent conversations for post-ready artifacts (a `linkedin-post`
+     * block + optional image). Uses only the negotiated session methods; returns
+     * empty when they are unsupported so the UI degrades gracefully.
+     */
+    suspend fun loadSocialLibrary(limit: Int = 20): List<SocialSessionEntry> {
+        if (!supportsGatewayMethod("session.list") || !supportsGatewayMethod("session.resume")) {
+            return emptyList()
+        }
+
+        val entries = mutableListOf<SocialSessionEntry>()
+        for (session in api.listSessions(limit).filter { it.messageCount > 0 }) {
+            val artifacts =
+                try {
+                    extractSocialArtifacts(api.resumeSession(session.id).messages.map { it.toSocialSource() })
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            if (artifacts.isNotEmpty()) entries.add(SocialSessionEntry(session, artifacts))
+        }
+        return entries
+    }
+
+    private fun SessionTranscriptMessage.toSocialSource(): SocialSourceMessage =
+        object : SocialSourceMessage {
+            override val role =
+                when (this@toSocialSource.role) {
+                    SessionTranscriptMessage.Role.ASSISTANT -> "assistant"
+                    SessionTranscriptMessage.Role.USER -> "user"
+                    SessionTranscriptMessage.Role.SYSTEM -> "system"
+                    SessionTranscriptMessage.Role.TOOL -> "tool"
+                }
+            override val content = this@toSocialSource.text
+            override val timestamp: Long? = null
+        }
 
     private fun openChat(resumeStoredSessionId: String?, title: String) {
         val controller = ChatSessionController(

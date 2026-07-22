@@ -1,0 +1,20 @@
+{
+  "schema": "fabric.transcription",
+  "version": 1,
+  "request_id": "capture-018f8ac2-39a1-75e1-bbd9-0fe8ed42ffdd",
+  "status": "completed",
+  "text": "Ship the voice note workflow.",
+  "language": "en",
+  "duration_ms": 1840,
+  "processing_ms": 412,
+  "model": "distil-small.en",
+  "provider": "autowhisper",
+  "segments": [
+    {
+      "start_ms": 0,
+      "end_ms": 1840,
+      "text": "Ship the voice note workflow."
+    }
+  ],
+  "warnings": []
+}

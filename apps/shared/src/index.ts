@@ -1,4 +1,21 @@
 export {
+  PHONE_AUDIO_CONTRACT,
+  PHONE_AUDIO_MODES,
+  PHONE_AUDIO_VERSION,
+  TRANSCRIPTION_SCHEMA,
+  TRANSCRIPTION_STATUSES,
+  TRANSCRIPTION_VERSION,
+  parsePhoneAudio,
+  parseTranscriptionResult,
+  type PhoneAudioEnvelopeV1,
+  type PhoneAudioMode,
+  type TranscriptionErrorV1,
+  type TranscriptionResultV1,
+  type TranscriptionSegmentV1,
+  type TranscriptionStatus,
+  type VoiceContractParseResult,
+} from "./voice-contract";
+export {
   GatewayRpcError,
   JsonRpcGatewayClient,
   type ConnectionState,

@@ -45,6 +45,7 @@ platform registries and their parity tests.
 | `fabric-work-v1/` | The complete durable-Work v1 corpus (bootstrap, delta, tombstone, terminal, sensitive, malformed, incompatible, additive-future, replaced-ledger, cursor-expired). |
 | `fabric-trust-v1/` | The Trust Center corpus: audit pages (monotonic `entry_id`, `redacted: true` enforced, unknown kinds preserved as non-actionable), grants (unknown scopes non-actionable, `revocable: false` honored), revoke receipts (echo + version-increase), scoped-grant receipts, cursor-expired reset, malformed. |
 | `fabric-node-v1/` | The `node.invoke` corpus: announce results (`accepted ⊆ announced`, `routable ⊆ accepted`), invocation envelopes (strict, expiring), receipt echo enforcement, malformed. |
+| `fabric-voice-v1/` | `fabric.transcription` v1 plus the client-owned `fabric.phone_audio` v1 envelope: completed/failed/no-speech, additive metadata, incompatible version, malformed invariants, and phone capture modes. Phone audio is never represented as a gateway-host microphone capability. |
 
 ## Rules for adding fixtures
 

@@ -1,0 +1,15 @@
+{
+  "schema": "fabric.transcription",
+  "version": 1,
+  "request_id": "capture-future-1",
+  "status": "completed",
+  "text": "Additive metadata remains compatible.",
+  "provider": "fixture",
+  "segments": [],
+  "warnings": [],
+  "confidence": 0.98,
+  "device": {
+    "kind": "phone",
+    "local": true
+  }
+}

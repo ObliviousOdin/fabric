@@ -40,6 +40,7 @@ import threading
 import time
 import urllib.error
 import urllib.parse
+import uuid
 import zipfile
 
 from fabric_cli._subprocess_compat import windows_detach_flags, windows_hide_flags
@@ -1034,6 +1035,7 @@ class WhatsAppOnboardingApply(BaseModel):
 class AudioTranscriptionRequest(BaseModel):
     data_url: str
     mime_type: Optional[str] = None
+    request_id: Optional[str] = None
 
 
 class ManagedFileUpload(BaseModel):
@@ -3997,10 +3999,29 @@ async def transcribe_audio_upload(payload: AudioTranscriptionRequest):
             detail=result.get("error") or "Transcription failed",
         )
 
+    from agent.transcription_result import (
+        VoiceContractError,
+        coerce_transcription_result,
+    )
+
+    request_id = (payload.request_id or str(uuid.uuid4())).strip()
+    transcript = str(result.get("transcript") or "").strip()
+    provider = result.get("provider")
+    try:
+        structured_result = coerce_transcription_result(
+            result.get("transcription_result"),
+            request_id=request_id,
+            transcript=transcript,
+            provider=str(provider) if provider else None,
+        )
+    except VoiceContractError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     return {
         "ok": True,
-        "transcript": str(result.get("transcript") or "").strip(),
-        "provider": result.get("provider"),
+        "transcript": transcript,
+        "provider": provider,
+        "result": structured_result,
     }
 
 

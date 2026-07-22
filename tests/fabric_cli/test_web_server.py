@@ -1770,9 +1770,87 @@ class TestWebServerEndpoints:
             "ok": True,
             "transcript": "hello from voice mode",
             "provider": "test",
+            "result": {
+                "schema": "fabric.transcription",
+                "version": 1,
+                "request_id": resp.json()["result"]["request_id"],
+                "status": "completed",
+                "text": "hello from voice mode",
+                "provider": "test",
+                "segments": [],
+                "warnings": [],
+            },
         }
         assert captured["path"].endswith(".webm")
         assert not Path(captured["path"]).exists()
+
+    def test_audio_transcription_preserves_valid_structured_result(self, monkeypatch):
+        import tools.transcription_tools as transcription_tools
+
+        structured = {
+            "schema": "fabric.transcription",
+            "version": 1,
+            "request_id": "capture-voice-1",
+            "status": "completed",
+            "text": "structured voice",
+            "provider": "fixture",
+            "segments": [],
+            "warnings": [],
+            "future_metadata": {"safe": True},
+        }
+        monkeypatch.setattr(
+            transcription_tools,
+            "transcribe_audio",
+            lambda _path: {
+                "success": True,
+                "transcript": "structured voice",
+                "provider": "fixture",
+                "transcription_result": structured,
+            },
+        )
+
+        resp = self.client.post(
+            "/api/audio/transcribe",
+            json={
+                "data_url": "data:audio/mp4;base64,aGVsbG8=",
+                "mime_type": "audio/mp4",
+                "request_id": "capture-voice-1",
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["result"] == structured
+
+    def test_audio_transcription_rejects_future_structured_result(self, monkeypatch):
+        import tools.transcription_tools as transcription_tools
+
+        monkeypatch.setattr(
+            transcription_tools,
+            "transcribe_audio",
+            lambda _path: {
+                "success": True,
+                "transcript": "future voice",
+                "provider": "future-provider",
+                "transcription_result": {
+                    "schema": "fabric.transcription",
+                    "version": 2,
+                    "request_id": "capture-future-1",
+                    "status": "completed",
+                    "text": "future voice",
+                },
+            },
+        )
+
+        resp = self.client.post(
+            "/api/audio/transcribe",
+            json={
+                "data_url": "data:audio/mp4;base64,aGVsbG8=",
+                "mime_type": "audio/mp4",
+            },
+        )
+
+        assert resp.status_code == 400
+        assert "incompatible" in resp.json()["detail"]
 
     def test_audio_transcription_rejects_invalid_base64(self):
         resp = self.client.post(

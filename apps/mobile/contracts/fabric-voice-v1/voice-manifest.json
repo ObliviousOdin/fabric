@@ -1,0 +1,54 @@
+{
+  "name": "fabric.voice.fixture-manifest",
+  "version": 1,
+  "cases": [
+    {
+      "id": "transcription-completed",
+      "file": "transcription-completed.json",
+      "kind": "transcription",
+      "expected": "verified"
+    },
+    {
+      "id": "transcription-failed",
+      "file": "transcription-failed.json",
+      "kind": "transcription",
+      "expected": "verified"
+    },
+    {
+      "id": "transcription-additive-future",
+      "file": "transcription-additive-future.json",
+      "kind": "transcription",
+      "expected": "verified"
+    },
+    {
+      "id": "transcription-incompatible",
+      "file": "transcription-incompatible.json",
+      "kind": "transcription",
+      "expected": "incompatible"
+    },
+    {
+      "id": "transcription-malformed",
+      "file": "transcription-malformed.json",
+      "kind": "transcription",
+      "expected": "invalid"
+    },
+    {
+      "id": "phone-audio-voice-note",
+      "file": "phone-audio-voice-note.json",
+      "kind": "phone_audio",
+      "expected": "verified"
+    },
+    {
+      "id": "phone-audio-chat",
+      "file": "phone-audio-chat.json",
+      "kind": "phone_audio",
+      "expected": "verified"
+    },
+    {
+      "id": "phone-audio-malformed",
+      "file": "phone-audio-malformed.json",
+      "kind": "phone_audio",
+      "expected": "invalid"
+    }
+  ]
+}

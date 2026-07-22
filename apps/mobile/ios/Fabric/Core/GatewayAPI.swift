@@ -1,8 +1,10 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 /// Row shape returned by the `session.list` RPC
 /// (see `tui_gateway/server.py`, `@method("session.list")`).
-struct SessionSummary: Identifiable, Hashable {
+struct SessionSummary: Identifiable, Hashable, Codable {
     let id: String
     let title: String
     let preview: String
@@ -207,7 +209,7 @@ struct LiveSession {
 /// Row shape returned by the `session.active_list` RPC — live in-memory
 /// sessions on the gateway, unlike the historical `session.list`
 /// (see `_session_live_item` in `tui_gateway/server.py`).
-struct ActiveSession: Identifiable, Hashable {
+struct ActiveSession: Identifiable, Hashable, Codable {
     let id: String
     let sessionKey: String
     let title: String
@@ -252,6 +254,23 @@ struct ScreenCapture {
     let image: Data
     let width: Int
     let height: Int
+}
+
+/// A 6K-class desktop frame fits inside these production bounds while a
+/// compressed-image bomb, implausible metadata, or accidental video-sized
+/// payload fails before UIKit attempts raster decoding.
+struct ScreenCaptureValidationLimits: Equatable {
+    let maxEncodedBytes: Int
+    let maxDecodedBytes: Int
+    let maxDimension: Int
+    let maxPixelCount: Int
+
+    static let production = ScreenCaptureValidationLimits(
+        maxEncodedBytes: 64 * 1_024 * 1_024,
+        maxDecodedBytes: 48 * 1_024 * 1_024,
+        maxDimension: 6_144,
+        maxPixelCount: 22_000_000
+    )
 }
 
 /// Row shape from `process.list` — background processes owned by a session
@@ -757,6 +776,140 @@ enum GatewayAPIError: LocalizedError {
     }
 }
 
+/// One generation of the in-memory cookie jar for a saved gated gateway.
+/// A lease becomes unusable as soon as another authentication attempt for the
+/// same saved gateway starts, or when that gateway is disconnected/forgotten.
+struct GatewayAuthSessionLease: @unchecked Sendable {
+    let gatewayID: String
+    let endpointKey: String
+    fileprivate let generation: UUID
+    let session: URLSession
+}
+
+/// Process-only gated-auth sessions, isolated by saved gateway and endpoint.
+///
+/// HTTP cookies intentionally do not include a port in their scope. Sharing a
+/// single URLSession would therefore send a gateway cookie to another service
+/// on the same hostname and path but a different port. Every entry here owns a
+/// distinct ephemeral cookie store. Replacing an entry publishes the new
+/// generation before cancelling the old session, so a late superseded response
+/// can mutate only an unreachable jar.
+final class GatewayAuthSessionPool: @unchecked Sendable {
+    private struct Entry {
+        let endpointKey: String
+        let generation: UUID
+        let session: URLSession
+    }
+
+    private let lock = NSLock()
+    private var entries: [String: Entry] = [:]
+    private let makeSession: @Sendable () -> URLSession
+
+    init(makeSession: @escaping @Sendable () -> URLSession = {
+        GatewayHTTPTransport.authSession()
+    }) {
+        self.makeSession = makeSession
+    }
+
+    /// Start a new exclusive generation. Silent reconnects copy the existing
+    /// gateway's cookies into a new jar before cancelling the old transport;
+    /// explicit password sign-in starts clean.
+    func beginSession(
+        for gateway: SavedGateway,
+        preservingExistingCookies: Bool
+    ) -> GatewayAuthSessionLease {
+        let endpointKey = gateway.endpointKey
+        let session = makeSession()
+        let generation = UUID()
+        var previousSession: URLSession?
+
+        lock.lock()
+        if let previous = entries[gateway.id] {
+            previousSession = previous.session
+            if preservingExistingCookies, previous.endpointKey == endpointKey {
+                let cookies = previous.session.configuration.httpCookieStorage?.cookies ?? []
+                let storage = session.configuration.httpCookieStorage
+                for cookie in cookies { storage?.setCookie(cookie) }
+            }
+        }
+        entries[gateway.id] = Entry(
+            endpointKey: endpointKey,
+            generation: generation,
+            session: session
+        )
+        lock.unlock()
+
+        if let previousSession { Self.clearAndInvalidate(previousSession) }
+        return GatewayAuthSessionLease(
+            gatewayID: gateway.id,
+            endpointKey: endpointKey,
+            generation: generation,
+            session: session
+        )
+    }
+
+    func isCurrent(_ lease: GatewayAuthSessionLease, for gateway: SavedGateway) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = entries[gateway.id] else { return false }
+        return lease.gatewayID == gateway.id
+            && lease.endpointKey == gateway.endpointKey
+            && entry.endpointKey == lease.endpointKey
+            && entry.generation == lease.generation
+            && entry.session === lease.session
+    }
+
+    func invalidate(gatewayID: String) {
+        lock.lock()
+        let session = entries.removeValue(forKey: gatewayID)?.session
+        lock.unlock()
+        if let session { Self.clearAndInvalidate(session) }
+    }
+
+    func invalidateAll() {
+        lock.lock()
+        let sessions = entries.values.map(\.session)
+        entries.removeAll()
+        lock.unlock()
+        for session in sessions { Self.clearAndInvalidate(session) }
+    }
+
+    private static func clearAndInvalidate(_ session: URLSession) {
+        let storage = session.configuration.httpCookieStorage
+        storage?.cookies?.forEach { storage?.deleteCookie($0) }
+        session.invalidateAndCancel()
+    }
+}
+
+enum GatewayHTTPTransport {
+    /// Public discovery must neither send an authenticated gateway's cookies
+    /// nor accept attacker-supplied cookies for a later credentialed request.
+    static func discoverySession() -> URLSession {
+        let configuration = baseConfiguration()
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        configuration.httpCookieStorage = nil
+        return URLSession(configuration: configuration)
+    }
+
+    /// Each invocation receives URLSessionConfiguration.ephemeral's distinct,
+    /// process-only HTTPCookieStorage instance.
+    static func authSession() -> URLSession {
+        let configuration = baseConfiguration()
+        configuration.httpShouldSetCookies = true
+        configuration.httpCookieAcceptPolicy = .always
+        return URLSession(configuration: configuration)
+    }
+
+    private static func baseConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.urlCredentialStorage = nil
+        return configuration
+    }
+}
+
 /// Typed wrappers around the raw JSON-RPC client for the methods the mobile
 /// slice uses. Method names and parameter shapes mirror the desktop
 /// renderer's call sites (`use-session-actions`, `use-prompt-actions`).
@@ -799,20 +952,43 @@ struct GatewayAPI {
         }
     }
 
-    /// Process-scoped, non-persistent cookie session for gated login. The
-    /// access and refresh cookies never enter URLSession's shared on-disk jar.
-    static let httpSession: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpShouldSetCookies = true
-        configuration.httpCookieAcceptPolicy = .always
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.urlCache = nil
-        return URLSession(configuration: configuration)
-    }()
+    /// Cookie-disabled transport for public status/provider discovery. Gated
+    /// credentials use the isolated pool below and never enter this session.
+    static let httpSession = GatewayHTTPTransport.discoverySession()
+    private static let authSessions = GatewayAuthSessionPool()
 
-    static func clearAuthSession() {
-        let storage = httpSession.configuration.httpCookieStorage
-        storage?.cookies?.forEach { storage?.deleteCookie($0) }
+    static func beginAuthSession(
+        for gateway: SavedGateway,
+        preservingExistingCookies: Bool
+    ) -> GatewayAuthSessionLease {
+        authSessions.beginSession(
+            for: gateway,
+            preservingExistingCookies: preservingExistingCookies
+        )
+    }
+
+    static func isAuthSessionCurrent(
+        _ lease: GatewayAuthSessionLease,
+        for gateway: SavedGateway
+    ) -> Bool {
+        authSessions.isCurrent(lease, for: gateway)
+    }
+
+    static func clearAuthSession(for gatewayID: String) {
+        authSessions.invalidate(gatewayID: gatewayID)
+    }
+
+    static func clearAllAuthSessions() {
+        authSessions.invalidateAll()
+    }
+
+    private static func requireCurrentAuthSession(
+        _ lease: GatewayAuthSessionLease,
+        for gateway: SavedGateway
+    ) throws {
+        guard isAuthSessionCurrent(lease, for: gateway) else {
+            throw CancellationError()
+        }
     }
 
     // MARK: - REST (pre-socket)
@@ -836,7 +1012,10 @@ struct GatewayAPI {
     /// `ws(s)://host[/prefix]/api/ws?token=…` — the token-mode WS URL, same
     /// construction as `buildGatewayWsUrl` in the desktop connection config.
     static func websocketURL(baseURL: URL, token: String) throws -> URL {
-        try websocketURL(baseURL: baseURL, authParam: ("token", token))
+        guard GatewayBaseURL.allowsTokenCredential(baseURL) else {
+            throw GatewayTokenTransportError.secureTransportRequired
+        }
+        return try websocketURL(baseURL: baseURL, authParam: ("token", token))
     }
 
     /// `ws(s)://…/api/ws?ticket=…` — the gated-mode WS URL. Tickets are
@@ -847,8 +1026,12 @@ struct GatewayAPI {
 
     private static func websocketURL(baseURL: URL, authParam: (String, String)) throws -> URL {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
-              let scheme = components.scheme, scheme == "http" || scheme == "https"
+              let rawScheme = components.scheme
         else {
+            throw GatewayAPIError.badURL
+        }
+        let scheme = rawScheme.lowercased()
+        guard scheme == "http" || scheme == "https" else {
             throw GatewayAPIError.badURL
         }
         components.scheme = scheme == "https" ? "wss" : "ws"
@@ -889,13 +1072,15 @@ struct GatewayAPI {
     /// `POST /auth/password-login` — authenticates and stores the session
     /// cookies. 401 means bad credentials; 429 rate-limited.
     static func passwordLogin(
-        baseURL: URL,
+        gateway: SavedGateway,
+        using authSession: GatewayAuthSessionLease,
         provider: String,
         username: String,
         password: String,
         otp: String = ""
     ) async throws {
-        let url = baseURL.appending(path: "auth/password-login")
+        try requireCurrentAuthSession(authSession, for: gateway)
+        let url = gateway.baseURL.appending(path: "auth/password-login")
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -905,7 +1090,8 @@ struct GatewayAPI {
             "password": password,
             "otp": otp,
         ])
-        let (data, response) = try await httpSession.data(for: request)
+        let (data, response) = try await authSession.session.data(for: request)
+        try requireCurrentAuthSession(authSession, for: gateway)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String
@@ -916,11 +1102,16 @@ struct GatewayAPI {
     /// `POST /api/auth/ws-ticket` — single-use 30s WS credential for the
     /// cookie session. A 401 here means the session has expired (or was
     /// never established): re-run `passwordLogin`.
-    static func mintWsTicket(baseURL: URL) async throws -> String {
-        let url = baseURL.appending(path: "api/auth/ws-ticket")
+    static func mintWsTicket(
+        gateway: SavedGateway,
+        using authSession: GatewayAuthSessionLease
+    ) async throws -> String {
+        try requireCurrentAuthSession(authSession, for: gateway)
+        let url = gateway.baseURL.appending(path: "api/auth/ws-ticket")
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.httpMethod = "POST"
-        let (data, response) = try await httpSession.data(for: request)
+        let (data, response) = try await authSession.session.data(for: request)
+        try requireCurrentAuthSession(authSession, for: gateway)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             throw GatewayAPIError.httpStatus(code, body: String(decoding: data, as: UTF8.self))
@@ -1776,20 +1967,114 @@ struct GatewayAPI {
     // MARK: - Computer use (live view)
 
     /// A read-only screen capture from the gateway host (`computer.screenshot`).
-    /// The gateway returns a plain PNG (no overlays, no accessibility data).
+    /// The gateway returns a plain PNG or JPEG (no overlays or accessibility
+    /// data); older capture backends commonly use JPEG quality 85.
     func captureScreen() async throws -> ScreenCapture {
         let result = try await client.requestObject("computer.screenshot")
+        return try Self.decodeScreenCapture(result)
+    }
+
+    /// Validate the encoded payload and ImageIO header without rasterizing it.
+    /// `LiveViewModel` can safely hand the returned bounded image to UIImage.
+    static func decodeScreenCapture(
+        _ result: [String: Any],
+        limits: ScreenCaptureValidationLimits = .production
+    ) throws -> ScreenCapture {
         guard
             let b64 = result["png_b64"] as? String,
-            let data = Data(base64Encoded: b64)
+            b64.utf8.count <= limits.maxEncodedBytes,
+            let reportedWidth = positiveScreenDimension(result["width"]),
+            let reportedHeight = positiveScreenDimension(result["height"]),
+            screenDimensionsAreSafe(
+                width: reportedWidth,
+                height: reportedHeight,
+                limits: limits
+            ),
+            let data = Data(base64Encoded: b64),
+            data.count <= limits.maxDecodedBytes,
+            let signatureMIME = supportedSignatureMIME(for: data),
+            let source = CGImageSourceCreateWithData(
+                data as CFData,
+                [kCGImageSourceShouldCache: false] as CFDictionary
+            ),
+            let imageSourceType = CGImageSourceGetType(source) as String?,
+            let imageSourceMIME = supportedMIME(forImageSourceType: imageSourceType),
+            imageSourceMIME == signatureMIME,
+            advertisedMIME(result["mime"], matches: imageSourceMIME),
+            CGImageSourceGetCount(source) == 1,
+            let properties = CGImageSourceCopyPropertiesAtIndex(
+                source,
+                0,
+                [kCGImageSourceShouldCache: false] as CFDictionary
+            ) as? [CFString: Any],
+            let actualWidth = positiveScreenDimension(properties[kCGImagePropertyPixelWidth]),
+            let actualHeight = positiveScreenDimension(properties[kCGImagePropertyPixelHeight]),
+            actualWidth == reportedWidth,
+            actualHeight == reportedHeight,
+            screenDimensionsAreSafe(width: actualWidth, height: actualHeight, limits: limits)
         else {
-            throw GatewayClientError.rpc(message: "Live view unavailable on this server.")
+            throw invalidScreenCaptureError()
         }
         return ScreenCapture(
             image: data,
-            width: (result["width"] as? NSNumber)?.intValue ?? 0,
-            height: (result["height"] as? NSNumber)?.intValue ?? 0
+            width: actualWidth,
+            height: actualHeight
         )
+    }
+
+    private static let pngSignature = Data([137, 80, 78, 71, 13, 10, 26, 10])
+    private static let jpegSignature = Data([255, 216, 255])
+
+    private static func supportedSignatureMIME(for data: Data) -> String? {
+        if data.starts(with: pngSignature) { return "image/png" }
+        if data.starts(with: jpegSignature) { return "image/jpeg" }
+        return nil
+    }
+
+    private static func supportedMIME(forImageSourceType type: String) -> String? {
+        switch type {
+        case UTType.png.identifier:
+            return "image/png"
+        case UTType.jpeg.identifier:
+            return "image/jpeg"
+        default:
+            return nil
+        }
+    }
+
+    /// Older gateways did not publish a MIME field. When present it becomes a
+    /// contract assertion and must agree with byte-signature + ImageIO sniffing.
+    private static func advertisedMIME(_ value: Any?, matches actual: String) -> Bool {
+        guard let value else { return true }
+        guard let mime = value as? String else { return false }
+        return mime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == actual
+    }
+
+    private static func positiveScreenDimension(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID()
+        else { return nil }
+        let double = number.doubleValue
+        guard double.isFinite,
+              double >= 1,
+              double.rounded(.towardZero) == double,
+              double <= Double(Int.max)
+        else { return nil }
+        return Int(double)
+    }
+
+    private static func screenDimensionsAreSafe(
+        width: Int,
+        height: Int,
+        limits: ScreenCaptureValidationLimits
+    ) -> Bool {
+        width <= limits.maxDimension
+            && height <= limits.maxDimension
+            && width <= limits.maxPixelCount / height
+    }
+
+    private static func invalidScreenCaptureError() -> GatewayClientError {
+        GatewayClientError.rpc(message: "Live view unavailable on this server.")
     }
 
     // MARK: - Blocking prompt responses (clarify / sudo / secret)

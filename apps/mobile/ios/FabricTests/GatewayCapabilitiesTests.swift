@@ -301,6 +301,151 @@ final class GatewayCapabilitiesTests: XCTestCase {
     }
 
     @MainActor
+    func testScreenCaptureDecoderAcceptsOnlyMatchingBoundedPNGMetadata() throws {
+        let expected = makeScreenCapture(width: 12, height: 8, color: .systemBlue)
+
+        let decoded = try GatewayAPI.decodeScreenCapture([
+            "png_b64": expected.image.base64EncodedString(),
+            "width": 12,
+            "height": 8,
+        ])
+
+        XCTAssertEqual(decoded.image, expected.image)
+        XCTAssertEqual(decoded.width, 12)
+        XCTAssertEqual(decoded.height, 8)
+    }
+
+    @MainActor
+    func testScreenCaptureDecoderAcceptsJPEGAndRequiresAdvertisedMIMEToMatch() throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: 14, height: 9),
+            format: format
+        )
+        let image = renderer.image { context in
+            UIColor.systemOrange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 14, height: 9))
+        }
+        let jpeg = try XCTUnwrap(image.jpegData(compressionQuality: 0.85))
+
+        let decoded = try GatewayAPI.decodeScreenCapture([
+            "png_b64": jpeg.base64EncodedString(),
+            "width": 14,
+            "height": 9,
+            "mime": "image/jpeg",
+        ])
+
+        XCTAssertEqual(decoded.image, jpeg)
+        XCTAssertEqual(decoded.width, 14)
+        XCTAssertEqual(decoded.height, 9)
+
+        assertInvalidScreenCapture([
+            "png_b64": jpeg.base64EncodedString(),
+            "width": 14,
+            "height": 9,
+            "mime": "image/png",
+        ])
+    }
+
+    @MainActor
+    func testScreenCaptureDecoderRejectsEncodedPayloadBeforeBase64DecodeLimit() {
+        let expected = makeScreenCapture(width: 4, height: 3, color: .systemPurple)
+        let encoded = expected.image.base64EncodedString()
+        let limits = ScreenCaptureValidationLimits(
+            maxEncodedBytes: encoded.utf8.count - 1,
+            maxDecodedBytes: expected.image.count,
+            maxDimension: 6_144,
+            maxPixelCount: 22_000_000
+        )
+
+        assertInvalidScreenCapture([
+            "png_b64": encoded,
+            "width": 4,
+            "height": 3,
+        ], limits: limits)
+    }
+
+    @MainActor
+    func testScreenCaptureDecoderRejectsInvalidReportedOrActualDimensions() {
+        let expected = makeScreenCapture(width: 10, height: 6, color: .systemGreen)
+        let encoded = expected.image.base64EncodedString()
+
+        assertInvalidScreenCapture([
+            "png_b64": encoded,
+            "width": 11,
+            "height": 6,
+        ])
+        assertInvalidScreenCapture([
+            "png_b64": encoded,
+            "width": 0,
+            "height": 6,
+        ])
+        assertInvalidScreenCapture([
+            "png_b64": encoded,
+            "width": true,
+            "height": 6,
+        ])
+
+        let dimensionLimit = ScreenCaptureValidationLimits(
+            maxEncodedBytes: encoded.utf8.count,
+            maxDecodedBytes: expected.image.count,
+            maxDimension: 9,
+            maxPixelCount: 22_000_000
+        )
+        assertInvalidScreenCapture([
+            "png_b64": encoded,
+            "width": 10,
+            "height": 6,
+        ], limits: dimensionLimit)
+
+        let pixelLimit = ScreenCaptureValidationLimits(
+            maxEncodedBytes: encoded.utf8.count,
+            maxDecodedBytes: expected.image.count,
+            maxDimension: 6_144,
+            maxPixelCount: 59
+        )
+        assertInvalidScreenCapture([
+            "png_b64": encoded,
+            "width": 10,
+            "height": 6,
+        ], limits: pixelLimit)
+    }
+
+    @MainActor
+    func testScreenCaptureDecoderRejectsUnsupportedFormatAndOversizedDecodedData() {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: 8, height: 5),
+            format: format
+        )
+        let image = renderer.image { context in
+            UIColor.systemOrange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 5))
+        }
+
+        assertInvalidScreenCapture([
+            "png_b64": Data("GIF89a unsupported".utf8).base64EncodedString(),
+            "width": 8,
+            "height": 5,
+        ])
+
+        let png = image.pngData() ?? Data()
+        let decodedLimit = ScreenCaptureValidationLimits(
+            maxEncodedBytes: png.base64EncodedString().utf8.count,
+            maxDecodedBytes: max(0, png.count - 1),
+            maxDimension: 6_144,
+            maxPixelCount: 22_000_000
+        )
+        assertInvalidScreenCapture([
+            "png_b64": png.base64EncodedString(),
+            "width": 8,
+            "height": 5,
+        ], limits: decodedLimit)
+    }
+
+    @MainActor
     func testLiveViewCapabilityChangesStopAndResumeCaptureDynamically() async {
         let probe = ImmediateLiveViewCaptureProbe(outcomes: [
             .capture(makeScreenCapture(width: 2, height: 2, color: .systemPurple)),
@@ -645,7 +790,7 @@ final class GatewayCapabilitiesTests: XCTestCase {
         model.setPaused(true)
         XCTAssertEqual(
             model.staleNoticeText,
-            "Last frame shown. request timed out: computer.screenshot Live view is paused."
+            "Last frame shown. Live view refresh timed out. Live view is paused."
         )
         XCTAssertFalse(model.staleNoticeText?.contains("Retrying") == true)
 
@@ -662,7 +807,7 @@ final class GatewayCapabilitiesTests: XCTestCase {
         }
         XCTAssertTrue(model.isFrameStale)
         XCTAssertTrue(model.frame?.image === recoveredImage)
-        XCTAssertEqual(model.errorText, "Screen capture stopped on the host.")
+        XCTAssertEqual(model.errorText, "Live view stopped on the Fabric computer.")
     }
 
     @MainActor
@@ -684,13 +829,36 @@ final class GatewayCapabilitiesTests: XCTestCase {
         await briefYield()
         XCTAssertEqual(probe.callCount, 1)
         XCTAssertNil(model.frame)
-        XCTAssertEqual(model.errorText, "Capture service is unavailable.")
+        XCTAssertEqual(model.errorText, "Live view stopped on the Fabric computer.")
 
         model.retry()
         await assertEventually {
             probe.callCount == 2 && model.frame != nil && !model.retryRequired
         }
         XCTAssertEqual(model.frame?.dimensions, "2×1")
+    }
+
+    @MainActor
+    func testLiveViewNeverPublishesRawRPCFailureText() async {
+        let probe = ImmediateLiveViewCaptureProbe(outcomes: [
+            .failure(GatewayClientError.rpc(
+                message: "Authorization: Bearer raw-secret /Users/private/.fabric"
+            )),
+        ])
+        let model = LiveViewModel(
+            supportsCapture: true,
+            interval: .seconds(60),
+            capture: probe.capture
+        )
+
+        model.appear(sceneIsActive: true)
+        await assertEventually {
+            probe.callCount == 1 && model.retryRequired && !model.isPolling
+        }
+
+        XCTAssertEqual(model.errorText, "Live view stopped on the Fabric computer.")
+        XCTAssertFalse(model.errorText?.contains("raw-secret") == true)
+        XCTAssertFalse(model.errorText?.contains("/Users/private") == true)
     }
 
     private func fixtureObject(_ name: String) throws -> [String: Any] {
@@ -711,6 +879,26 @@ final class GatewayCapabilitiesTests: XCTestCase {
         ))
         let data = try Data(contentsOf: fixtureURL)
         return try JSONSerialization.jsonObject(with: data)
+    }
+
+    private func assertInvalidScreenCapture(
+        _ payload: [String: Any],
+        limits: ScreenCaptureValidationLimits = .production,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertThrowsError(
+            try GatewayAPI.decodeScreenCapture(payload, limits: limits),
+            file: file,
+            line: line
+        ) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Live view unavailable on this server.",
+                file: file,
+                line: line
+            )
+        }
     }
 }
 
@@ -811,7 +999,12 @@ private final class RefreshSuspensionLiveViewCaptureProbe {
 
 @MainActor
 private func makeScreenCapture(width: Int, height: Int, color: UIColor) -> ScreenCapture {
-    let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1
+    let renderer = UIGraphicsImageRenderer(
+        size: CGSize(width: width, height: height),
+        format: format
+    )
     let image = renderer.image { context in
         color.setFill()
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))

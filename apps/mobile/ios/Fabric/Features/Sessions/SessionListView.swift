@@ -354,7 +354,10 @@ final class SessionLibraryModel {
             if finishIfCancelled(request: request, context: requestedContext) { return }
             guard isCurrent(request: request, context: requestedContext) else { return }
             isLoading = false
-            loadError = error.localizedDescription
+            // Transport/RPC descriptions can contain arbitrary server bodies,
+            // paths, and credentials. Sessions renders caller-owned recovery
+            // copy only; the raw error remains outside observable UI state.
+            loadError = "Couldn't load sessions. Check the connection and pull to retry."
         }
     }
 
@@ -629,69 +632,99 @@ struct SessionListView: View {
     }
 }
 
+enum SessionGatewayExecutionPresentation {
+    enum Tone: Equatable {
+        case info
+        case warning
+        case danger
+    }
+
+    struct Value: Equatable {
+        let title: String
+        let body: String
+        let icon: String
+        let tone: Tone
+    }
+
+    static func value(for negotiation: GatewayCapabilityNegotiation?) -> Value {
+        switch negotiation {
+        case .verified(let capabilities):
+            let facts = ConnectedGatewayIntroPresentation.executionFacts(for: negotiation)
+            return Value(
+                title: facts[0].title,
+                body: facts.map(\.detail).joined(separator: " ")
+                    + " Server \(capabilities.server.version).",
+                icon: "server.rack",
+                tone: .info
+            )
+        case .legacy:
+            return Value(
+                title: "Compatibility mode",
+                body: "Update Fabric for verified mobile controls. The shipped mobile controls remain available, but this gateway cannot verify execution guarantees.",
+                icon: "exclamationmark.arrow.triangle.2.circlepath",
+                tone: .warning
+            )
+        case .incompatible(let minimum):
+            return Value(
+                title: "Mobile update required",
+                body: "This gateway requires mobile contract \(minimum) or newer; this app supports contract \(gatewayClientContractVersion). Session controls are disabled.",
+                icon: "arrow.down.app",
+                tone: .danger
+            )
+        case .invalid(let reason):
+            return Value(
+                title: "Gateway contract invalid",
+                body: "Session controls are disabled: \(reason)",
+                icon: "exclamationmark.shield",
+                tone: .danger
+            )
+        case .negotiating:
+            return Value(
+                title: "Checking gateway capabilities…",
+                body: "Session controls unlock after the authenticated gateway contract is verified.",
+                icon: "checkmark.shield",
+                tone: .info
+            )
+        case nil:
+            return Value(
+                title: "Gateway capabilities unavailable",
+                body: "Reconnect to verify which mobile controls this gateway supports.",
+                icon: "wifi.exclamationmark",
+                tone: .warning
+            )
+        }
+    }
+}
+
 /// Process-scoped execution semantics negotiated for this live socket. This
 /// card is deliberately non-dismissable: mobile is a remote control and must
-/// not imply that tools execute on the phone or survive a gateway restart.
+/// not imply execution guarantees the gateway did not advertise.
 private struct GatewayExecutionCard: View {
     let negotiation: GatewayCapabilityNegotiation?
 
-    private var presentation: (title: String, body: String, icon: String, color: Color) {
-        switch negotiation {
-        case .verified(let capabilities):
-            return (
-                "Runs on this gateway",
-                "Work and tools run on the connected gateway. Active work continues if this phone disconnects, but a gateway restart interrupts it. Keep the gateway host online. Server \(capabilities.server.version).",
-                "server.rack",
-                FabricTheme.info
-            )
-        case .legacy:
-            return (
-                "Compatibility mode",
-                "Update Fabric for verified mobile controls. The shipped mobile controls remain available, but this gateway cannot verify execution guarantees.",
-                "exclamationmark.arrow.triangle.2.circlepath",
-                FabricTheme.warning
-            )
-        case .incompatible(let minimum):
-            return (
-                "Mobile update required",
-                "This gateway requires mobile contract \(minimum) or newer; this app supports contract \(gatewayClientContractVersion). Session controls are disabled.",
-                "arrow.down.app",
-                FabricTheme.danger
-            )
-        case .invalid(let reason):
-            return (
-                "Gateway contract invalid",
-                "Session controls are disabled: \(reason)",
-                "exclamationmark.shield",
-                FabricTheme.danger
-            )
-        case .negotiating:
-            return (
-                "Checking gateway capabilities…",
-                "Session controls unlock after the authenticated gateway contract is verified.",
-                "checkmark.shield",
-                FabricTheme.info
-            )
-        case nil:
-            return (
-                "Gateway capabilities unavailable",
-                "Reconnect to verify which mobile controls this gateway supports.",
-                "wifi.exclamationmark",
-                FabricTheme.warning
-            )
+    private var presentation: SessionGatewayExecutionPresentation.Value {
+        SessionGatewayExecutionPresentation.value(for: negotiation)
+    }
+
+    private func color(for tone: SessionGatewayExecutionPresentation.Tone) -> Color {
+        switch tone {
+        case .info: FabricTheme.info
+        case .warning: FabricTheme.warning
+        case .danger: FabricTheme.danger
         }
     }
 
     var body: some View {
         let presentation = presentation
+        let color = color(for: presentation.tone)
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: presentation.icon)
-                .foregroundStyle(presentation.color)
+                .foregroundStyle(color)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 4) {
                 Text(presentation.title)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(presentation.color)
+                    .foregroundStyle(color)
                 Text(presentation.body)
                     .font(.footnote)
                     .foregroundStyle(FabricTheme.textMuted)
@@ -827,3 +860,91 @@ private struct RecentSessionRow: View {
         .accessibilityHint("Opens this conversation")
     }
 }
+
+#if DEBUG
+/// Deterministic production-row composition for visual and accessibility QA.
+/// It never constructs a transport and cannot mutate a real session.
+struct SessionLibraryDebugFixtureView: View {
+    private let pinned = SessionSummary(
+        id: "release-readiness",
+        title: "Release readiness",
+        preview: "Review the verified iOS build before shipping",
+        startedAt: Date().timeIntervalSince1970 - 1_800,
+        messageCount: 18,
+        source: "mobile"
+    )
+    private let recent = SessionSummary(
+        id: "design-review",
+        title: "Review the mobile experience",
+        preview: "Compare onboarding and Home against the approved direction",
+        startedAt: Date().timeIntervalSince1970 - 7_200,
+        messageCount: 12,
+        source: "desktop"
+    )
+
+    private var active: ActiveSession {
+        ActiveSession(payload: [
+            "id": "runtime-testflight",
+            "session_key": "testflight-release",
+            "title": "Ship the next TestFlight build",
+            "preview": "Running Xcode tests and release checks",
+            "status": "working",
+            "model": "gpt-5",
+            "message_count": 24,
+            "last_active": Date().timeIntervalSince1970,
+            "current": true,
+        ])!
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    GatewayExecutionCard(negotiation: Self.negotiation)
+                }
+                Section {
+                    Label("New chat", systemImage: "plus.bubble")
+                        .frame(minHeight: FabricTheme.minTarget)
+                }
+                Section("Pinned on this device") {
+                    RecentSessionRow(session: pinned, isPinned: true)
+                }
+                Section("Active now") {
+                    ActiveSessionRow(
+                        session: active,
+                        source: "mobile",
+                        displayTitle: active.title,
+                        isPinned: false
+                    )
+                }
+                Section("Recent sessions") {
+                    RecentSessionRow(session: recent, isPinned: false)
+                }
+            }
+            .searchable(text: .constant(""), prompt: "Search sessions")
+            .navigationTitle("Personal Mac")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private static let negotiation = GatewayCapabilityNegotiation.verified(
+        GatewayCapabilities(
+            contract: GatewayCapabilityContract(
+                name: "fabric.gateway",
+                version: 1,
+                minimumCompatibleVersion: 1
+            ),
+            server: GatewayServerContract(version: "0.4.0", releaseDate: "2026-07-21"),
+            execution: GatewayExecutionContract(
+                location: "gateway",
+                toolExecution: "gateway",
+                survivesClientDisconnect: true,
+                survivesGatewayRestart: false,
+                requiresGatewayHostOnline: true
+            ),
+            features: [:],
+            methods: legacyMobileMethods
+        )
+    )
+}
+#endif

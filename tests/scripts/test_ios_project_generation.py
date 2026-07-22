@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import plistlib
 import shutil
 import subprocess
 import tempfile
@@ -26,9 +27,30 @@ BOOTSTRAP_SCHEME = (
     / "Fabric.xcscheme"
 )
 BOOTSTRAP_INFO = ROOT / "apps" / "mobile" / "ios" / "Fabric" / "Info.plist"
+PRIVACY_MANIFEST = (
+    ROOT / "apps" / "mobile" / "ios" / "Fabric" / "PrivacyInfo.xcprivacy"
+)
 
 
 class IOSProjectGenerationTests(unittest.TestCase):
+    def test_committed_privacy_manifest_covers_required_app_apis(self) -> None:
+        with PRIVACY_MANIFEST.open("rb") as handle:
+            manifest = plistlib.load(handle)
+
+        declared = {
+            entry["NSPrivacyAccessedAPIType"]: set(
+                entry["NSPrivacyAccessedAPITypeReasons"]
+            )
+            for entry in manifest["NSPrivacyAccessedAPITypes"]
+        }
+        required = {
+            "NSPrivacyAccessedAPICategoryUserDefaults": {"CA92.1"},
+            "NSPrivacyAccessedAPICategoryFileTimestamp": {"C617.1"},
+        }
+        for category, reasons in required.items():
+            with self.subTest(category=category):
+                self.assertTrue(reasons.issubset(declared.get(category, set())))
+
     def test_committed_xcode_cloud_bootstrap_is_generic_and_complete(self) -> None:
         project = BOOTSTRAP_PROJECT.read_text(encoding="utf-8")
         scheme = BOOTSTRAP_SCHEME.read_text(encoding="utf-8")
@@ -220,6 +242,41 @@ class IOSProjectGenerationTests(unittest.TestCase):
         self.assertFalse(self.capture.exists())
         self.assert_source_manifest_unchanged()
 
+    def test_release_rejects_untracked_recursive_app_inputs(self) -> None:
+        app_source = self.ios_dir / "Fabric"
+        asset_catalog = app_source / "Assets.xcassets" / "Injected.imageset"
+        asset_catalog.mkdir(parents=True)
+        # XcodeGen still discovers ignored files under a recursive source root;
+        # prove the release gate covers both ordinary and ignored untracked data.
+        (self.checkout / ".git" / "info" / "exclude").write_text(
+            "*.png\n",
+            encoding="utf-8",
+        )
+
+        candidates = (
+            app_source / "Injected.swift",
+            asset_catalog / "injected.png",
+        )
+        for candidate in candidates:
+            with self.subTest(candidate=candidate.name):
+                candidate.write_bytes(b"untracked release input")
+
+                result = self.run_post_clone(
+                    FABRIC_IOS_BUNDLE_ID="com.example.fabric.mobile",
+                    FABRIC_IOS_BUILD_NUMBER="42",
+                )
+
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("found untracked app source or resources", result.stderr)
+                self.assertIn(
+                    str(candidate.relative_to(self.checkout)),
+                    result.stderr,
+                )
+                self.assertFalse(self.capture.exists())
+                self.assert_source_manifest_unchanged()
+
+                candidate.unlink()
+
     def test_xcode_cloud_build_number_is_used_when_no_explicit_number_exists(self) -> None:
         result = self.run_post_clone(
             FABRIC_IOS_BUNDLE_ID="com.example.fabric.mobile",
@@ -282,6 +339,26 @@ class IOSProjectGenerationTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("source iOS bundle marker changed", result.stderr)
+        self.assertFalse(self.capture.exists())
+        self.assert_source_manifest_unchanged()
+
+    def test_release_fails_closed_when_recursive_app_source_marker_drifts(self) -> None:
+        changed_spec = self.project_spec.read_text(encoding="utf-8").replace(
+            "      - Fabric\n",
+            "      - Application\n",
+            1,
+        )
+        self.project_spec.write_text(changed_spec, encoding="utf-8")
+        self.original_spec = self.project_spec.read_bytes()
+        self.source_revision = self._commit_spec("change recursive app source root")
+
+        result = self.run_post_clone(
+            FABRIC_IOS_BUNDLE_ID="com.example.fabric.mobile",
+            FABRIC_IOS_BUILD_NUMBER="42",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("recursive iOS app source root changed", result.stderr)
         self.assertFalse(self.capture.exists())
         self.assert_source_manifest_unchanged()
 

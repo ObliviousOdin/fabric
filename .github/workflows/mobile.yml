@@ -190,8 +190,30 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' "$plist")" = "false"
           privacy="$app/PrivacyInfo.xcprivacy"
           plutil -lint "$privacy"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSPrivacyAccessedAPITypes:0:NSPrivacyAccessedAPIType' "$privacy")" = "NSPrivacyAccessedAPICategoryUserDefaults"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSPrivacyAccessedAPITypes:0:NSPrivacyAccessedAPITypeReasons:0' "$privacy")" = "CA92.1"
+          python3 - "$privacy" <<'PY'
+          import plistlib
+          import sys
+
+          with open(sys.argv[1], "rb") as handle:
+              manifest = plistlib.load(handle)
+          declared = {
+              entry["NSPrivacyAccessedAPIType"]: set(
+                  entry["NSPrivacyAccessedAPITypeReasons"]
+              )
+              for entry in manifest["NSPrivacyAccessedAPITypes"]
+          }
+          required = {
+              "NSPrivacyAccessedAPICategoryUserDefaults": {"CA92.1"},
+              "NSPrivacyAccessedAPICategoryFileTimestamp": {"C617.1"},
+          }
+          missing = {
+              category: reasons - declared.get(category, set())
+              for category, reasons in required.items()
+              if not reasons.issubset(declared.get(category, set()))
+          }
+          if missing:
+              raise SystemExit(f"PrivacyInfo.xcprivacy is missing required reasons: {missing}")
+          PY
 
       - name: Upload unsigned iOS simulator app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

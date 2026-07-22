@@ -197,6 +197,7 @@ struct ConversationHomeContent: View {
                     .font(.largeTitle.weight(.semibold))
                     .foregroundStyle(FabricTheme.text)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("What should we get done?")
                     .accessibilityAddTraits(.isHeader)
 
                 composer

@@ -1,11 +1,17 @@
 import Foundation
 import Security
 
-enum GatewayStoreError: LocalizedError {
+enum GatewayStoreError: LocalizedError, Equatable {
     case credentialStorageUnavailable
+    case credentialRemovalUnavailable
 
     var errorDescription: String? {
-        "Couldn't protect this server credential. Unlock the device and try again."
+        switch self {
+        case .credentialStorageUnavailable:
+            return "Couldn't protect this server credential. Unlock the device and try again."
+        case .credentialRemovalUnavailable:
+            return "Couldn't remove every protected server credential. Unlock the device and try again."
+        }
     }
 }
 
@@ -81,6 +87,7 @@ struct SavedGateway: Identifiable, Codable, Equatable {
 enum GatewayStore {
     private static let listKey = "fabric.gateways.v1"
     private static let lastActiveKey = "fabric.gateways.lastActive"
+    private static let connectionIntroKey = "fabric.gateways.connection-intro.v1"
     private static let keychainService = "io.github.obliviousodin.fabric.mobile"
 
     // MARK: - Library
@@ -124,6 +131,21 @@ enum GatewayStore {
         }
     }
 
+    static func hasCompletedConnectionIntro(id: String) -> Bool {
+        completedConnectionIntroIDs().contains(id)
+    }
+
+    static func setCompletedConnectionIntro(_ completed: Bool, id: String) {
+        guard !id.isEmpty else { return }
+        var ids = completedConnectionIntroIDs()
+        if completed {
+            ids.insert(id)
+        } else {
+            ids.remove(id)
+        }
+        UserDefaults.standard.set(Array(ids).sorted(), forKey: connectionIntroKey)
+    }
+
     /// Insert or update non-secret metadata, then persist it.
     @discardableResult
     static func upsert(_ gateway: SavedGateway) -> [SavedGateway] {
@@ -134,6 +156,9 @@ enum GatewayStore {
     /// auto-connectable. Keychain failure leaves no partially saved server.
     @discardableResult
     static func upsert(_ gateway: SavedGateway, token: String) throws -> [SavedGateway] {
+        guard GatewayBaseURL.allowsTokenCredential(gateway.baseURL) else {
+            throw GatewayTokenTransportError.secureTransportRequired
+        }
         try saveToken(token, id: gateway.id)
         return upsertMetadata(gateway, deleteCurrentToken: false)
     }
@@ -163,10 +188,52 @@ enum GatewayStore {
         return list
     }
 
-    static func remove(id: String) {
+    /// Explicit user-initiated removal is credential-first: a failed Security
+    /// framework deletion must leave the saved row and all related metadata in
+    /// place so the UI can report failure without orphaning a token.
+    static func remove(id: String) throws {
+        try remove(id: id, deleteCredential: { deleteTokenStatus(id: id) })
+    }
+
+    /// Internal seam for the offboarding failure contract. Maintenance cleanup
+    /// during deduplication remains best-effort; this path backs the visible
+    /// "Forget" promise and therefore must be verifiable.
+    static func remove(id: String, deleteCredential: () -> OSStatus) throws {
+        let status = deleteCredential()
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw GatewayStoreError.credentialRemovalUnavailable
+        }
         persist(all().filter { $0.id != id })
-        deleteToken(id: id)
+        setCompletedConnectionIntro(false, id: id)
         if lastActiveId() == id { setLastActive(nil) }
+    }
+
+    /// Remove every protected gateway token for this app service before
+    /// deleting the metadata that lets Settings verify reset completion.
+    ///
+    /// This deliberately does not derive the Keychain accounts from `all()`:
+    /// that JSON may be missing or corrupt while orphaned credentials still
+    /// exist. `errSecItemNotFound` is already the desired clean state; every
+    /// other failure leaves metadata in place and is surfaced to the caller.
+    static func removeAll() throws {
+        try removeAll(deleteCredentialService: deleteCredentialService)
+    }
+
+    /// Internal seam for behavioral tests of the failure contract. Production
+    /// callers use `removeAll()` above, which always performs the service-wide
+    /// Security framework deletion.
+    static func removeAll(deleteCredentialService: () -> OSStatus) throws {
+        let status = deleteCredentialService()
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw GatewayStoreError.credentialRemovalUnavailable
+        }
+        UserDefaults.standard.removeObject(forKey: listKey)
+        UserDefaults.standard.removeObject(forKey: lastActiveKey)
+        UserDefaults.standard.removeObject(forKey: connectionIntroKey)
+    }
+
+    private static func completedConnectionIntroIDs() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: connectionIntroKey) ?? [])
     }
 
     static func token(id: String) -> String? {
@@ -177,7 +244,19 @@ enum GatewayStore {
     /// (Gated servers are checked at connect time against the live cookie
     /// session, so readiness there can't be answered synchronously here.)
     static func canAutoConnect(_ gateway: SavedGateway) -> Bool {
-        gateway.authMode == .token && !(loadToken(id: gateway.id) ?? "").isEmpty
+        canAutoConnect(gateway, loadCredential: loadToken)
+    }
+
+    /// Internal seam for the saved-upgrade contract. The transport check must
+    /// run independently of Keychain availability so a legacy plaintext row
+    /// is never advertised as reconnectable even when its token still exists.
+    static func canAutoConnect(
+        _ gateway: SavedGateway,
+        loadCredential: (String) -> String?
+    ) -> Bool {
+        gateway.authMode == .token
+            && GatewayBaseURL.allowsTokenCredential(gateway.baseURL)
+            && !(loadCredential(gateway.id) ?? "").isEmpty
     }
 
     private static func persist(_ list: [SavedGateway]) {
@@ -230,6 +309,17 @@ enum GatewayStore {
     }
 
     private static func deleteToken(id: String) {
+        _ = deleteTokenStatus(id: id)
+    }
+
+    private static func deleteTokenStatus(id: String) -> OSStatus {
         SecItemDelete(tokenQuery(id: id) as CFDictionary)
+    }
+
+    private static func deleteCredentialService() -> OSStatus {
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+        ] as CFDictionary)
     }
 }

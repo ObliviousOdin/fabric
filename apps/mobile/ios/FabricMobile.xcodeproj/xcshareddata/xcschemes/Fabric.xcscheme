@@ -64,6 +64,17 @@
                ReferencedContainer = "container:FabricMobile.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "2BB0F5DA6980D1C15C2D3B48"
+               BuildableName = "FabricUITests.xctest"
+               BlueprintName = "FabricUITests"
+               ReferencedContainer = "container:FabricMobile.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>

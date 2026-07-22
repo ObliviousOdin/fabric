@@ -47,7 +47,9 @@ Acceptance:
 
 - Xcode Cloud discovers an executable post-clone hook beside the selected Xcode
   project, and that hook generates the project from a clean checkout without
-  modifying the tracked manifest.
+  modifying the tracked manifest. Release generation also rejects untracked or
+  ignored files beneath the recursive app source root so the embedded revision
+  describes every packaged Swift/resource input.
 - The App Store bundle identifier is supplied explicitly by the protected
   release environment, never by a manual edit to the generated project.
 - Every upload receives a unique positive build number from Xcode Cloud or an
@@ -155,10 +157,21 @@ No phase is complete because a simulator build launches. Every release needs:
 
 ## Current state
 
+Release-state audit (2026-07-21): Xcode Cloud's protected `Default` workflow
+targets merged `main`, the `Fabric` scheme, and
+`apps/mobile/ios/FabricMobile.xcodeproj`; it supplies the protected release
+bundle identifier and distributes successful archives to the internal
+TestFlight `beta` group. The local signing/profile audit associates that bundle
+with the configured release signing team. The physical
+iPhone currently reports TestFlight build `0.2.0 (15)`. Its apparent mapping to
+current `origin/main` at `c5343180` is consistent with first-parent build
+history, but remains an inference until archive or workflow provenance is
+captured.
+
 | Phase | State | Evidence / next gate |
 | --- | --- | --- |
-| FMB-P0 | Landed | PR #66 merged as `00c8c2f0`. Xcode Cloud release settings, the merged-SHA archive/upload, and the physical-iPhone smoke pass remain before a reproducible P0 build can be marked shipped. |
-| FMB-P1 | Local candidate verified | Conversation-first is implemented as the `0.2.0` candidate: canonical outcome composer, at-most-once foreground goal launch with duplicate-safe recovery for unknown create outcomes, prioritized live conversation, recent briefing, and recoverable session navigation against the advertised session contract. Subsequent merged slices added QR/pairing hardening (#71), reliable remote controls (#72), lifecycle-safe Live View (#73), rich assistant transcripts (#74), a searchable pinned session library (#75), and the durable-Work foundation kept intentionally dark (#76, #77). Same-viewport comparison, the complete state matrix, accessibility review, generation/native tests, unsigned Release packaging, metadata/privacy audit, and final code/design review pass locally. Hosted checks, physical-device validation, and internal TestFlight confirmation remain. |
-| FMB-P2 | Planned — loops 1–4, 8 | The Claude-Mobile control-parity scope is decomposed in [`UPGRADE_PLAN.md`](UPGRADE_PLAN.md): pairing reliability, a Settings/offboarding shell, rich chat rendering, offline resilience (client-only, ship first), then push + cross-surface approvals (server). Requires the manifest governance in loop 0. |
+| FMB-P0 | Internal TestFlight foundation verified; phase acceptance open | PR #66 merged as `00c8c2f0`; the release foundation then produced `0.2.0 (4)`, `(5)`, and `(6)` from reviewed merged source. All three archived, uploaded, processed to **Testing**, and reached the internal `beta` group. Independent signed-archive provenance extraction and the required physical-iPhone behavior smoke remain. |
+| FMB-P1 | `0.2.0` internal candidates; `0.2.1` local candidate | PR #68 merged as `6c9e0341`, and the pairing-reliability slice merged through PR #71 as `9651091a`; build 6 is the last entry with an exact recorded source. The broader `0.2.1` candidate adds branded QR-first onboarding, verified/legacy-safe connection review, conversation-first Home, Home/Sessions/Settings, redacted diagnostics, rich bounded chat activity, capability-gated controls, and fail-closed recovery for upgraded saved remote-HTTP token gateways that must re-pair through trusted HTTPS or loopback. Exact-head tests, hosted checks, physical-device validation, merged-SHA packaging, archive/upload, and internal tester confirmation remain. Nothing in this row claims a shipped `0.2.1` build. |
+| FMB-P2 | In progress — local client portions of loops 1–4 | The `0.2.1` candidate implements the existing-gateway activation portion of pairing reliability, the Settings/diagnostics shell, isolated per-gateway gated sessions with targeted/full-device offboarding, reasoning/tool/approval presentation, and a protected read-only last-known Chat transcript when authoritative resume fails. The complete rich document/artifact set, an outbound queue/server-authoritative offline state (the remainder of loop 4), future grant/node controls, and push/cross-surface approvals (loop 8) remain. Manifest governance is on `main`; none of these candidate changes advances the TestFlight support tier. |
 | FMB-P3 | Planned — loops 0, 5–7, 9 | The bidirectional-node capability program: manifest governance, the one consent+grant+ledger substrate + node enrollment, the `node.invoke` `camera.capture` magic moment, the Trust Center, then breadth. Durable Work stays advertised only after its full client/server contract is verified end-to-end. |
 | FMB-P4 | Planned | Begins after parity evidence, not feature-count claims. The mission-control, proof-of-work ledger, and multi-agent surfaces reuse the same spine (`ARCHITECTURE.md`). |

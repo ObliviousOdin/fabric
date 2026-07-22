@@ -1,6 +1,65 @@
 import Foundation
 import Observation
 
+enum AppLocalDataError: LocalizedError, Equatable {
+    case presentationCacheRemovalUnavailable
+    case forgetGatewayUnavailable
+    case fullResetUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .presentationCacheRemovalUnavailable:
+            return "Fabric couldn't clear cached presentation data on this iPhone. Saved servers, credentials, and gateway data were not changed."
+        case .forgetGatewayUnavailable:
+            return "Fabric couldn't remove the saved credential, so this server is still saved on this iPhone. Unlock the device and try again."
+        case .fullResetUnavailable:
+            return "Fabric couldn't complete the reset on this iPhone. Saved server access may still be present. Unlock the device and try again."
+        }
+    }
+}
+
+/// Owns only the bounded, device-local Home and conversation snapshots. The
+/// directories contain no saved-server metadata or Keychain credentials.
+struct DevicePresentationCacheStore {
+    private let directoryURLs: [URL]
+    private let fileManager: FileManager
+
+    init(
+        directoryURLs: [URL]? = nil,
+        fileManager: FileManager = .default
+    ) {
+        self.fileManager = fileManager
+        if let directoryURLs {
+            self.directoryURLs = directoryURLs
+        } else {
+            let applicationSupport = fileManager.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first
+            let caches = fileManager.urls(
+                for: .cachesDirectory,
+                in: .userDomainMask
+            ).first
+            self.directoryURLs = [applicationSupport, caches]
+                .compactMap { $0 }
+                .map { $0.appending(path: "Fabric", directoryHint: .isDirectory) }
+        }
+    }
+
+    func removeAll() throws {
+        for directoryURL in directoryURLs where fileManager.fileExists(atPath: directoryURL.path) {
+            do {
+                try fileManager.removeItem(at: directoryURL)
+            } catch let error as CocoaError where error.code == .fileNoSuchFile {
+                // A cache writer may have removed the last file between the
+                // existence check and deletion. The desired state still holds.
+            } catch {
+                throw AppLocalDataError.presentationCacheRemovalUnavailable
+            }
+        }
+    }
+}
+
 /// Root app state: the saved-gateway library, the shared gateway client, and
 /// the connect/disconnect lifecycle. One socket is active at a time (the
 /// desktop renderer is single-socket too); switching servers closes the
@@ -21,6 +80,7 @@ final class AppModel {
     private(set) var activeGatewayId: String?
     private(set) var lastConnectError: String?
     private(set) var pendingSignInGateway: SavedGateway?
+    private(set) var connectedIntroGatewayId: String?
     private(set) var connectionGeneration = 0
     private(set) var capabilityNegotiation: GatewayCapabilityNegotiation?
 
@@ -32,14 +92,25 @@ final class AppModel {
     private var isForeground = true
     private var permitsAutomaticReconnect = false
     private let pairingExecutionGate = PairingFlowExecutionGate()
+    private let presentationCacheStore: DevicePresentationCacheStore
+    private let removeGatewayFromStore: (String) throws -> Void
+    private let resetGatewayStore: () throws -> Void
     let api: GatewayAPI
 
     var activeGateway: SavedGateway? {
         gateways.first { $0.id == activeGatewayId }
     }
 
-    init(client: JsonRpcGatewayClient = JsonRpcGatewayClient()) {
+    init(
+        client: JsonRpcGatewayClient = JsonRpcGatewayClient(),
+        presentationCacheStore: DevicePresentationCacheStore = DevicePresentationCacheStore(),
+        removeGatewayFromStore: @escaping (String) throws -> Void = GatewayStore.remove,
+        resetGatewayStore: @escaping () throws -> Void = GatewayStore.removeAll
+    ) {
         self.client = client
+        self.presentationCacheStore = presentationCacheStore
+        self.removeGatewayFromStore = removeGatewayFromStore
+        self.resetGatewayStore = resetGatewayStore
         self.api = GatewayAPI(client: client)
         gateways = GatewayStore.all()
         client.onStateChange = { [weak self] state in
@@ -49,7 +120,7 @@ final class AppModel {
                 if state == .closed || state == .error {
                     self.capabilityNegotiation = .negotiating
                     self.phase = .reconnecting
-                    self.lastConnectError = "Connection lost (\(state.rawValue))."
+                    self.lastConnectError = "Connection lost. Reconnecting to \(self.activeGateway?.label ?? "Fabric")…"
                     self.permitsAutomaticReconnect = true
                     self.scheduleReconnect()
                 }
@@ -72,7 +143,11 @@ final class AppModel {
             baseURL: baseURL,
             authMode: .token
         )
-        gateways = try GatewayStore.upsert(gateway, token: token)
+        let updatedGateways = try GatewayStore.upsert(gateway, token: token)
+        // A re-pair can switch an existing endpoint from provider auth to a
+        // direct token. Its old cookie jar must not survive that mode change.
+        GatewayAPI.clearAuthSession(for: gateway.id)
+        gateways = updatedGateways
         return gateway
     }
 
@@ -91,10 +166,59 @@ final class AppModel {
         return gateway
     }
 
-    func removeGateway(id: String) {
-        if activeGatewayId == id || connectingGatewayId == id { disconnect() }
-        GatewayStore.remove(id: id)
+    func removeGateway(id: String) throws {
+        let shouldDisconnect = activeGatewayId == id || connectingGatewayId == id
+        do {
+            try removeGatewayFromStore(id)
+        } catch {
+            // The store contract leaves every local record in place on a
+            // credential failure. Do not close a live connection or expose a
+            // raw Security framework status to presentation code.
+            throw AppLocalDataError.forgetGatewayUnavailable
+        }
+
+        // Offboarding is scoped to exactly the forgotten saved gateway. Other
+        // gated servers retain their independent process-only sessions.
+        GatewayAPI.clearAuthSession(for: id)
+        if shouldDisconnect {
+            disconnect()
+        }
         gateways = GatewayStore.all()
+    }
+
+    /// Remove only bounded, device-local presentation snapshots. This does not
+    /// disconnect, mutate the saved-server library, touch credentials, or send
+    /// any request to the gateway.
+    func clearCachedPresentationData() throws {
+        try presentationCacheStore.removeAll()
+    }
+
+    /// Full device-local offboarding. The Settings surface owns the destructive
+    /// confirmation; this operation removes presentation caches first, then
+    /// requires service-wide protected-credential cleanup before saved metadata
+    /// is cleared. It never sends a delete request to the gateway.
+    func resetLocalAppData() throws {
+        disconnect()
+        // `disconnect()` invalidates only the active/in-flight gateway. A full
+        // device reset must also remove every inactive gateway's cookie jar,
+        // even if protected Keychain cleanup later fails.
+        GatewayAPI.clearAllAuthSessions()
+        do {
+            try clearCachedPresentationData()
+            try resetGatewayStore()
+        } catch let error as AppLocalDataError {
+            gateways = GatewayStore.all()
+            throw error
+        } catch {
+            gateways = GatewayStore.all()
+            throw AppLocalDataError.fullResetUnavailable
+        }
+        if let bundleID = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleID)
+        }
+        gateways = []
+        pendingSignInGateway = nil
+        lastConnectError = nil
     }
 
     /// Classify either native pairing entry point against the current library.
@@ -165,6 +289,11 @@ final class AppModel {
     /// Connect to a saved token-mode server using its stored token. Suitable
     /// for one-tap / auto reconnect.
     func connectToken(_ gateway: SavedGateway) async {
+        guard GatewayBaseURL.allowsTokenCredential(gateway.baseURL) else {
+            lastConnectError = GatewayTokenTransportError.secureTransportRequired.localizedDescription
+            return
+        }
+        GatewayAPI.clearAuthSession(for: gateway.id)
         guard let token = GatewayStore.token(id: gateway.id), !token.isEmpty else {
             lastConnectError = "No saved token for \(gateway.label)."
             return
@@ -190,21 +319,33 @@ final class AppModel {
         password: String?,
         otp: String = ""
     ) async {
+        let hasFreshPassword = password?.isEmpty == false
+        let authSession = GatewayAPI.beginAuthSession(
+            for: gateway,
+            preservingExistingCookies: !hasFreshPassword
+        )
         await connect(gateway) {
             if let password, !password.isEmpty {
                 try await GatewayAPI.passwordLogin(
-                    baseURL: gateway.baseURL,
+                    gateway: gateway,
+                    using: authSession,
                     provider: provider,
                     username: gateway.username,
                     password: password,
                     otp: otp
                 )
-                let ticket = try await GatewayAPI.mintWsTicket(baseURL: gateway.baseURL)
+                let ticket = try await GatewayAPI.mintWsTicket(
+                    gateway: gateway,
+                    using: authSession
+                )
                 return try GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)
             }
 
             do {
-                let ticket = try await GatewayAPI.mintWsTicket(baseURL: gateway.baseURL)
+                let ticket = try await GatewayAPI.mintWsTicket(
+                    gateway: gateway,
+                    using: authSession
+                )
                 return try GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)
             } catch GatewayAPIError.httpStatus(let code, _) where code == 401 || code == 403 {
                 throw GatewayClientError.rpc(message: "Sign in to \(gateway.label) to connect.")
@@ -220,6 +361,14 @@ final class AppModel {
         wsURL: @escaping () async throws -> URL
     ) async {
         guard !automaticReconnect || phase == .reconnecting else { return }
+        let supersededGatewayIDs = Set(
+            [activeGatewayId, connectingGatewayId]
+                .compactMap { $0 }
+                .filter { $0 != gateway.id }
+        )
+        for gatewayID in supersededGatewayIDs {
+            GatewayAPI.clearAuthSession(for: gatewayID)
+        }
         if !automaticReconnect {
             reconnectTask?.cancel()
             reconnectTask = nil
@@ -267,10 +416,23 @@ final class AppModel {
             connectionGeneration += 1
             lastConnectError = nil
             phase = .connected
+            if !GatewayStore.hasCompletedConnectionIntro(id: gateway.id) {
+                connectedIntroGatewayId = gateway.id
+            }
         } catch {
             guard connectionAttempt == attempt else { return }
             connectingGatewayId = nil
-            lastConnectError = error.localizedDescription
+            lastConnectError = GatewayConnectionIssue.message(for: error, gateway: gateway)
+            if gateway.authMode == .gated,
+               GatewayConnectionIssue.requiresSignIn(error) {
+                permitsAutomaticReconnect = false
+                reconnectFailures = 0
+                capabilityNegotiation = nil
+                activeGatewayId = gateway.id
+                phase = .disconnected
+                pendingSignInGateway = gateway
+                return
+            }
             if automaticReconnect,
                permitsAutomaticReconnect,
                activeGatewayId == gateway.id,
@@ -334,6 +496,17 @@ final class AppModel {
         guard phase == .reconnecting, let gateway = activeGateway else { return }
         switch gateway.authMode {
         case .token:
+            guard GatewayBaseURL.allowsTokenCredential(gateway.baseURL) else {
+                permitsAutomaticReconnect = false
+                reconnectTask?.cancel()
+                reconnectTask = nil
+                reconnectFailures = 0
+                capabilityNegotiation = nil
+                phase = .disconnected
+                lastConnectError = GatewayTokenTransportError.secureTransportRequired.localizedDescription
+                client.close()
+                return
+            }
             guard let token = GatewayStore.token(id: gateway.id), !token.isEmpty else {
                 permitsAutomaticReconnect = false
                 capabilityNegotiation = nil
@@ -349,28 +522,65 @@ final class AppModel {
                 return try GatewayAPI.websocketURL(baseURL: gateway.baseURL, token: token)
             }
         case .gated:
+            let authSession = GatewayAPI.beginAuthSession(
+                for: gateway,
+                preservingExistingCookies: true
+            )
             await connect(gateway, automaticReconnect: true) {
-                let ticket = try await GatewayAPI.mintWsTicket(baseURL: gateway.baseURL)
+                let ticket = try await GatewayAPI.mintWsTicket(
+                    gateway: gateway,
+                    using: authSession
+                )
                 return try GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)
             }
         }
     }
 
     func disconnect() {
+        let authGatewayIDs = Set([activeGatewayId, connectingGatewayId].compactMap { $0 })
         connectionAttempt += 1
         permitsAutomaticReconnect = false
         reconnectTask?.cancel()
         reconnectTask = nil
         reconnectFailures = 0
         connectingGatewayId = nil
+        connectedIntroGatewayId = nil
         activeGatewayId = nil
         capabilityNegotiation = nil
         phase = .disconnected
         client.close()
-        GatewayAPI.clearAuthSession()
+        for gatewayID in authGatewayIDs {
+            GatewayAPI.clearAuthSession(for: gatewayID)
+        }
+    }
+
+    func completeConnectedIntro() {
+        guard let id = connectedIntroGatewayId else { return }
+        GatewayStore.setCompletedConnectionIntro(true, id: id)
+        connectedIntroGatewayId = nil
+    }
+
+    func dismissConnectedIntro() {
+        connectedIntroGatewayId = nil
     }
 
     func supportsGatewayMethod(_ method: String) -> Bool {
         capabilityNegotiation?.supportsGatewayMethod(method) ?? false
     }
+
+#if DEBUG
+    /// Narrow behavioral-test seam for transaction ordering. It does not open
+    /// a socket or bypass production pairing and is absent from Release builds.
+    func installConnectionStateForTesting(gatewayID: String, phase: Phase) {
+        activeGatewayId = gatewayID
+        self.phase = phase
+    }
+
+    /// Deterministically exercises the production reconnect decision without
+    /// waiting on the scheduler. This remains behind DEBUG and does not relax
+    /// any transport, credential, or connection policy.
+    func reconnectActiveGatewayForTesting() async {
+        await reconnectActiveGateway()
+    }
+#endif
 }

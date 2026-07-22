@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Add a server to the library. Scan a pairing QR or enter the address plus
-/// a token (loopback/tunnel) or username/password (gated). Saving stores the
-/// server and connects; the library remembers it for next time.
+/// Scanner-led gateway activation. Manual addresses and credentials remain
+/// available, but stay behind Advanced setup so first launch has one primary
+/// path. Saving and auth continue to use AppModel's existing Keychain,
+/// password/TOTP, pairing-classification, and connection boundaries.
 struct AddGatewayView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
@@ -13,45 +14,74 @@ struct AddGatewayView: View {
         var id: String { rawValue }
     }
 
+    @State private var showingAdvanced: Bool
     @State private var label = ""
     @State private var urlText = ""
     @State private var mode: Mode = .token
-    @State private var token = ""
-    @State private var username = ""
-    @State private var password = ""
-    @State private var otp = ""
+    @State private var credentialState = GatewayEndpointCredentialState()
     @State private var providerName: String?
     @State private var requiresTotp = false
-    @State private var scannedGatewayID: String?
+    @State private var providerDiscoveryFailed = false
+    @State private var resolvingProvider = false
+    @State private var providerDiscoveryFence = GatewayEndpointRequestFence()
     @State private var pairingAttemptInFlight = false
-    @State private var probeResult: String?
+    @State private var notice: String?
     @State private var probing = false
+    @State private var probeFence = GatewayEndpointRequestFence()
     @State private var showScanner = false
+
+    private enum ProviderDiscoveryOutcome: Equatable {
+        case available
+        case unsupported
+        case failed
+        case stale
+    }
+
+    init(startsInAdvancedSetup: Bool = false) {
+        _showingAdvanced = State(initialValue: startsInAdvancedSetup)
+    }
 
     private var parsedURL: URL? {
         GatewayBaseURL.parse(urlText)
     }
 
+    private var urlFieldBinding: Binding<String> {
+        Binding(
+            get: { urlText },
+            set: { updateURLText($0) }
+        )
+    }
+
+    private var modeBinding: Binding<Mode> {
+        Binding(
+            get: { mode },
+            set: { updateMode($0) }
+        )
+    }
+
     private var canSave: Bool {
-        guard parsedURL != nil, appModel.phase != .connecting else { return false }
+        guard let parsedURL, appModel.phase != .connecting else { return false }
         switch mode {
         case .token:
-            return !token.trimmingCharacters(in: .whitespaces).isEmpty
-                || scannedRetryGateway != nil
+            return GatewayTransportPresentation.allowsTokenCredential(parsedURL)
+                && (!credentialState.token.trimmingCharacters(in: .whitespaces).isEmpty
+                    || scannedRetryGateway != nil)
         case .password:
-            let credsOK = !username.isEmpty && !password.isEmpty
-            return credsOK && (!requiresTotp || otp.trimmingCharacters(in: .whitespaces).count >= 6)
+            let credsOK = !credentialState.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !credentialState.password.isEmpty
+            return credsOK && !resolvingProvider
+                && (!requiresTotp || credentialState.otp.trimmingCharacters(in: .whitespaces).count >= 6)
         }
     }
 
-    /// A scanned token is persisted directly to Keychain. If the network
-    /// handshake fails, retry through that saved credential without copying it
-    /// back into SwiftUI state. Editing the address invalidates this shortcut.
+    /// Scanned tokens move directly to Keychain. A failed network handshake
+    /// retries from that protected credential rather than copying it back into
+    /// observable SwiftUI state.
     private var scannedRetryGateway: SavedGateway? {
         guard
             mode == .token,
-            token.trimmingCharacters(in: .whitespaces).isEmpty,
-            let scannedGatewayID,
+            credentialState.token.trimmingCharacters(in: .whitespaces).isEmpty,
+            let scannedGatewayID = credentialState.scannedGatewayID,
             let parsedURL
         else { return nil }
         let endpointKey = SavedGateway.endpointKey(for: parsedURL)
@@ -61,151 +91,221 @@ struct AddGatewayView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Button {
-                        showScanner = true
-                    } label: {
-                        Label("Scan pairing QR", systemImage: "qrcode.viewfinder")
-                    }
-                    .disabled(pairingAttemptInFlight || appModel.phase == .connecting)
-                } footer: {
-                    Text("On the machine: `fabric mobile` (add `--qr-url` for a tunnel).")
-                }
-
-                Section("Server") {
-                    TextField("Name (optional)", text: $label)
-                        .autocorrectionDisabled()
-                    TextField("http://my-machine:9119", text: $urlText)
-                        .keyboardType(.URL)
-                        .textContentType(.URL)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-
-                    Picker("Auth", selection: $mode) {
-                        ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-
-                    switch mode {
-                    case .token:
-                        SecureField("Session token", text: $token)
-                    case .password:
-                        TextField("Username", text: $username)
-                            .textContentType(.username)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                        SecureField("Password", text: $password)
-                            .textContentType(.password)
-                        if requiresTotp {
-                            TextField("6-digit code", text: $otp)
-                                .keyboardType(.numberPad)
-                                .textContentType(.oneTimeCode)
-                        }
-                        if let providerName {
-                            Text(requiresTotp
-                                 ? "Provider: \(providerName) · code from your authenticator app"
-                                 : "Provider: \(providerName)")
-                                .font(.footnote)
-                                .foregroundStyle(FabricTheme.textMuted)
-                        }
+        Group {
+            if showingAdvanced {
+                advancedNavigation
+            } else {
+                initialScanner
+            }
+        }
+        .sheet(isPresented: $showScanner) {
+            PairingScannerFlow(
+                onScan: { raw in
+                    let disposition = handleScan(raw)
+                    if disposition == .accepted { showScanner = false }
+                    return disposition
+                },
+                onCancel: { showScanner = false },
+                onAdvancedSetup: {
+                    showScanner = false
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showingAdvanced = true
                     }
                 }
+            )
+        }
+    }
 
-                Section {
-                    Button {
-                        Task { await probe() }
-                    } label: {
-                        if probing { ProgressView() } else { Text("Test connection") }
-                    }
-                    .disabled(parsedURL == nil || probing)
-
-                    if let probeResult {
-                        Text(probeResult)
-                            .font(.footnote)
-                            .foregroundStyle(FabricTheme.textMuted)
-                    }
-                }
-
-                Section {
-                    Button {
-                        Task { await save() }
-                    } label: {
-                        if appModel.phase == .connecting {
-                            ProgressView()
-                        } else {
-                            Text(scannedRetryGateway == nil ? "Save and connect" : "Retry connection")
-                        }
-                    }
-                    .disabled(!canSave)
-
-                    if let error = appModel.lastConnectError {
-                        Text(error)
-                            .font(.footnote)
-                            .foregroundStyle(FabricTheme.danger)
-                    }
+    private var initialScanner: some View {
+        PairingScannerFlow(
+            onScan: handleScan,
+            onCancel: { dismiss() },
+            onAdvancedSetup: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showingAdvanced = true
                 }
             }
-            .navigationTitle("Add server")
+        )
+    }
+
+    private var advancedNavigation: some View {
+        NavigationStack {
+            ZStack {
+                FabricTheme.canvas.ignoresSafeArea()
+                advancedSetup
+            }
+            .navigationTitle("Advanced setup")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(FabricTheme.canvas, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
-                }
-            }
-            .sheet(isPresented: $showScanner) {
-                NavigationStack {
-                    QRScannerView(isActive: $showScanner) { scanned in
-                        showScanner = false
-                        handleScan(scanned)
-                    }
-                    .ignoresSafeArea()
-                    .navigationTitle("Scan pairing QR")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Cancel") { showScanner = false }
-                        }
-                    }
+                        .frame(minHeight: FabricTheme.minTarget)
                 }
             }
         }
     }
 
-    private func handleScan(_ raw: String) {
+    private var advancedSetup: some View {
+        Form {
+            Section {
+                Button {
+                    notice = nil
+                    showScanner = true
+                } label: {
+                    Label("Scan pairing code instead", systemImage: "qrcode.viewfinder")
+                        .frame(minHeight: FabricTheme.minTarget)
+                }
+                .disabled(pairingAttemptInFlight || appModel.phase == .connecting)
+            } footer: {
+                Text("Scanning is the fastest setup path. Use the fields below only when you already have a Fabric address and credential.")
+            }
+
+            Section("Fabric computer") {
+                TextField("Name (optional)", text: $label)
+                    .autocorrectionDisabled()
+                    .accessibilityLabel("Fabric computer name")
+                TextField("https://my-computer.example", text: urlFieldBinding)
+                    .keyboardType(.URL)
+                    .textContentType(.URL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .accessibilityLabel("Fabric server address")
+
+                Picker("Authentication", selection: modeBinding) {
+                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+
+                switch mode {
+                case .token:
+                    SecureField("Session token", text: $credentialState.token)
+                        .textContentType(.password)
+                case .password:
+                    TextField("Username", text: $credentialState.username)
+                        .textContentType(.username)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    SecureField("Password", text: $credentialState.password)
+                        .textContentType(.password)
+                    if requiresTotp {
+                        TextField("6-digit code", text: $credentialState.otp)
+                            .keyboardType(.numberPad)
+                            .textContentType(.oneTimeCode)
+                    }
+                    if let providerName {
+                        Text(requiresTotp
+                             ? "Provider: \(providerName) · enter the code from your authenticator app."
+                             : "Provider: \(providerName)")
+                            .font(.footnote)
+                            .foregroundStyle(FabricTheme.textMuted)
+                    } else if resolvingProvider {
+                        ProgressView("Checking sign-in options…")
+                    }
+                }
+
+                if let parsedURL,
+                   mode == .token,
+                   !GatewayTransportPresentation.allowsTokenCredential(parsedURL) {
+                    PairingNotice(
+                        message: "Token connections require HTTPS. Use a trusted HTTPS or Tailscale Serve address before entering a token.",
+                        isError: true
+                    )
+                } else if let parsedURL,
+                          let warning = GatewayTransportPresentation.warning(for: parsedURL) {
+                    PairingNotice(message: warning, isError: true)
+                }
+            }
+
+            Section {
+                Button {
+                    Task { await save() }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if appModel.phase == .connecting {
+                            ProgressView()
+                                .tint(FabricTheme.textOnBrand)
+                        } else {
+                            Text(scannedRetryGateway == nil ? "Save and connect" : "Retry connection")
+                                .font(.headline)
+                        }
+                        Spacer()
+                    }
+                    .frame(minHeight: FabricTheme.minTarget)
+                }
+                .listRowBackground(canSave ? FabricTheme.action : FabricTheme.surfaceInset)
+                .foregroundStyle(canSave ? FabricTheme.textOnBrand : FabricTheme.textDisabled)
+                .disabled(!canSave)
+
+                Button {
+                    Task { await probe() }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if probing { ProgressView() } else { Text("Test address") }
+                        Spacer()
+                    }
+                    .frame(minHeight: FabricTheme.minTarget)
+                }
+                .disabled(parsedURL == nil || probing || appModel.phase == .connecting)
+            }
+
+            if let notice {
+                Section {
+                    PairingNotice(message: notice)
+                }
+            }
+
+            if let error = appModel.lastConnectError {
+                Section {
+                    PairingNotice(message: error, isError: true)
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(FabricTheme.canvas)
+    }
+
+    private func handleScan(_ raw: String) -> PairingScannerDisposition {
         switch appModel.pairingOutcome(for: .scan(raw)) {
         case .invalid:
-            scannedGatewayID = nil
-            probeResult = "Scanned code is not a Fabric pairing QR."
+            credentialState.scannedGatewayID = nil
+            let message = "That isn’t a Fabric pairing code. Show a new code with `fabric mobile`, then scan again."
+            notice = message
+            return .retry(message: message)
         case .unsupportedEnrollment:
-            scannedGatewayID = nil
-            probeResult = "This QR requires secure device enrollment. Update Fabric Mobile and the gateway together, then scan a new QR."
+            credentialState.scannedGatewayID = nil
+            let message = "This code uses a newer enrollment flow that this app cannot complete yet. Update Fabric Mobile and the gateway together, then scan a new code."
+            notice = message
+            return .retry(message: message)
         case .token(let acceptance):
             guard !pairingAttemptInFlight else {
-                probeResult = "Pairing is already in progress."
-                return
+                let message = "Pairing is already in progress."
+                notice = message
+                return .retry(message: message)
             }
             pairingAttemptInFlight = true
-            scannedGatewayID = nil
-            urlText = acceptance.target.baseURL.absoluteString
-            mode = .token
-            // The machine-issued token moves directly into Keychain instead of
-            // living in observable SwiftUI state. The scanner already delivers
-            // at most once, and this task performs one save + connection.
-            token = ""
+            credentialState.scannedGatewayID = nil
+            updateURLText(acceptance.target.baseURL.absoluteString)
+            updateMode(.token)
+            credentialState.token = ""
             Task { await connectScannedToken(acceptance) }
+            return .accepted
         case .gated(let target):
-            scannedGatewayID = nil
-            urlText = target.baseURL.absoluteString
-            mode = .password
-            username = target.existingUsername(in: appModel.gateways)
-            password = ""
-            otp = ""
+            credentialState.scannedGatewayID = nil
+            updateURLText(target.baseURL.absoluteString)
+            updateMode(.password)
+            credentialState.username = target.existingUsername(in: appModel.gateways)
+            credentialState.password = ""
+            credentialState.otp = ""
             providerName = nil
             requiresTotp = false
-            probeResult = "Server requires sign-in — enter your username and password."
+            providerDiscoveryFailed = false
+            notice = "This Fabric requires sign-in. Enter your username and password to continue."
+            showingAdvanced = true
             Task { await resolvePasswordProvider() }
+            return .accepted
         }
     }
 
@@ -214,29 +314,63 @@ struct AddGatewayView: View {
         do {
             switch try await appModel.connectPairingToken(acceptance) {
             case .attempted(let gateway):
-                scannedGatewayID = gateway.id
+                credentialState.scannedGatewayID = gateway.id
             case .alreadyInFlight:
-                probeResult = "Pairing is already in progress for this server."
+                notice = "Pairing is already in progress for this Fabric."
             }
         } catch {
-            // Keep credential errors generic: no token or Security status
-            // should enter UI text, analytics, or logs.
-            probeResult = GatewayStoreError.credentialStorageUnavailable.localizedDescription
+            notice = GatewayStoreError.credentialStorageUnavailable.localizedDescription
         }
-        if appModel.phase == .connected { dismiss() }
+        if appModel.phase == .connected {
+            dismiss()
+        } else if credentialState.scannedGatewayID != nil {
+            showingAdvanced = true
+            notice = "The pairing code was saved, but Fabric couldn’t reach this computer. Make sure Fabric is running and this iPhone is on the same network or tailnet, then retry."
+        }
     }
 
-    private func resolvePasswordProvider() async {
-        guard let url = parsedURL else { return }
-        if let provider = try? await GatewayAPI.listAuthProviders(baseURL: url)
-            .first(where: { $0.supportsPassword }) {
+    private func resolvePasswordProvider() async -> ProviderDiscoveryOutcome {
+        guard let url = parsedURL, mode == .password else { return .stale }
+        let request = providerDiscoveryFence.begin(for: url)
+        resolvingProvider = true
+        providerDiscoveryFailed = false
+        providerName = nil
+        requiresTotp = false
+        defer {
+            if providerDiscoveryFence.accepts(
+                request,
+                currentURL: parsedURL,
+                applicable: mode == .password
+            ) {
+                resolvingProvider = false
+            }
+        }
+        do {
+            let provider = try await GatewayAPI.listAuthProviders(baseURL: url)
+                .first(where: { $0.supportsPassword })
+            guard providerDiscoveryFence.accepts(
+                request,
+                currentURL: parsedURL,
+                applicable: mode == .password
+            ) else { return .stale }
+            guard let provider else { return .unsupported }
             providerName = provider.name
             requiresTotp = provider.requiresTotp
+            return .available
+        } catch {
+            guard providerDiscoveryFence.accepts(
+                request,
+                currentURL: parsedURL,
+                applicable: mode == .password
+            ) else { return .stale }
+            providerDiscoveryFailed = true
+            return .failed
         }
     }
 
     private func save() async {
         guard let url = parsedURL else { return }
+        notice = nil
         switch mode {
         case .token:
             if let scannedRetryGateway {
@@ -244,57 +378,133 @@ struct AddGatewayView: View {
             } else {
                 do {
                     let gateway = try appModel.saveTokenGateway(
-                        label: label,
+                        label: label.trimmingCharacters(in: .whitespacesAndNewlines),
                         baseURL: url,
-                        token: token.trimmingCharacters(in: .whitespaces)
+                        token: credentialState.token.trimmingCharacters(in: .whitespaces)
                     )
                     await appModel.connectToken(gateway)
                 } catch {
-                    // Keep credential errors generic: no token or Security status
-                    // should enter UI text, analytics, or logs.
-                    probeResult = GatewayStoreError.credentialStorageUnavailable.localizedDescription
+                    notice = GatewayStoreError.credentialStorageUnavailable.localizedDescription
                 }
             }
         case .password:
-            if providerName == nil { await resolvePasswordProvider() }
+            let requestedEndpoint = SavedGateway.endpointKey(for: url)
+            if providerName == nil { _ = await resolvePasswordProvider() }
+            guard
+                mode == .password,
+                let currentURL = parsedURL,
+                SavedGateway.endpointKey(for: currentURL) == requestedEndpoint
+            else { return }
             guard let providerName else {
-                probeResult = "This server offers no password sign-in (OAuth-only isn't supported yet)."
+                notice = providerDiscoveryFailed
+                    ? "Fabric couldn’t load this server’s sign-in options. Check the connection, then try again."
+                    : "This Fabric does not offer password sign-in. OAuth sign-in is not supported in this app yet."
                 return
             }
-            let gateway = appModel.saveGatedGateway(label: label, baseURL: url, username: username)
+            let gateway = appModel.saveGatedGateway(
+                label: label.trimmingCharacters(in: .whitespacesAndNewlines),
+                baseURL: currentURL,
+                username: credentialState.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
             await appModel.connectGated(
                 gateway,
                 provider: providerName,
-                password: password,
-                otp: otp.trimmingCharacters(in: .whitespaces)
+                password: credentialState.password,
+                otp: credentialState.otp.trimmingCharacters(in: .whitespaces)
             )
         }
-        if appModel.phase == .connected { dismiss() }
+        if appModel.phase == .connected {
+            dismiss()
+        } else if notice == nil {
+            notice = "Fabric couldn’t connect. Check that the computer is running and reachable, then try again."
+        }
     }
 
     private func probe() async {
         guard let url = parsedURL else { return }
+        let request = probeFence.begin(for: url)
         probing = true
-        defer { probing = false }
+        notice = nil
+        defer {
+            if probeFence.accepts(request, currentURL: parsedURL) {
+                probing = false
+            }
+        }
         do {
             let status = try await GatewayAPI.probeStatus(baseURL: url)
+            guard probeFence.accepts(request, currentURL: parsedURL) else { return }
             if status.authRequired {
-                mode = .password
-                await resolvePasswordProvider()
-                probeResult = providerName == nil
-                    ? "Reachable, but no password sign-in is offered (OAuth-only isn't supported yet)."
-                    : "Reachable — sign-in required."
+                updateMode(.password, preservingProbe: true)
+                let outcome = await resolvePasswordProvider()
+                guard probeFence.accepts(request, currentURL: parsedURL) else { return }
+                if outcome == .failed {
+                    notice = "Address found, but Fabric couldn’t load its sign-in options. Check the connection, then try again."
+                } else if outcome == .unsupported {
+                    notice = "Address found, but it does not offer password sign-in. OAuth sign-in is not supported in this app yet."
+                } else if outcome == .available {
+                    notice = "Address found. Sign-in is required."
+                }
             } else {
-                mode = .token
-                probeResult = "Reachable — token auth."
+                updateMode(.token, preservingProbe: true)
+                notice = "Address found. Enter its session token to connect."
             }
         } catch {
-            probeResult = "Unreachable: \(error.localizedDescription)"
+            guard probeFence.accepts(request, currentURL: parsedURL) else { return }
+            notice = ConnectRouteDiagnosis.message(for: error)
         }
+    }
+
+    private func updateURLText(_ value: String) {
+        guard value != urlText else { return }
+        credentialState.resetIfEndpointChanged(from: urlText, to: value)
+        urlText = value
+        invalidateProviderDiscovery()
+        probeFence.invalidate()
+        probing = false
+        notice = nil
+    }
+
+    private func updateMode(_ value: Mode, preservingProbe: Bool = false) {
+        guard value != mode else { return }
+        mode = value
+        invalidateProviderDiscovery()
+        if !preservingProbe {
+            probeFence.invalidate()
+            probing = false
+        }
+    }
+
+    private func invalidateProviderDiscovery() {
+        providerDiscoveryFence.invalidate()
+        resolvingProvider = false
+        providerDiscoveryFailed = false
+        providerName = nil
+        requiresTotp = false
     }
 }
 
-/// Password re-auth for a saved gated server whose cookie session has lapsed.
+private struct PairingNotice: View {
+    let message: String
+    var isError = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: isError ? "exclamationmark.circle.fill" : "info.circle.fill")
+                .foregroundStyle(isError ? FabricTheme.danger : FabricTheme.info)
+                .accessibilityHidden(true)
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(FabricTheme.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(FabricTheme.surface, in: RoundedRectangle(cornerRadius: FabricTheme.radius))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Password re-auth for a saved gated Fabric whose cookie session has lapsed.
 struct SignInSheet: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
@@ -306,6 +516,8 @@ struct SignInSheet: View {
     @State private var otp = ""
     @State private var providerName: String?
     @State private var requiresTotp = false
+    @State private var providerDiscoveryFailed = false
+    @State private var resolvingProvider = true
     @State private var working = false
     @State private var error: String?
 
@@ -318,10 +530,23 @@ struct SignInSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Text(gateway.label).font(.headline)
-                    Text(gateway.baseURL.absoluteString)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(FabricTheme.textMuted)
+                    Label {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(gateway.label).font(.headline)
+                            GatewayEndpointIdentityText(
+                                endpoint: gateway.baseURL.host() ?? gateway.baseURL.absoluteString,
+                                style: .caption
+                            )
+                        }
+                    } icon: {
+                        Image(systemName: "desktopcomputer")
+                            .foregroundStyle(FabricTheme.action)
+                    }
+                }
+                if let warning = GatewayTransportPresentation.warning(for: gateway.baseURL) {
+                    Section("Transport") {
+                        PairingNotice(message: warning, isError: true)
+                    }
                 }
                 Section("Sign in") {
                     TextField("Username", text: $username)
@@ -334,36 +559,57 @@ struct SignInSheet: View {
                             .keyboardType(.numberPad)
                             .textContentType(.oneTimeCode)
                     }
+                    if resolvingProvider {
+                        ProgressView("Checking sign-in options…")
+                    } else if providerDiscoveryFailed {
+                        PairingNotice(
+                            message: "Fabric couldn’t load this server’s sign-in options. Check the connection, then try again.",
+                            isError: true
+                        )
+                        Button("Retry sign-in options") {
+                            Task { await resolvePasswordProvider() }
+                        }
+                        .frame(minHeight: FabricTheme.minTarget)
+                    } else if providerName == nil {
+                        PairingNotice(
+                            message: "This Fabric does not offer password sign-in. OAuth sign-in is not supported in this app yet."
+                        )
+                    }
                 }
                 Section {
                     Button {
                         Task { await signIn() }
                     } label: {
-                        if working { ProgressView() } else { Text("Sign in and connect") }
+                        HStack {
+                            Spacer()
+                            if working { ProgressView() } else { Text("Sign in and connect") }
+                            Spacer()
+                        }
+                        .frame(minHeight: FabricTheme.minTarget)
                     }
                     .disabled(
                         username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             || password.isEmpty || working
+                            || providerName == nil || resolvingProvider
                             || (requiresTotp && otp.trimmingCharacters(in: .whitespaces).count < 6)
                     )
                     if let error {
-                        Text(error).font(.footnote).foregroundStyle(FabricTheme.danger)
+                        PairingNotice(message: error, isError: true)
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(FabricTheme.canvas)
             .navigationTitle("Sign in")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                        .frame(minHeight: FabricTheme.minTarget)
                 }
             }
             .task {
-                if let provider = try? await GatewayAPI.listAuthProviders(baseURL: gateway.baseURL)
-                    .first(where: { $0.supportsPassword }) {
-                    providerName = provider.name
-                    requiresTotp = provider.requiresTotp
-                }
+                await resolvePasswordProvider()
             }
         }
     }
@@ -372,7 +618,9 @@ struct SignInSheet: View {
         working = true
         defer { working = false }
         guard let providerName else {
-            error = "This server offers no password sign-in."
+            error = providerDiscoveryFailed
+                ? "Fabric couldn’t load this server’s sign-in options. Check the connection, then try again."
+                : "This Fabric does not offer password sign-in."
             return
         }
         let updated = appModel.saveGatedGateway(
@@ -389,7 +637,25 @@ struct SignInSheet: View {
         if appModel.phase == .connected {
             dismiss()
         } else {
-            error = appModel.lastConnectError ?? "Sign-in failed."
+            error = appModel.lastConnectError ?? "Sign-in failed. Check your details and try again."
+        }
+    }
+
+    private func resolvePasswordProvider() async {
+        resolvingProvider = true
+        providerDiscoveryFailed = false
+        providerName = nil
+        requiresTotp = false
+        error = nil
+        defer { resolvingProvider = false }
+        do {
+            let provider = try await GatewayAPI.listAuthProviders(baseURL: gateway.baseURL)
+                .first(where: { $0.supportsPassword })
+            guard let provider else { return }
+            providerName = provider.name
+            requiresTotp = provider.requiresTotp
+        } catch {
+            providerDiscoveryFailed = true
         }
     }
 }

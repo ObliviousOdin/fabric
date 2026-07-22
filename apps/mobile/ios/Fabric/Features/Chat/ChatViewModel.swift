@@ -1,5 +1,467 @@
 import Foundation
 import Observation
+import CryptoKit
+
+/// A typed, presentation-only record inside one assistant turn. Activity is
+/// folded into the turn (rather than a transient global status string), so a
+/// tool that finishes remains beside the reasoning/text that surrounded it.
+struct AssistantTurnPart: Identifiable, Equatable {
+    struct Reasoning: Equatable {
+        var text: String
+        var wasTruncated: Bool
+    }
+
+    struct Tool: Equatable {
+        enum State: String, Hashable {
+            case generating
+            case running
+            case complete
+            case failed
+        }
+
+        var callID: String?
+        var name: String
+        var detail: String?
+        var state: State
+        var durationSeconds: Double?
+    }
+
+    enum Content: Equatable {
+        case text(String)
+        case reasoning(Reasoning)
+        case tool(Tool)
+    }
+
+    let id: String
+    var content: Content
+}
+
+/// The narrow event vocabulary consumed by the assistant-turn reducer. It is
+/// intentionally detached from `[String: Any]` so ordering and bounds can be
+/// verified without a socket or an Observable view model.
+enum AssistantTurnEvent: Equatable {
+    case textDelta(String)
+    case reasoningDelta(String)
+    case reasoningAvailable(String)
+    case toolGenerating(name: String)
+    case toolStarted(callID: String?, name: String, detail: String?)
+    case toolProgress(callID: String?, name: String, detail: String?)
+    case toolCompleted(
+        callID: String?,
+        name: String,
+        detail: String?,
+        failed: Bool,
+        durationSeconds: Double?
+    )
+    case messageComplete(authoritativeText: String?)
+}
+
+/// Redaction and text caps shared by live cards and the offline presentation
+/// cache. Tool result/argument objects never enter the reducer at all; these
+/// patterns are a second line of defence for the small server-authored summary
+/// fields that are allowed through.
+enum ChatPresentationSafety {
+    static let maximumReasoningCharacters = 6_000
+    static let maximumActivityDetailCharacters = 800
+    static let maximumToolNameCharacters = 80
+    static let maximumCachedMessageCharacters = 12_000
+
+    private static let sensitivePatterns: [(NSRegularExpression, String)] = {
+        let definitions: [(String, String)] = [
+            (
+                #"(?i)\b(authorization|proxy-authorization)\s*[:=]\s*(?:bearer\s+)?[^\s,;]+"#,
+                "$1: [REDACTED]"
+            ),
+            (
+                #"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|passwd|secret|cookie|client[_-]?secret)\b(\s*[:=]\s*|\s+)[^\s,;]+"#,
+                "$1$2[REDACTED]"
+            ),
+            (
+                #"(?i)(--(?:api[-_]?key|access[-_]?token|token|password|secret))(?:=|\s+)[^\s]+"#,
+                "$1 [REDACTED]"
+            ),
+            (
+                #"(?i)([?&](?:api[_-]?key|token|password|secret)=)[^&#\s]+"#,
+                "$1[REDACTED]"
+            ),
+            (
+                #"\b(?:sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})\b"#,
+                "[REDACTED]"
+            ),
+        ]
+        return definitions.compactMap { pattern, replacement in
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+            return (regex, replacement)
+        }
+    }()
+
+    static func sanitized(_ source: String, maximumCharacters: Int) -> String {
+        var result = source
+        for (regex, replacement) in sensitivePatterns {
+            let range = NSRange(result.startIndex..<result.endIndex, in: result)
+            result = regex.stringByReplacingMatches(
+                in: result,
+                range: range,
+                withTemplate: replacement
+            )
+        }
+        guard result.count > maximumCharacters else { return result }
+        let marker = "\n… [truncated]"
+        guard maximumCharacters > marker.count else {
+            return String(result.prefix(max(0, maximumCharacters)))
+        }
+        let prefixCount = maximumCharacters - marker.count
+        let end = result.index(result.startIndex, offsetBy: prefixCount)
+        return String(result[..<end]) + marker
+    }
+
+    static func toolName(_ source: String?) -> String {
+        let trimmed = (source ?? "tool").trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = trimmed.isEmpty ? "tool" : trimmed
+        return sanitized(value, maximumCharacters: maximumToolNameCharacters)
+    }
+
+    static func activityDetail(_ source: String?) -> String? {
+        guard let source else { return nil }
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return sanitized(trimmed, maximumCharacters: maximumActivityDetailCharacters)
+    }
+
+    /// Transport errors can embed arbitrary JSON-RPC messages, HTTP bodies,
+    /// credentials, or socket diagnostics in `localizedDescription`. Chat is
+    /// persisted as a presentation cache, so only caller-owned recovery copy
+    /// is eligible to cross this boundary; the raw error stays diagnostic-only.
+    static func userVisibleFailure(for _: Error, fallback: String) -> String {
+        sanitized(fallback, maximumCharacters: maximumActivityDetailCharacters)
+    }
+}
+
+/// Pure event folding for rich assistant turns. At most 64 reasoning/tool
+/// cards survive in a turn. Text parts remain authoritative transcript text;
+/// the bound applies only to high-frequency presentation activity.
+enum AssistantTurnReducer {
+    static let maximumActivityParts = 64
+
+    static func event(from gatewayEvent: GatewayEvent) -> AssistantTurnEvent? {
+        let payload = gatewayEvent.payload
+        switch gatewayEvent.type {
+        case "message.delta":
+            guard let text = gatewayEvent.payloadText else { return nil }
+            return .textDelta(text)
+        case "reasoning.delta":
+            guard let text = gatewayEvent.payloadText else { return nil }
+            return .reasoningDelta(text)
+        case "reasoning.available":
+            guard let text = gatewayEvent.payloadText else { return nil }
+            return .reasoningAvailable(text)
+        case "tool.generating":
+            return .toolGenerating(name: ChatPresentationSafety.toolName(payload["name"] as? String))
+        case "tool.start":
+            return .toolStarted(
+                callID: toolCallID(payload),
+                name: ChatPresentationSafety.toolName(
+                    (payload["name"] as? String) ?? (payload["tool"] as? String)
+                ),
+                detail: ChatPresentationSafety.activityDetail(
+                    (payload["context"] as? String) ?? (payload["preview"] as? String)
+                )
+            )
+        case "tool.progress":
+            return .toolProgress(
+                callID: toolCallID(payload),
+                name: ChatPresentationSafety.toolName(
+                    (payload["name"] as? String) ?? (payload["tool"] as? String)
+                ),
+                detail: ChatPresentationSafety.activityDetail(
+                    (payload["text"] as? String)
+                        ?? (payload["preview"] as? String)
+                        ?? (payload["context"] as? String)
+                )
+            )
+        case "tool.complete":
+            let failed: Bool
+            if let value = payload["error"] as? Bool {
+                failed = value
+            } else {
+                // A non-boolean error body is deliberately not rendered.
+                failed = payload["error"] != nil
+            }
+            return .toolCompleted(
+                callID: toolCallID(payload),
+                name: ChatPresentationSafety.toolName(
+                    (payload["name"] as? String) ?? (payload["tool"] as? String)
+                ),
+                // Only the server-authored compact summary is presentation
+                // eligible. Raw args/result/result_text never cross this seam.
+                detail: ChatPresentationSafety.activityDetail(payload["summary"] as? String),
+                failed: failed,
+                durationSeconds: (payload["duration_s"] as? NSNumber)?.doubleValue
+            )
+        case "message.complete":
+            return .messageComplete(authoritativeText: gatewayEvent.payloadText)
+        default:
+            return nil
+        }
+    }
+
+    static func reducing(
+        _ message: TranscriptMessage,
+        event: AssistantTurnEvent
+    ) -> TranscriptMessage {
+        guard message.role == .assistant else { return message }
+        var next = message
+
+        switch event {
+        case .textDelta(let delta):
+            guard !delta.isEmpty else { return next }
+            next.text += delta
+            appendText(delta, to: &next.assistantParts)
+
+        case .reasoningDelta(let delta):
+            appendReasoning(delta, replace: false, to: &next.assistantParts)
+
+        case .reasoningAvailable(let text):
+            appendReasoning(text, replace: true, to: &next.assistantParts)
+
+        case .toolGenerating(let name):
+            let safeName = ChatPresentationSafety.toolName(name)
+            if let index = latestToolIndex(in: next.assistantParts, callID: nil, name: safeName),
+               case .tool(let existing) = next.assistantParts[index].content,
+               existing.state == .generating {
+                break
+            }
+            appendTool(
+                AssistantTurnPart.Tool(
+                    callID: nil,
+                    name: safeName,
+                    detail: nil,
+                    state: .generating,
+                    durationSeconds: nil
+                ),
+                to: &next.assistantParts
+            )
+
+        case .toolStarted(let callID, let name, let detail):
+            let safeName = ChatPresentationSafety.toolName(name)
+            let safeDetail = ChatPresentationSafety.activityDetail(detail)
+            upsertTool(
+                callID: callID,
+                name: safeName,
+                fallbackStates: [.generating, .running],
+                in: &next.assistantParts
+            ) { tool in
+                tool.callID = callID ?? tool.callID
+                tool.name = safeName
+                tool.detail = safeDetail ?? tool.detail
+                tool.state = .running
+            }
+
+        case .toolProgress(let callID, let name, let detail):
+            let safeName = ChatPresentationSafety.toolName(name)
+            let safeDetail = ChatPresentationSafety.activityDetail(detail)
+            upsertTool(
+                callID: callID,
+                name: safeName,
+                fallbackStates: [.running, .generating],
+                in: &next.assistantParts
+            ) { tool in
+                tool.callID = callID ?? tool.callID
+                tool.name = safeName
+                tool.detail = safeDetail ?? tool.detail
+                tool.state = .running
+            }
+
+        case .toolCompleted(let callID, let name, let detail, let failed, let duration):
+            let safeName = ChatPresentationSafety.toolName(name)
+            let safeDetail = ChatPresentationSafety.activityDetail(detail)
+            upsertTool(
+                callID: callID,
+                name: safeName,
+                fallbackStates: [.running, .generating],
+                in: &next.assistantParts
+            ) { tool in
+                tool.callID = callID ?? tool.callID
+                tool.name = safeName
+                tool.detail = safeDetail ?? tool.detail
+                tool.state = failed ? .failed : .complete
+                tool.durationSeconds = duration
+            }
+
+        case .messageComplete(let authoritativeText):
+            if let authoritativeText, !authoritativeText.isEmpty,
+               authoritativeText != next.text {
+                next.text = authoritativeText
+                next.assistantParts.removeAll { part in
+                    if case .text = part.content { return true }
+                    return false
+                }
+                appendText(authoritativeText, to: &next.assistantParts)
+            }
+            next.streaming = false
+        }
+
+        trimActivityParts(in: &next.assistantParts)
+        return next
+    }
+
+    private static func appendText(_ delta: String, to parts: inout [AssistantTurnPart]) {
+        if let index = latestPartIndex(in: parts, matching: { content in
+            if case .text = content { return true }
+            if case .tool = content { return false }
+            return nil
+        }), case .text(let text) = parts[index].content {
+            let crossesReasoning = parts[(index + 1)...].contains { part in
+                if case .reasoning = part.content { return true }
+                return false
+            }
+            // The child-session mirror terminates its one-line goal header
+            // with a newline before reasoning begins. Keep that complete line
+            // in source order, while still coalescing ordinary mid-sentence
+            // text/reasoning fragments like the desktop transcript does.
+            if !crossesReasoning || !text.hasSuffix("\n") {
+                parts[index].content = .text(text + delta)
+                return
+            }
+        }
+        parts.append(AssistantTurnPart(id: nextID(prefix: "text", parts: parts), content: .text(delta)))
+    }
+
+    private static func appendReasoning(
+        _ source: String,
+        replace: Bool,
+        to parts: inout [AssistantTurnPart]
+    ) {
+        guard !source.isEmpty || replace else { return }
+        let index = latestPartIndex(in: parts, matching: { content in
+            if case .reasoning = content { return true }
+            if case .tool = content { return false }
+            return nil
+        })
+        let current: String
+        if !replace, let index, case .reasoning(let reasoning) = parts[index].content {
+            current = reasoning.text + source
+        } else {
+            current = source
+        }
+        let bounded = ChatPresentationSafety.sanitized(
+            current,
+            maximumCharacters: ChatPresentationSafety.maximumReasoningCharacters
+        )
+        let reasoning = AssistantTurnPart.Reasoning(
+            text: bounded,
+            wasTruncated: current.count > ChatPresentationSafety.maximumReasoningCharacters
+        )
+        if let index {
+            parts[index].content = .reasoning(reasoning)
+        } else if !bounded.isEmpty {
+            parts.append(AssistantTurnPart(
+                id: nextID(prefix: "reasoning", parts: parts),
+                content: .reasoning(reasoning)
+            ))
+        }
+    }
+
+    /// Return true/false for a match/stop boundary, nil to continue scanning.
+    private static func latestPartIndex(
+        in parts: [AssistantTurnPart],
+        matching: (AssistantTurnPart.Content) -> Bool?
+    ) -> Int? {
+        for index in parts.indices.reversed() {
+            if let result = matching(parts[index].content) {
+                return result ? index : nil
+            }
+        }
+        return nil
+    }
+
+    private static func toolCallID(_ payload: [String: Any]) -> String? {
+        for key in ["tool_id", "tool_call_id", "id"] {
+            guard let raw = payload[key] as? String else { continue }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return String(trimmed.prefix(256)) }
+        }
+        return nil
+    }
+
+    private static func latestToolIndex(
+        in parts: [AssistantTurnPart],
+        callID: String?,
+        name: String,
+        states: Set<AssistantTurnPart.Tool.State>? = nil
+    ) -> Int? {
+        if let callID, let exact = parts.lastIndex(where: { part in
+            guard case .tool(let tool) = part.content else { return false }
+            return tool.callID == callID
+        }) {
+            return exact
+        }
+        return parts.lastIndex { part in
+            guard case .tool(let tool) = part.content, tool.name == name else { return false }
+            return states?.contains(tool.state) ?? true
+        }
+    }
+
+    private static func upsertTool(
+        callID: String?,
+        name: String,
+        fallbackStates: Set<AssistantTurnPart.Tool.State>,
+        in parts: inout [AssistantTurnPart],
+        update: (inout AssistantTurnPart.Tool) -> Void
+    ) {
+        if let index = latestToolIndex(
+            in: parts,
+            callID: callID,
+            name: name,
+            states: fallbackStates
+        ), case .tool(var tool) = parts[index].content {
+            update(&tool)
+            parts[index].content = .tool(tool)
+            return
+        }
+        var tool = AssistantTurnPart.Tool(
+            callID: callID,
+            name: name,
+            detail: nil,
+            state: .running,
+            durationSeconds: nil
+        )
+        update(&tool)
+        appendTool(tool, to: &parts)
+    }
+
+    private static func appendTool(
+        _ tool: AssistantTurnPart.Tool,
+        to parts: inout [AssistantTurnPart]
+    ) {
+        parts.append(AssistantTurnPart(
+            id: nextID(prefix: "tool", parts: parts),
+            content: .tool(tool)
+        ))
+    }
+
+    private static func nextID(prefix: String, parts: [AssistantTurnPart]) -> String {
+        let nextSequence = parts.compactMap { part -> Int? in
+            guard part.id.hasPrefix(prefix + ":") else { return nil }
+            return Int(part.id.dropFirst(prefix.count + 1))
+        }.max().map { $0 + 1 } ?? 0
+        return "\(prefix):\(nextSequence)"
+    }
+
+    private static func trimActivityParts(in parts: inout [AssistantTurnPart]) {
+        var overflow = parts.reduce(into: 0) { count, part in
+            if case .text = part.content { return }
+            count += 1
+        } - maximumActivityParts
+        guard overflow > 0 else { return }
+        parts.removeAll { part in
+            guard overflow > 0 else { return false }
+            if case .text = part.content { return false }
+            overflow -= 1
+            return true
+        }
+    }
+}
 
 /// One transcript row. Assistant messages accumulate `message.delta` text
 /// while `streaming` is true; `message.complete` finalizes them.
@@ -17,22 +479,43 @@ struct TranscriptMessage: Identifiable, Equatable {
     let role: Role
     var text: String
     var streaming: Bool
+    var assistantParts: [AssistantTurnPart]
 
-    init(role: Role, text: String, streaming: Bool = false) {
-        self.id = UUID()
+    init(
+        id: UUID = UUID(),
+        role: Role,
+        text: String,
+        streaming: Bool = false,
+        assistantParts: [AssistantTurnPart]? = nil
+    ) {
+        self.id = id
         self.role = role
         self.text = text
         self.streaming = streaming
+        self.assistantParts = assistantParts ?? (
+            role == .assistant && !text.isEmpty
+                ? [AssistantTurnPart(id: "text:\(id.uuidString)", content: .text(text))]
+                : []
+        )
     }
 
     init?(restoring message: SessionTranscriptMessage) {
+        let restoredReasoning: AssistantTurnPart.Reasoning? = {
+            guard message.role == .assistant,
+                  let source = message.reasoning?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !source.isEmpty else { return nil }
+            return AssistantTurnPart.Reasoning(
+                text: ChatPresentationSafety.sanitized(
+                    source,
+                    maximumCharacters: ChatPresentationSafety.maximumReasoningCharacters
+                ),
+                wasTruncated: source.count > ChatPresentationSafety.maximumReasoningCharacters
+            )
+        }()
+
         if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            guard
-                message.role == .assistant,
-                let reasoning = message.reasoning,
-                !reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else { return nil }
-            self.init(role: .info, text: "Thinking…\n\(reasoning)")
+            guard let restoredReasoning else { return nil }
+            self.init(role: .info, text: "Thinking…\n\(restoredReasoning.text)")
             return
         }
         let role: Role
@@ -45,7 +528,21 @@ struct TranscriptMessage: Identifiable, Equatable {
             // Stored system/tool rows are transcript context, not failures.
             role = .info
         }
-        self.init(role: role, text: message.text)
+        if role == .assistant, let restoredReasoning {
+            self.init(
+                role: role,
+                text: message.text,
+                assistantParts: [
+                    AssistantTurnPart(
+                        id: "reasoning:restored",
+                        content: .reasoning(restoredReasoning)
+                    ),
+                    AssistantTurnPart(id: "text:restored", content: .text(message.text)),
+                ]
+            )
+        } else {
+            self.init(role: role, text: message.text)
+        }
     }
 }
 
@@ -55,12 +552,157 @@ struct PendingApproval: Equatable {
     let command: String?
     let requestId: String
     let summary: String?
+    let cwd: String?
+    let allowPermanent: Bool
+
+    init(
+        command: String?,
+        requestId: String,
+        summary: String?,
+        cwd: String? = nil,
+        allowPermanent: Bool = true
+    ) {
+        self.command = command.flatMap {
+            ChatPresentationSafety.activityDetail($0)
+        }
+        self.requestId = requestId
+        self.summary = summary.flatMap {
+            ChatPresentationSafety.activityDetail($0)
+        }
+        self.cwd = cwd.flatMap {
+            ChatPresentationSafety.activityDetail($0)
+        }
+        self.allowPermanent = allowPermanent
+    }
+}
+
+enum ApprovalChoice: String, CaseIterable, Equatable {
+    case once
+    case session
+    case always
+    case deny
+
+    var label: String {
+        switch self {
+        case .once: return "Once"
+        case .session: return "For this session"
+        case .always: return "Always"
+        case .deny: return "Deny"
+        }
+    }
+
+    var accessibilityHint: String {
+        switch self {
+        case .once: return "Allows only this request"
+        case .session: return "Allows matching requests until this session ends"
+        case .always: return "Saves a permanent matching approval rule"
+        case .deny: return "Rejects this request"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .once: return "Allow once"
+        case .session: return "Allow for this session"
+        case .always: return "Always allow"
+        case .deny: return "Deny"
+        }
+    }
+}
+
+enum ApprovalResponseState: Equatable {
+    case idle
+    case submitting(ApprovalChoice)
+    case failed(String)
+
+    var isSubmitting: Bool {
+        if case .submitting = self { return true }
+        return false
+    }
+}
+
+enum ChatMutationAction: String, Equatable {
+    case prompt
+    case steering
+    case slashCommand
+    case legacyBackground
+}
+
+enum ChatMutationFailureDisposition: Equatable {
+    case rejected
+    case outcomeUnknown
+}
+
+struct ChatMutationFailurePresentation: Equatable {
+    let disposition: ChatMutationFailureDisposition
+    let message: String
+    let outcomeDescription: String?
+
+    static func classify(
+        _ error: Error,
+        action: ChatMutationAction
+    ) -> ChatMutationFailurePresentation {
+        let rejected: Bool
+        if let gatewayError = error as? GatewayClientError,
+           case .rpc = gatewayError {
+            rejected = true
+        } else {
+            // Socket closure, timeout, connection loss, and unknown adapters
+            // can all happen after the server accepted the mutation.
+            rejected = false
+        }
+
+        if rejected {
+            let copy: String
+            switch action {
+            case .prompt:
+                copy = "Fabric rejected this message. Review it and try again."
+            case .steering:
+                copy = "Fabric rejected the steering note. The active turn was not changed."
+            case .slashCommand:
+                copy = "Fabric rejected this command. Review it and try again."
+            case .legacyBackground:
+                copy = "Fabric rejected this background request. Review it and try again."
+            }
+            return ChatMutationFailurePresentation(
+                disposition: .rejected,
+                message: copy,
+                outcomeDescription: nil
+            )
+        }
+
+        let noun: String
+        switch action {
+        case .prompt: noun = "message delivery"
+        case .steering: noun = "steering"
+        case .slashCommand: noun = "command"
+        case .legacyBackground: noun = "background start"
+        }
+        return ChatMutationFailurePresentation(
+            disposition: .outcomeUnknown,
+            message: "The \(noun) outcome is unknown. Fabric may have received it. No automatic retry will occur. Check this conversation before sending again.",
+            outcomeDescription: "Fabric may have received this request. It will not be retried automatically."
+        )
+    }
+}
+
+struct UnknownSendOutcome: Equatable {
+    let action: ChatMutationAction
+    let description: String
 }
 
 /// A blocking prompt from the agent: `clarify.request` (question + optional
 /// choices), `sudo.request` (password), or `secret.request` (secret value).
 /// Answered via the matching `*.respond` RPC keyed by `requestId`.
 struct PendingPrompt: Equatable {
+    struct PresentationChoice: Identifiable, Equatable {
+        let id: Int
+        let label: String
+        /// Exact server value. The sanitized label is presentation-only and
+        /// must never be echoed back as the clarify response.
+        let response: String
+    }
+
     enum Kind: Equatable {
         case clarify
         case sudo
@@ -73,6 +715,21 @@ struct PendingPrompt: Equatable {
     let choices: [String]
 
     var isSecureEntry: Bool { kind != .clarify }
+
+    var presentationQuestion: String {
+        ChatPresentationSafety.activityDetail(question)
+            ?? (kind == .clarify ? "The agent has a question." : "A credential was requested.")
+    }
+
+    var presentationChoices: [PresentationChoice] {
+        choices.enumerated().map { index, raw in
+            PresentationChoice(
+                id: index,
+                label: ChatPresentationSafety.activityDetail(raw) ?? "Option \(index + 1)",
+                response: raw
+            )
+        }
+    }
 
     var responseMethod: String {
         switch kind {
@@ -94,6 +751,69 @@ enum PendingInteraction: Equatable {
         case .prompt(let prompt):
             return "\(prompt.kind):\(prompt.requestId)"
         }
+    }
+}
+
+/// One coalesced accessibility signal for a blocking interaction. The copy is
+/// deliberately generic: approval commands and credential prompts can contain
+/// sensitive values, so VoiceOver announces the required action without
+/// reading server-authored detail across the room.
+struct PendingInteractionAccessibilityCue: Equatable {
+    let identity: String
+    let announcement: String
+
+    init(interaction: PendingInteraction) {
+        identity = interaction.identity
+        switch interaction {
+        case .approval:
+            announcement = "Approval needed. Review the request and choose a response."
+        case .prompt(let prompt):
+            announcement = prompt.kind == .clarify
+                ? "The agent has a question. Review it and choose or enter a response."
+                : "A private credential is requested. Review the prompt and enter a response."
+        }
+    }
+}
+
+/// Prevents duplicate gateway events and view refreshes from repeatedly
+/// interrupting VoiceOver. Clearing the queue resets the identity so a later,
+/// genuinely new appearance of the same server request can be announced.
+struct PendingInteractionAccessibilityCoordinator {
+    private(set) var lastIdentity: String?
+
+    mutating func cue(for interaction: PendingInteraction?) -> PendingInteractionAccessibilityCue? {
+        guard let interaction else {
+            lastIdentity = nil
+            return nil
+        }
+        guard interaction.identity != lastIdentity else { return nil }
+        lastIdentity = interaction.identity
+        return PendingInteractionAccessibilityCue(interaction: interaction)
+    }
+}
+
+/// Capability-derived composition contract for the compact action strip.
+/// Unsupported actions are absent rather than permanently disabled; temporary
+/// state (offline, empty draft, missing Work identity) is handled separately.
+struct ChatAdvertisedActions: Equatable {
+    let commands: Bool
+    let background: Bool
+    let processes: Bool
+    let liveView: Bool
+
+    init(
+        supportsMethod: (String) -> Bool,
+        supportsDurableWork: Bool,
+        liveViewSupported: Bool
+    ) {
+        commands = supportsMethod("commands.catalog") && supportsMethod("slash.exec")
+        background = supportsDurableWork || supportsMethod("prompt.background")
+        processes = supportsMethod("process.list")
+        liveView = liveViewSupported
+    }
+
+    var isEmpty: Bool {
+        !commands && !background && !processes && !liveView
     }
 }
 
@@ -124,6 +844,440 @@ struct PendingInteractionQueue {
     }
 }
 
+/// A file-protected, bounded snapshot used only to paint a conversation while
+/// `session.resume` fetches authoritative history. It is never passed to a
+/// gateway method and is replaced (or removed) as soon as resume succeeds.
+struct ChatPresentationCache {
+    static let maximumMessages = 120
+    static let maximumTotalCharacters = 160_000
+    static let maximumEncodedBytes = 1_048_576
+    static let maximumDirectoryBytes = 8 * 1_048_576
+    static let maximumSessions = 24
+    static let maximumAge: TimeInterval = 14 * 24 * 60 * 60
+    static let requiredFileProtection = FileProtectionType.complete
+
+    struct Policy {
+        let maximumEncodedBytes: Int
+        let maximumDirectoryBytes: Int
+        let maximumSessions: Int
+        let maximumAge: TimeInterval
+
+        static let production = Policy(
+            maximumEncodedBytes: ChatPresentationCache.maximumEncodedBytes,
+            maximumDirectoryBytes: ChatPresentationCache.maximumDirectoryBytes,
+            maximumSessions: ChatPresentationCache.maximumSessions,
+            maximumAge: ChatPresentationCache.maximumAge
+        )
+    }
+
+    private struct Record: Codable, Equatable {
+        struct Part: Codable, Equatable {
+            let id: String
+            let kind: String
+            let text: String?
+            let toolName: String?
+            let toolDetail: String?
+            let toolState: String?
+            let durationSeconds: Double?
+        }
+
+        let id: String
+        let role: String
+        let text: String
+        let parts: [Part]
+    }
+
+    private let directoryURL: URL
+    private let policy: Policy
+
+    init(directoryURL: URL? = nil, policy: Policy = .production) {
+        self.policy = policy
+        if let directoryURL {
+            self.directoryURL = directoryURL
+        } else {
+            let applicationSupport = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first ?? FileManager.default.temporaryDirectory
+            self.directoryURL = applicationSupport
+                .appendingPathComponent("Fabric", isDirectory: true)
+                .appendingPathComponent("ChatPresentationCache", isDirectory: true)
+        }
+    }
+
+    func load(key: String) -> [TranscriptMessage] {
+        let url = fileURL(for: key)
+        do {
+            try secureDirectory()
+            prune()
+            guard try isSecureItem(url),
+                  try fileSize(at: url) <= policy.maximumEncodedBytes else {
+                try? FileManager.default.removeItem(at: url)
+                return []
+            }
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
+            guard data.count <= policy.maximumEncodedBytes else {
+                try? FileManager.default.removeItem(at: url)
+                return []
+            }
+            let records = try JSONDecoder().decode([Record].self, from: data)
+            // A successful read makes this snapshot most-recently used for
+            // the global session-count/byte eviction pass.
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date()],
+                ofItemAtPath: url.path
+            )
+            prune()
+            return records.compactMap(Self.message(from:))
+        } catch {
+            // A missing, corrupt, oversized, or incorrectly protected cache
+            // is never rendered. Authoritative resume remains the only source
+            // of live conversation state.
+            try? FileManager.default.removeItem(at: url)
+            return []
+        }
+    }
+
+    func replace(key: String, messages: [TranscriptMessage]) {
+        let url = fileURL(for: key)
+        var records = Self.records(from: messages)
+        guard !records.isEmpty else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        do {
+            try secureDirectory()
+            var data = try JSONEncoder().encode(records)
+            while data.count > policy.maximumEncodedBytes, records.count > 1 {
+                records.removeFirst()
+                data = try JSONEncoder().encode(records)
+            }
+            guard data.count <= policy.maximumEncodedBytes else {
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
+            try data.write(to: url, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.protectionKey: Self.requiredFileProtection],
+                ofItemAtPath: url.path
+            )
+            try excludeFromBackup(url)
+            guard try isSecureItem(url) else {
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
+            prune()
+        } catch {
+            // Cache failure never affects the authoritative live transcript.
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    func clear(key: String) {
+        try? FileManager.default.removeItem(at: fileURL(for: key))
+    }
+
+    /// Internal inspection seam for behavioural file-protection and eviction
+    /// tests. The path contains only the existing opaque key hash.
+    func snapshotURL(for key: String) -> URL {
+        fileURL(for: key)
+    }
+
+    /// Internal for behavioural tests: proves both bounds and redaction before
+    /// any bytes can reach disk.
+    static func presentationStrings(from messages: [TranscriptMessage]) -> [String] {
+        records(from: messages).flatMap { record in
+            [record.text] + record.parts.flatMap { part in
+                [part.text, part.toolName, part.toolDetail].compactMap { $0 }
+            }
+        }
+    }
+
+    private static func records(from messages: [TranscriptMessage]) -> [Record] {
+        var remaining = maximumTotalCharacters
+        var reversed: [Record] = []
+        for message in messages.suffix(maximumMessages).reversed() {
+            guard remaining > 0 else { break }
+            let maximum = min(
+                remaining,
+                ChatPresentationSafety.maximumCachedMessageCharacters
+            )
+            let text = ChatPresentationSafety.sanitized(
+                message.text,
+                maximumCharacters: maximum
+            )
+            remaining -= min(text.count, remaining)
+            let parts = message.assistantParts.compactMap { part -> Record.Part? in
+                guard remaining > 0 else { return nil }
+                switch part.content {
+                case .text(let value):
+                    let text = ChatPresentationSafety.sanitized(
+                        value,
+                        maximumCharacters: min(
+                            remaining,
+                            ChatPresentationSafety.maximumCachedMessageCharacters
+                        )
+                    )
+                    remaining -= min(text.count, remaining)
+                    return Record.Part(
+                        id: part.id,
+                        kind: "text",
+                        text: text,
+                        toolName: nil,
+                        toolDetail: nil,
+                        toolState: nil,
+                        durationSeconds: nil
+                    )
+                case .reasoning(let reasoning):
+                    let text = ChatPresentationSafety.sanitized(
+                        reasoning.text,
+                        maximumCharacters: min(
+                            remaining,
+                            ChatPresentationSafety.maximumReasoningCharacters
+                        )
+                    )
+                    remaining -= min(text.count, remaining)
+                    return Record.Part(
+                        id: part.id,
+                        kind: "reasoning",
+                        text: text,
+                        toolName: nil,
+                        toolDetail: nil,
+                        toolState: nil,
+                        durationSeconds: nil
+                    )
+                case .tool(let tool):
+                    let name = ChatPresentationSafety.sanitized(
+                        tool.name,
+                        maximumCharacters: min(
+                            remaining,
+                            ChatPresentationSafety.maximumToolNameCharacters
+                        )
+                    )
+                    remaining -= min(name.count, remaining)
+                    let detail = remaining > 0 ? tool.detail.flatMap {
+                        ChatPresentationSafety.activityDetail($0).map { value in
+                            let bounded = String(value.prefix(remaining))
+                            remaining -= min(bounded.count, remaining)
+                            return bounded
+                        }
+                    } : nil
+                    return Record.Part(
+                        id: part.id,
+                        kind: "tool",
+                        text: nil,
+                        toolName: name,
+                        toolDetail: detail,
+                        toolState: tool.state.rawValue,
+                        durationSeconds: tool.durationSeconds
+                    )
+                }
+            }
+            reversed.append(Record(
+                id: message.id.uuidString,
+                role: roleName(message.role),
+                text: text,
+                parts: parts
+            ))
+        }
+        return reversed.reversed()
+    }
+
+    private static func message(from record: Record) -> TranscriptMessage? {
+        guard let role = role(named: record.role) else { return nil }
+        let parts = record.parts.compactMap { part -> AssistantTurnPart? in
+            switch part.kind {
+            case "text":
+                guard let text = part.text else { return nil }
+                return AssistantTurnPart(id: part.id, content: .text(text))
+            case "reasoning":
+                guard let text = part.text else { return nil }
+                return AssistantTurnPart(
+                    id: part.id,
+                    content: .reasoning(.init(text: text, wasTruncated: text.hasSuffix("… [truncated]")))
+                )
+            case "tool":
+                guard let name = part.toolName,
+                      let rawState = part.toolState,
+                      let state = AssistantTurnPart.Tool.State(rawValue: rawState) else { return nil }
+                return AssistantTurnPart(
+                    id: part.id,
+                    content: .tool(.init(
+                        callID: nil,
+                        name: name,
+                        detail: part.toolDetail,
+                        state: state,
+                        durationSeconds: part.durationSeconds
+                    ))
+                )
+            default:
+                return nil
+            }
+        }
+        return TranscriptMessage(
+            id: UUID(uuidString: record.id) ?? UUID(),
+            role: role,
+            text: record.text,
+            streaming: false,
+            assistantParts: role == .assistant ? parts : []
+        )
+    }
+
+    private static func roleName(_ role: TranscriptMessage.Role) -> String {
+        switch role {
+        case .user: return "user"
+        case .assistant: return "assistant"
+        case .system: return "system"
+        case .info: return "info"
+        }
+    }
+
+    private static func role(named name: String) -> TranscriptMessage.Role? {
+        switch name {
+        case "user": return .user
+        case "assistant": return .assistant
+        case "system": return .system
+        case "info": return .info
+        default: return nil
+        }
+    }
+
+    private func fileURL(for key: String) -> URL {
+        // A cryptographic digest keeps unrelated gateway/session keys from
+        // ever sharing one local snapshot path while still avoiding disclosure
+        // of the authoritative key in the file name.
+        let digest = SHA256.hash(data: Data(key.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return directoryURL.appendingPathComponent("\(digest).json")
+    }
+
+    private func secureDirectory() throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: Self.requiredFileProtection]
+        )
+        try fileManager.setAttributes(
+            [.protectionKey: Self.requiredFileProtection],
+            ofItemAtPath: directoryURL.path
+        )
+        try excludeFromBackup(directoryURL)
+        guard try isSecureItem(directoryURL) else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+    }
+
+    private func excludeFromBackup(_ url: URL) throws {
+        var mutableURL = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try mutableURL.setResourceValues(values)
+    }
+
+    private func isSecureItem(_ url: URL) throws -> Bool {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        let rawProtection = attributes[.protectionKey]
+        #if targetEnvironment(simulator)
+        // CoreSimulator does not consistently persist NSFileProtectionKey on
+        // its host-backed APFS files. Accept only that platform-specific
+        // absence; any explicit non-complete value still fails closed. Device
+        // builds require and verify `.complete` below.
+        let hasCompleteProtection = rawProtection == nil
+            || Self.hasRequiredFileProtection(rawProtection)
+        #else
+        let hasCompleteProtection = Self.hasRequiredFileProtection(rawProtection)
+        #endif
+        let values = try url.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        return hasCompleteProtection && values.isExcludedFromBackup == true
+    }
+
+    static func hasRequiredFileProtection(_ raw: Any?) -> Bool {
+        (raw as? FileProtectionType) == requiredFileProtection
+            || (raw as? String) == requiredFileProtection.rawValue
+    }
+
+    private func fileSize(at url: URL) throws -> Int {
+        let values = try url.resourceValues(forKeys: [.fileSizeKey])
+        return values.fileSize ?? 0
+    }
+
+    /// Directory-wide LRU pruning. Modification time is the access clock:
+    /// successful loads touch it, writes naturally refresh it, and every pass
+    /// removes stale/oversized/insecure snapshots before enforcing the global
+    /// session-count and byte ceilings.
+    private func prune(now: Date = Date()) {
+        let keys: Set<URLResourceKey> = [
+            .contentModificationDateKey,
+            .fileSizeKey,
+            .isRegularFileKey,
+        ]
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let cutoff = now.addingTimeInterval(-policy.maximumAge)
+        var candidates: [(url: URL, modified: Date, size: Int)] = []
+        for url in urls where url.pathExtension == "json" {
+            guard let values = try? url.resourceValues(forKeys: keys),
+                  values.isRegularFile == true,
+                  let modified = values.contentModificationDate,
+                  let size = values.fileSize,
+                  size <= policy.maximumEncodedBytes,
+                  modified >= cutoff,
+                  (try? isSecureItem(url)) == true else {
+                try? FileManager.default.removeItem(at: url)
+                continue
+            }
+            candidates.append((url, modified, size))
+        }
+
+        candidates.sort {
+            if $0.modified != $1.modified { return $0.modified > $1.modified }
+            return $0.url.lastPathComponent < $1.url.lastPathComponent
+        }
+        var retainedBytes = 0
+        for (index, candidate) in candidates.enumerated() {
+            let exceedsCount = index >= policy.maximumSessions
+            let exceedsBytes = retainedBytes + candidate.size > policy.maximumDirectoryBytes
+            if exceedsCount || exceedsBytes {
+                try? FileManager.default.removeItem(at: candidate.url)
+            } else {
+                retainedBytes += candidate.size
+            }
+        }
+    }
+}
+
+/// Small injectable seam around the non-idempotent chat RPCs. Production uses
+/// the typed `GatewayAPI`; tests can deterministically prove rejection versus
+/// ambiguous transport outcomes without opening a WebSocket or adding a new
+/// tool/protocol to the app's core surface.
+struct ChatGatewayOperations {
+    let createSession: () async throws -> LiveSession
+    let resumeSession: (String) async throws -> LiveSession
+    let submitPrompt: (String, String) async throws -> Void
+    let steer: (String, String) async throws -> Bool
+    let execSlash: (String, String) async throws -> String?
+    let submitLegacyBackground: (String, String) async throws -> String?
+
+    static func live(api: GatewayAPI) -> ChatGatewayOperations {
+        ChatGatewayOperations(
+            createSession: { try await api.createSession() },
+            resumeSession: { try await api.resumeSession(storedSessionId: $0) },
+            submitPrompt: { try await api.submitPrompt(sessionId: $0, text: $1) },
+            steer: { try await api.steer(sessionId: $0, text: $1) },
+            execSlash: { try await api.execSlashCommand(sessionId: $0, command: $1) },
+            submitLegacyBackground: {
+                try await api.submitBackgroundPrompt(sessionId: $0, text: $1)
+            }
+        )
+    }
+}
+
 /// Wires one chat session to the gateway event stream: creates or resumes
 /// the runtime session, submits prompts, and folds streaming events into a
 /// renderable transcript. Event names/payloads match the shared contract in
@@ -134,9 +1288,13 @@ final class ChatViewModel {
     private(set) var messages: [TranscriptMessage] = []
     private(set) var statusLine: String?
     private(set) var persistenceWarning: String?
+    private(set) var showingCachedTranscript = false
+    private(set) var unknownSendOutcome: UnknownSendOutcome?
     private(set) var busy = false
     private(set) var pendingApproval: PendingApproval?
+    private(set) var approvalResponseState: ApprovalResponseState = .idle
     private(set) var pendingPrompt: PendingPrompt?
+    private(set) var interactionAccessibilityCue: PendingInteractionAccessibilityCue?
     private(set) var sessionReady = false
     private(set) var sessionError: String?
     /// Server-issued Work namespace that fences durable background mutations
@@ -162,11 +1320,14 @@ final class ChatViewModel {
     private var unsubscribe: (() -> Void)?
     private var pendingEvents: [GatewayEvent] = []
     private var interactionQueue = PendingInteractionQueue()
+    private var interactionAccessibilityCoordinator = PendingInteractionAccessibilityCoordinator()
     private var bootstrapGeneration = 0
     private var starting = false
     private let supportsMethod: (String) -> Bool
+    private let operations: ChatGatewayOperations
     private let durableWorkNegotiation: () -> GatewayCapabilityNegotiation?
     private let workGatewayID: () -> String?
+    private let presentationCache: ChatPresentationCache
     private var pendingDurableBackgroundMutations: [PendingDurableBackgroundMutation] = []
     private var workSyncInFlight = false
     private var workSyncNeedsAnotherPass = false
@@ -180,7 +1341,19 @@ final class ChatViewModel {
             command: event.payload["command"] as? String,
             requestId: requestId,
             summary: (event.payload["summary"] as? String)
-                ?? (event.payload["description"] as? String)
+                ?? (event.payload["description"] as? String),
+            cwd: event.payload["cwd"] as? String,
+            allowPermanent: event.payload["allow_permanent"] as? Bool ?? true
+        )
+    }
+
+    /// Gateway `error` payloads may contain raw exception messages, paths,
+    /// request headers, or credentials. They never become presentation text;
+    /// this caller-owned bounded copy is the entire UI/cache contract.
+    static func safeGatewayErrorMessage(from _: GatewayEvent) -> String {
+        ChatPresentationSafety.sanitized(
+            "Fabric reported an error for this conversation. Check the gateway connection, then try again.",
+            maximumCharacters: ChatPresentationSafety.maximumActivityDetailCharacters
         )
     }
 
@@ -189,13 +1362,17 @@ final class ChatViewModel {
         resumeStoredSessionId: String?,
         supportsMethod: @escaping (String) -> Bool,
         durableWorkNegotiation: @escaping () -> GatewayCapabilityNegotiation? = { nil },
-        workGatewayID: @escaping () -> String? = { nil }
+        workGatewayID: @escaping () -> String? = { nil },
+        presentationCache: ChatPresentationCache = ChatPresentationCache(),
+        operations: ChatGatewayOperations? = nil
     ) {
         self.api = api
         self.storedSessionId = resumeStoredSessionId
         self.supportsMethod = supportsMethod
         self.durableWorkNegotiation = durableWorkNegotiation
         self.workGatewayID = workGatewayID
+        self.presentationCache = presentationCache
+        self.operations = operations ?? .live(api: api)
     }
 
     func supportsGatewayMethod(_ method: String) -> Bool {
@@ -212,8 +1389,19 @@ final class ChatViewModel {
         return supportsMethod("prompt.background")
     }
 
+    var advertisesDurableWork: Bool {
+        durableWorkNegotiation()?.supportsDurableWork == true
+    }
+
     var canSubmitInitialPrompt: Bool {
         sessionReady && sessionId != nil && supportsMethod("prompt.submit")
+    }
+
+    var hasReadOnlyCachedTranscriptAfterResumeFailure: Bool {
+        showingCachedTranscript
+            && !messages.isEmpty
+            && sessionError != nil
+            && !sessionReady
     }
 
     private func canCall(_ method: String, action: String) -> Bool {
@@ -257,14 +1445,27 @@ final class ChatViewModel {
     }
 
     private func publishActiveInteraction() {
+        let previousApprovalID = pendingApproval?.requestId
         pendingApproval = nil
         pendingPrompt = nil
-        guard let interaction = interactionQueue.first else { return }
+        guard let interaction = interactionQueue.first else {
+            approvalResponseState = .idle
+            _ = interactionAccessibilityCoordinator.cue(for: nil)
+            interactionAccessibilityCue = nil
+            return
+        }
+        if let cue = interactionAccessibilityCoordinator.cue(for: interaction) {
+            interactionAccessibilityCue = cue
+        }
         switch interaction {
         case .approval(let approval):
             pendingApproval = approval
+            if previousApprovalID != approval.requestId {
+                approvalResponseState = .idle
+            }
         case .prompt(let prompt):
             pendingPrompt = prompt
+            approvalResponseState = .idle
         }
     }
 
@@ -277,6 +1478,7 @@ final class ChatViewModel {
         }
         starting = true
         sessionError = nil
+        restoreCachedPresentationIfAvailable()
         bootstrapGeneration += 1
         let generation = bootstrapGeneration
         defer {
@@ -287,9 +1489,9 @@ final class ChatViewModel {
             let restoring = storedSessionId != nil
             let live: LiveSession
             if let storedSessionId {
-                live = try await api.resumeSession(storedSessionId: storedSessionId)
+                live = try await operations.resumeSession(storedSessionId)
             } else {
-                live = try await api.createSession()
+                live = try await operations.createSession()
             }
             guard generation == bootstrapGeneration, !Task.isCancelled else { return }
             guard !live.sessionId.isEmpty else {
@@ -307,6 +1509,7 @@ final class ChatViewModel {
             if restoring {
                 messages = Self.restoredMessages(from: live)
                 busy = live.running
+                showingCachedTranscript = false
             }
             sessionId = live.sessionId
             let events = Self.eventsForReplay(
@@ -320,6 +1523,8 @@ final class ChatViewModel {
             }
             sessionReady = true
             sessionError = nil
+            unknownSendOutcome = nil
+            replacePresentationCache()
             Task { [weak self] in
                 await self?.retryPendingDurableBackgroundMutations()
                 await self?.syncDurableWork()
@@ -330,11 +1535,19 @@ final class ChatViewModel {
             pendingEvents.removeAll()
             sessionError = storedSessionId == nil
                 ? "Session creation outcome is unknown. Check Active sessions before starting another chat."
-                : error.localizedDescription
+                : ChatPresentationSafety.userVisibleFailure(
+                    for: error,
+                    fallback: "Couldn't resume this conversation. Check the gateway connection, then try again."
+                )
         }
     }
 
     func connectionDidClose() {
+        replacePresentationCache()
+        // Keep the already-rendered conversation visible while reconnecting.
+        // If the authoritative resume then fails, Chat presents this retained
+        // snapshot as read-only instead of replacing it with an empty error.
+        showingCachedTranscript = !messages.isEmpty
         bootstrapGeneration += 1
         starting = false
         sessionId = nil
@@ -369,7 +1582,7 @@ final class ChatViewModel {
         subscribeToEvents()
 
         do {
-            let live = try await api.resumeSession(storedSessionId: storedSessionId)
+            let live = try await operations.resumeSession(storedSessionId)
             guard generation == bootstrapGeneration, !Task.isCancelled else { return }
             guard !live.sessionId.isEmpty,
                   let durableId = live.storedSessionId,
@@ -381,6 +1594,7 @@ final class ChatViewModel {
 
             let restored = Self.restoredMessages(from: live)
             messages = restored
+            showingCachedTranscript = false
             busy = live.running
             clearInteractions()
             statusLine = nil
@@ -396,6 +1610,8 @@ final class ChatViewModel {
             for event in events { handle(event) }
             sessionReady = true
             sessionError = nil
+            unknownSendOutcome = nil
+            replacePresentationCache()
             Task { [weak self] in
                 await self?.retryPendingDurableBackgroundMutations()
                 await self?.syncDurableWork()
@@ -404,11 +1620,15 @@ final class ChatViewModel {
         } catch {
             guard generation == bootstrapGeneration, !Task.isCancelled else { return }
             pendingEvents.removeAll()
-            sessionError = error.localizedDescription
+            sessionError = ChatPresentationSafety.userVisibleFailure(
+                for: error,
+                fallback: "Couldn't resume this conversation. Check the gateway connection, then try again."
+            )
         }
     }
 
     func stop() {
+        replacePresentationCache()
         bootstrapGeneration += 1
         starting = false
         unsubscribe?()
@@ -424,7 +1644,9 @@ final class ChatViewModel {
     /// a normal prompt.
     func send(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let sessionId, !trimmed.isEmpty else { return }
+        guard unknownSendOutcome == nil,
+              let sessionId,
+              !trimmed.isEmpty else { return }
 
         if busy {
             await steer(trimmed)
@@ -448,7 +1670,10 @@ final class ChatViewModel {
     @discardableResult
     func sendInitialPrompt(_ text: String) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard sessionReady, let sessionId, !trimmed.isEmpty else { return false }
+        guard unknownSendOutcome == nil,
+              sessionReady,
+              let sessionId,
+              !trimmed.isEmpty else { return false }
         return await submitPrompt(trimmed, sessionId: sessionId)
     }
 
@@ -456,25 +1681,31 @@ final class ChatViewModel {
     private func submitPrompt(_ trimmed: String, sessionId: String) async -> Bool {
         guard canCall("prompt.submit", action: "Sending messages") else { return false }
         messages.append(TranscriptMessage(role: .user, text: trimmed))
+        unknownSendOutcome = nil
         busy = true
         do {
-            try await api.submitPrompt(sessionId: sessionId, text: trimmed)
+            try await operations.submitPrompt(sessionId, trimmed)
         } catch {
             busy = false
-            messages.append(TranscriptMessage(
-                role: .system,
-                text: "Send outcome is unknown: \(error.localizedDescription) Check this conversation before trying again."
-            ))
+            recordMutationFailure(error, action: .prompt)
         }
         return true
     }
 
+    /// Explicitly re-hydrate authoritative history after an ambiguous
+    /// `prompt.submit` receipt. This never resends the original prompt.
+    func checkConversationAfterUnknownSend() async {
+        guard unknownSendOutcome != nil, storedSessionId?.isEmpty == false else { return }
+        await resumeAfterReconnect()
+    }
+
     /// Inject a note into the running turn without interrupting it.
     func steer(_ text: String) async {
+        guard unknownSendOutcome == nil else { return }
         guard canCall("session.steer", action: "Steering") else { return }
         guard let sessionId else { return }
         do {
-            let queued = try await api.steer(sessionId: sessionId, text: text)
+            let queued = try await operations.steer(sessionId, text)
             messages.append(TranscriptMessage(
                 role: .info,
                 text: queued
@@ -482,22 +1713,23 @@ final class ChatViewModel {
                     : "Steering rejected: no turn is accepting notes right now."
             ))
         } catch {
-            messages.append(TranscriptMessage(role: .system, text: "Steer failed: \(error.localizedDescription)"))
+            recordMutationFailure(error, action: .steering)
         }
     }
 
     /// Dispatch a slash command (`/status`, `/model`, skills, quick commands…).
     func execSlash(_ command: String) async {
+        guard unknownSendOutcome == nil else { return }
         guard canCall("slash.exec", action: "Slash commands") else { return }
         guard let sessionId else { return }
         messages.append(TranscriptMessage(role: .user, text: command))
         do {
-            let output = try await api.execSlashCommand(sessionId: sessionId, command: command)
+            let output = try await operations.execSlash(sessionId, command)
             if let output, !output.isEmpty {
                 messages.append(TranscriptMessage(role: .info, text: output))
             }
         } catch {
-            messages.append(TranscriptMessage(role: .system, text: "Command failed: \(error.localizedDescription)"))
+            recordMutationFailure(error, action: .slashCommand)
         }
     }
 
@@ -507,7 +1739,9 @@ final class ChatViewModel {
     /// Durable Work at all.
     func sendInBackground(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let sessionId, !trimmed.isEmpty else { return }
+        guard unknownSendOutcome == nil,
+              let sessionId,
+              !trimmed.isEmpty else { return }
         if let negotiation = durableWorkNegotiation(), negotiation.supportsDurableWork {
             guard workIdentity != nil else {
                 messages.append(TranscriptMessage(
@@ -527,14 +1761,26 @@ final class ChatViewModel {
         guard canCall("prompt.background", action: "Background work") else { return }
         messages.append(TranscriptMessage(role: .user, text: trimmed))
         do {
-            let taskId = try await api.submitBackgroundPrompt(sessionId: sessionId, text: trimmed)
+            let taskId = try await operations.submitLegacyBackground(sessionId, trimmed)
             messages.append(TranscriptMessage(
                 role: .info,
                 text: "Background task started\(taskId.map { " (\($0))" } ?? "")."
             ))
         } catch {
-            messages.append(TranscriptMessage(role: .system, text: "Background task failed: \(error.localizedDescription)"))
+            recordMutationFailure(error, action: .legacyBackground)
         }
+    }
+
+    private func recordMutationFailure(_ error: Error, action: ChatMutationAction) {
+        let presentation = ChatMutationFailurePresentation.classify(error, action: action)
+        if let description = presentation.outcomeDescription {
+            unknownSendOutcome = UnknownSendOutcome(
+                action: action,
+                description: description
+            )
+        }
+        messages.append(TranscriptMessage(role: .system, text: presentation.message))
+        replacePresentationCache()
     }
 
     private func submitDurableBackgroundWork(
@@ -588,7 +1834,10 @@ final class ChatViewModel {
             }
             messages.append(TranscriptMessage(
                 role: .system,
-                text: "Background Job failed: \(error.localizedDescription)"
+                text: ChatPresentationSafety.userVisibleFailure(
+                    for: error,
+                    fallback: "The background Job couldn't be started. Check the gateway connection, then try again."
+                )
             ))
         }
     }
@@ -755,23 +2004,42 @@ final class ChatViewModel {
         try? await api.interrupt(sessionId: sessionId)
     }
 
-    func respondToApproval(allow: Bool) async {
+    func respondToApproval(choice: ApprovalChoice) async {
         guard canCall("approval.respond", action: "Approval responses") else { return }
         guard let sessionId, let approval = pendingApproval else { return }
+        guard !approvalResponseState.isSubmitting else { return }
+        guard choice != .always || approval.allowPermanent else {
+            approvalResponseState = .failed(
+                "Permanent approval is unavailable for this request. Choose Once or For this session."
+            )
+            return
+        }
         let interaction = PendingInteraction.approval(approval)
         let generation = bootstrapGeneration
+        approvalResponseState = .submitting(choice)
         do {
             try await api.respondToApproval(
                 sessionId: sessionId,
                 requestId: approval.requestId,
-                choice: allow ? "once" : "deny"
+                choice: choice.rawValue
             )
             guard generation == bootstrapGeneration else { return }
             removeInteraction(interaction)
+            approvalResponseState = .idle
         } catch {
             guard generation == bootstrapGeneration else { return }
-            messages.append(TranscriptMessage(role: .system, text: "Approval reply failed: \(error.localizedDescription)"))
+            approvalResponseState = .failed(
+                ChatPresentationSafety.userVisibleFailure(
+                    for: error,
+                    fallback: "The approval response couldn't be sent. Check the gateway connection, then try again."
+                )
+            )
         }
+    }
+
+    /// Compatibility seam for callers that only distinguish allow/deny.
+    func respondToApproval(allow: Bool) async {
+        await respondToApproval(choice: allow ? .once : .deny)
     }
 
     /// Answer the pending clarify/sudo/secret prompt. An empty answer is a
@@ -806,7 +2074,13 @@ final class ChatViewModel {
             removeInteraction(interaction)
         } catch {
             guard generation == bootstrapGeneration else { return }
-            messages.append(TranscriptMessage(role: .system, text: "Prompt reply failed: \(error.localizedDescription)"))
+            messages.append(TranscriptMessage(
+                role: .system,
+                text: ChatPresentationSafety.userVisibleFailure(
+                    for: error,
+                    fallback: "The prompt reply couldn't be sent. Check the gateway connection, then try again."
+                )
+            ))
         }
     }
 
@@ -864,28 +2138,21 @@ final class ChatViewModel {
             clearInteractions()
             messages.append(TranscriptMessage(role: .assistant, text: "", streaming: true))
 
-        case "message.delta":
-            guard let text = event.payloadText else { return }
-            appendToStreamingAssistant(text)
+        case "message.delta", "reasoning.delta", "reasoning.available",
+             "tool.start", "tool.progress", "tool.generating", "tool.complete":
+            guard let turnEvent = AssistantTurnReducer.event(from: event) else { return }
+            busy = true
+            foldIntoStreamingAssistant(turnEvent)
 
         case "message.complete":
             busy = false
             statusLine = nil
-            if var last = messages.last, last.role == .assistant, last.streaming {
-                // The complete frame is authoritative. This also repairs a
-                // resumed in-flight turn when deltas emitted before reconnect
-                // are absent from the local streaming buffer.
-                if let text = event.payloadText, !text.isEmpty {
-                    last.text = text
-                }
-                last.streaming = false
-                messages[messages.count - 1] = last
-            } else if let text = event.payloadText, !text.isEmpty {
-                messages.append(TranscriptMessage(role: .assistant, text: text))
-            }
+            guard let turnEvent = AssistantTurnReducer.event(from: event) else { return }
+            foldIntoStreamingAssistant(turnEvent, createWhenMissing: event.payloadText?.isEmpty == false)
             if event.payload["history_persisted"] is Bool {
                 persistenceWarning = Self.persistenceWarning(from: event)
             }
+            replacePresentationCache()
 
 
         case "thinking.delta":
@@ -894,16 +2161,7 @@ final class ChatViewModel {
         case "status.update":
             let kind = event.payload["kind"] as? String
             let text = event.payload["text"] as? String
-            statusLine = text ?? kind
-
-        case "tool.start":
-            let name = (event.payload["name"] as? String)
-                ?? (event.payload["tool"] as? String)
-                ?? "tool"
-            statusLine = "Running \(name)…"
-
-        case "tool.complete":
-            statusLine = nil
+            statusLine = ChatPresentationSafety.activityDetail(text ?? kind)
 
         case "approval.request":
             guard let approval = Self.approval(from: event) else { return }
@@ -948,10 +2206,16 @@ final class ChatViewModel {
         case "background.complete":
             let taskId = event.payload["task_id"] as? String
             let jobID = event.payload["job_id"] as? String
-            let text = event.payloadText ?? ""
+            let safeTaskID = ChatPresentationSafety.activityDetail(taskId)
+            let safeText = ChatPresentationSafety.activityDetail(event.payloadText)
+                ?? "Background work completed."
+            let notice = ChatPresentationSafety.sanitized(
+                "Background task\(safeTaskID.map { " \($0)" } ?? "") finished:\n\(safeText)",
+                maximumCharacters: ChatPresentationSafety.maximumActivityDetailCharacters
+            )
             messages.append(TranscriptMessage(
                 role: .info,
-                text: "Background task\(taskId.map { " \($0)" } ?? "") finished:\n\(text)"
+                text: notice
             ))
             if let jobID, durableBackgroundJobs[jobID] != nil {
                 Task { [weak self] in
@@ -962,21 +2226,52 @@ final class ChatViewModel {
 
         case "error":
             busy = false
-            let message = (event.payload["message"] as? String) ?? "Unknown gateway error"
-            messages.append(TranscriptMessage(role: .system, text: message))
+            messages.append(TranscriptMessage(
+                role: .system,
+                text: Self.safeGatewayErrorMessage(from: event)
+            ))
+            replacePresentationCache()
 
         default:
             break
         }
     }
 
-    private func appendToStreamingAssistant(_ text: String) {
-        if var last = messages.last, last.role == .assistant, last.streaming {
-            last.text += text
-            messages[messages.count - 1] = last
-        } else {
-            messages.append(TranscriptMessage(role: .assistant, text: text, streaming: true))
+    private func foldIntoStreamingAssistant(
+        _ event: AssistantTurnEvent,
+        createWhenMissing: Bool = true
+    ) {
+        if let index = messages.lastIndex(where: { message in
+            message.role == .assistant && message.streaming
+        }) {
+            messages[index] = AssistantTurnReducer.reducing(messages[index], event: event)
+            return
         }
+        guard createWhenMissing else { return }
+        var message = TranscriptMessage(role: .assistant, text: "", streaming: true)
+        message = AssistantTurnReducer.reducing(message, event: event)
+        messages.append(message)
+    }
+
+    private var presentationCacheKey: String? {
+        guard let gatewayID = workGatewayID()?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !gatewayID.isEmpty,
+              let storedSessionId = storedSessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !storedSessionId.isEmpty else { return nil }
+        return gatewayID + "\u{1F}" + storedSessionId
+    }
+
+    private func restoreCachedPresentationIfAvailable() {
+        guard messages.isEmpty, let key = presentationCacheKey else { return }
+        let cached = presentationCache.load(key: key)
+        guard !cached.isEmpty else { return }
+        messages = cached
+        showingCachedTranscript = true
+    }
+
+    private func replacePresentationCache() {
+        guard let key = presentationCacheKey else { return }
+        presentationCache.replace(key: key, messages: messages)
     }
 
     static func restoredMessages(from live: LiveSession) -> [TranscriptMessage] {
@@ -999,8 +2294,7 @@ final class ChatViewModel {
     static func persistenceWarning(from event: GatewayEvent) -> String? {
         guard event.payload["history_persisted"] as? Bool == false else { return nil }
         if let warning = event.payload["warning"] as? String {
-            let trimmed = warning.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
+            if let safe = ChatPresentationSafety.activityDetail(warning) { return safe }
         }
         return "This response completed but could not be saved to session history."
     }

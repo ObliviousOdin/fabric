@@ -15,7 +15,9 @@ vi.mock('@/fabric', () => ({
   getMessagingPlatforms: () => getMessagingPlatforms(),
   getMcpCatalog: () => getMcpCatalog(),
   listOAuthProviders: () => listOAuthProviders(),
-  updateMessagingPlatform: (id: string, body: unknown) => updateMessagingPlatform(id, body)
+  updateMessagingPlatform: (id: string, body: unknown) => updateMessagingPlatform(id, body),
+  // Pulled in transitively by the profile store (via useOnProfileSwitch).
+  setApiRequestProfile: vi.fn()
 }))
 
 vi.mock('@/store/notifications', () => ({

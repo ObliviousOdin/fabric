@@ -1228,6 +1228,7 @@ export interface Translations {
     statusNotSetUp: string
     statusError: string
     statusNeedsAttention: string
+    statusPendingRestart: string
     statusNotConnected: string
     statusOptional: string
     setUp: string

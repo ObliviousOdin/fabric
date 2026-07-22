@@ -1498,6 +1498,7 @@ export const en: Translations = {
     statusNotSetUp: 'Not set up',
     statusError: 'Error',
     statusNeedsAttention: 'Needs attention',
+    statusPendingRestart: 'Restart to apply',
     statusNotConnected: 'Not connected',
     statusOptional: 'Optional',
     setUp: 'Set up',

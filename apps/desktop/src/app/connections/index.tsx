@@ -11,7 +11,7 @@ import {
   SiVercel
 } from '@icons-pack/react-simple-icons'
 import type { ComponentType, ReactNode, SVGProps } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PageLoader } from '@/components/page-loader'
@@ -35,10 +35,12 @@ import { startManualProviderOAuth } from '@/store/onboarding'
 import { runGatewayRestart } from '@/store/system-actions'
 import type { OAuthProvider } from '@/types/fabric'
 
+import { useOnProfileSwitch } from '../hooks/use-on-profile-switch'
 import { useRefreshHotkey } from '../hooks/use-refresh-hotkey'
 import { PlatformAvatar } from '../messaging/platform-icon'
 import { PageSearchShell, type PageShellTab } from '../page-search-shell'
 import { MESSAGING_ROUTE, SETTINGS_ROUTE, SKILLS_ROUTE } from '../routes'
+import { EmptyState, Pill } from '../settings/primitives'
 import type { SetStatusbarItemGroup } from '../shell/statusbar-controls'
 
 // The hub groups every connection into one of four families. "All" is a
@@ -97,6 +99,12 @@ function messagingStatus(
 
   if (platform.state === 'fatal' || platform.state === 'startup_failed') {
     return { label: c.statusError, tone: 'bad' }
+  }
+
+  // Just-toggled-on optimistically reads 'pending_restart'; that isn't a fault,
+  // so say "Restart to apply" rather than the alarming "Needs attention".
+  if (platform.state === 'pending_restart') {
+    return { label: c.statusPendingRestart, tone: 'warn' }
   }
 
   return { label: c.statusNeedsAttention, tone: 'warn' }
@@ -235,12 +243,14 @@ function Section({
   error,
   items,
   onRetry,
+  showDescription,
   title
 }: {
   category: Category
   error?: boolean
   items: ConnectionItem[]
   onRetry: () => void
+  showDescription: boolean
   title: string
 }) {
   const { t } = useI18n()
@@ -257,18 +267,18 @@ function Section({
 
   return (
     <section className="mb-6">
-      <div className="mb-2 flex items-center gap-2">
+      <h2 className="mb-2 flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight">
         <Icon className="size-4 text-muted-foreground" />
-        <h3 className="text-[0.9375rem] font-semibold tracking-tight">{title}</h3>
-        {items.length > 0 && (
-          <span className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-            {items.length}
-          </span>
-        )}
-      </div>
-      <p className="mb-3 text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) text-(--ui-text-tertiary)">
-        {c[meta.descKey]}
-      </p>
+        {title}
+        {items.length > 0 && <Pill>{String(items.length)}</Pill>}
+      </h2>
+      {/* On the aggregate "All" tab, four stacked orientation paragraphs bury
+          the cards; keep the description only when the tab is a single family. */}
+      {showDescription && (
+        <p className="mb-3 text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) text-(--ui-text-tertiary)">
+          {c[meta.descKey]}
+        </p>
+      )}
       {error && items.length === 0 ? (
         <div className="flex items-center gap-3 rounded-xl border border-dashed border-(--ui-stroke-tertiary) px-3 py-4 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
           <span className="flex-1">{c.sectionFailed}</span>
@@ -308,6 +318,12 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
   const [tab, setTab] = useState<Tab>('all')
   const [savingToggle, setSavingToggle] = useState<string | null>(null)
 
+  // Bumped on every gateway-profile switch. A refresh captures the epoch at
+  // call time and drops its results if the profile changed mid-flight, so a
+  // slow profile-A response can never write into profile-B's rows. getMcpCatalog
+  // and listOAuthProviders are profile-scoped, so this is a correctness guard.
+  const profileEpoch = useRef(0)
+
   const restartGatewayAction = { label: t.commandCenter.restartGateway, onClick: () => void runGatewayRestart() }
 
   // Each source loads best-effort: one backend hiccup dims that family instead
@@ -318,11 +334,19 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
       setLoading(true)
     }
 
+    const epoch = profileEpoch.current
+
     const [messaging, catalog, oauth] = await Promise.allSettled([
       getMessagingPlatforms(),
       getMcpCatalog(),
       listOAuthProviders()
     ])
+
+    // The profile switched while this batch was in flight — its data belongs to
+    // the previous backend; discard it and let the switch's own reload win.
+    if (profileEpoch.current !== epoch) {
+      return
+    }
 
     if (messaging.status === 'fulfilled') {
       setPlatforms(messaging.value.platforms)
@@ -362,11 +386,32 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
 
   useRefreshHotkey(() => void refresh())
 
+  // The MCP catalog and OAuth accounts are profile-scoped, so a profile switch
+  // under a mounted hub would otherwise keep showing (and acting on) the old
+  // backend's rows. Bump the epoch, clear the stale data, and reload for the
+  // new backend — matching how the MCP and settings panels reset.
+  useOnProfileSwitch(() => {
+    profileEpoch.current += 1
+    setPlatforms(null)
+    setTools(null)
+    setProviders(null)
+    setErrors({ accounts: false, messaging: false, tools: false })
+    void refresh(true)
+  })
+
   async function toggleMessaging(platform: MessagingPlatformInfo, enabled: boolean) {
+    const epoch = profileEpoch.current
     setSavingToggle(platform.id)
 
     try {
       await updateMessagingPlatform(platform.id, { enabled })
+
+      // A profile switch mid-toggle means this write hit profile A's backend
+      // (correct), but our rows now belong to B — don't paint A's result here.
+      if (profileEpoch.current !== epoch) {
+        return
+      }
+
       setPlatforms(
         current =>
           current?.map(row =>
@@ -418,7 +463,7 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
               onCheckedChange={value => void toggleMessaging(platform, value)}
               size="xs"
             />
-            <LinkAction label={c.configure} onClick={() => navigate(`${MESSAGING_ROUTE}?platform=${platform.id}`)} />
+            <LinkAction label={c.manage} onClick={() => navigate(`${MESSAGING_ROUTE}?platform=${platform.id}`)} />
           </>
         ) : (
           <Button className="shrink-0" onClick={() => navigate(`${MESSAGING_ROUTE}?platform=${platform.id}`)} size="sm">
@@ -450,11 +495,19 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
         description: entry.description,
         id: `tool:${entry.name}`,
         name: prettyToolName(entry.name),
-        render: (
-          <LinkAction
-            label={entry.installed ? c.manage : c.setUp}
+        // First-run is a filled button (matches messaging/accounts); an
+        // installed tool is a quiet "Manage" link. Same affordance per state
+        // across every family so the CTA weight reads consistently.
+        render: entry.installed ? (
+          <LinkAction label={c.manage} onClick={() => navigate(`${SKILLS_ROUTE}?tab=mcp&server=${encodeURIComponent(entry.name)}`)} />
+        ) : (
+          <Button
+            className="shrink-0"
             onClick={() => navigate(`${SKILLS_ROUTE}?tab=mcp&server=${encodeURIComponent(entry.name)}`)}
-          />
+            size="sm"
+          >
+            {c.setUp}
+          </Button>
         ),
         search: `${entry.name} ${entry.description}`.toLowerCase(),
         statusLabel: status.label,
@@ -504,7 +557,10 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
       description: c[entry.descKey],
       id: `network:${entry.id}`,
       name: c[entry.nameKey],
-      render: <LinkAction label={c.configure} onClick={() => navigate(entry.target)} />,
+      // Both cards currently land on gateway settings (the dedicated Tailscale
+      // enrollment flow ships separately), so use a neutral "Manage" rather than
+      // "Configure Tailscale", which would promise a flow this link doesn't open.
+      render: <LinkAction label={c.manage} onClick={() => navigate(entry.target)} />,
       search: `${c[entry.nameKey]} ${entry.id} ${c[entry.descKey]}`.toLowerCase(),
       statusLabel: c.statusOptional,
       tone: 'muted' as StatusTone
@@ -568,10 +624,12 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
         <PageLoader label={c.loading} />
       ) : (
         <div className="h-full min-h-0 overflow-y-auto px-4 py-4">
+          {/* Screen-reader page title: the visible header is the shell's
+              search/tabs row, so the heading tree would otherwise start at the
+              section h2s with no h1. */}
+          <h1 className="sr-only">{c.title}</h1>
           {showEmptyState ? (
-            <div className="grid min-h-40 place-items-center text-center text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-              {query ? c.noResults(query) : c.empty}
-            </div>
+            <EmptyState title={query ? c.noResults(query) : c.empty} />
           ) : (
             visibleCategories.map(category => (
               <Section
@@ -580,6 +638,7 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
                 items={filter(byCategory[category])}
                 key={category}
                 onRetry={() => void refresh()}
+                showDescription={tab !== 'all'}
                 title={sectionTitle[category]}
               />
             ))

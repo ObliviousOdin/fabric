@@ -1676,6 +1676,7 @@ export const zh: Translations = {
     statusNotSetUp: '未设置',
     statusError: '错误',
     statusNeedsAttention: '需要处理',
+    statusPendingRestart: '重启以生效',
     statusNotConnected: '未连接',
     statusOptional: '可选',
     setUp: '设置',

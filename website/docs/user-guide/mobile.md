@@ -21,29 +21,47 @@ install helpers require a Fabric source checkout.
 
 ## Start the mobile gateway
 
-From the computer that will execute Fabric:
-
-```bash
-fabric mobile --install none
-```
-
-The default bind is `0.0.0.0:9119` so a phone on the same network can reach it.
-Fabric requires a configured gateway authentication provider before it will
-expose a non-loopback bind. The command can guide you through provider setup;
-it never falls back to an unauthenticated public server.
-
 For a phone and computer connected to the same Tailscale tailnet, use the
-private HTTPS tunnel mode instead:
+private HTTPS tunnel mode:
 
 ```bash
 fabric mobile --tailscale --install none
 ```
 
-This checks that Tailscale is connected, binds Fabric only to `127.0.0.1`,
-configures and verifies Tailscale Serve, and puts the machine's MagicDNS HTTPS
-origin in the QR. It will not overwrite an unrelated service already mounted
-at the Tailscale HTTPS root. This is the zero-typing pairing path: the QR holds
-the current Fabric session token, so treat it like a password.
+Before running it, install Tailscale on both devices, sign in to the same
+tailnet, and confirm that the computer appears connected in `tailscale status`.
+Fabric then checks Tailscale, binds only to `127.0.0.1`, configures and verifies
+Tailscale Serve, and puts the machine's MagicDNS HTTPS origin in the QR. It
+will not overwrite an unrelated service already mounted at the Tailscale HTTPS
+root.
+
+Keep `fabric mobile` running while the phone is connected. If the process
+stops, the Tailscale URL may still exist but has no Fabric server behind it.
+Restart the command and scan its new QR because each server process has a new
+session token.
+
+### Tailscale token mode versus admin-password mode
+
+These are separate connection modes:
+
+| Mode | Address shown on the phone | Credential |
+|------|----------------------------|------------|
+| `fabric mobile --tailscale` | MagicDNS `https://…ts.net` origin | The current Fabric session token is embedded in the QR. Do not enter the dashboard admin password. |
+| `fabric mobile` (direct bind) | Reachable LAN/VPN `http://<host>:9119` origin | The QR contains the URL only. The phone signs in through the configured provider, such as the bundled `basic` admin username/password provider. |
+
+To use or reset direct-mode password login, configure the provider first:
+
+```bash
+fabric dashboard auth password
+fabric mobile --install none
+```
+
+Restart the mobile command after rotating the password. The default direct bind
+is `0.0.0.0:9119`; Fabric requires a configured gateway authentication provider
+before it exposes that non-loopback address and never falls back to an
+unauthenticated public server. Direct HTTP login is intended only for a trusted
+LAN or encrypted VPN. The Tailscale HTTPS token path above is recommended for
+native production clients and PWA installation.
 
 Scan the printed QR with the PWA landing page or a native Fabric client. Treat
 the QR as a password when it contains a token. Pairing credentials stay in the
@@ -134,7 +152,15 @@ requests are not retried automatically after an ambiguous network failure.
 - **The phone cannot connect:** verify the QR host is reachable from the phone;
   do not advertise the computer's loopback address over LAN. With
   `--tailscale`, confirm that both devices show as connected to the same
-  tailnet.
+  tailnet and that the `fabric mobile` process is still running.
+- **The app asks for an admin password in Tailscale mode:** that is a stale or
+  direct-mode gateway entry. Remove or replace it, rerun
+  `fabric mobile --tailscale --install none`, and scan the new HTTPS QR. The
+  Tailscale QR uses a session token, not the dashboard admin password.
+- **The admin password is rejected in direct mode:** run
+  `fabric dashboard auth password`, restart `fabric mobile`, and scan its new
+  URL-only QR. The bundled provider is named `basic`; a status response that
+  requires auth but does not list `basic` means password setup is incomplete.
 - **The PWA will not install:** use an HTTPS `--qr-url`; ordinary LAN HTTP is not
   a secure browser context.
 - **A public bind is refused:** configure a password/auth provider first. This

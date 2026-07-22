@@ -363,6 +363,9 @@ private struct ChatContentView: View {
         }
         .onDisappear {
             liveViewModel.disappear()
+            // Reap Quick Look temp files, including any orphaned by an app
+            // kill mid-preview in an earlier session of this surface.
+            AttachmentPreviewStore.removeAllTemporaryFiles()
         }
     }
 
@@ -391,7 +394,18 @@ private struct ChatContentView: View {
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+            // Reject oversized picks from metadata before reading a byte, so
+            // a multi-gigabyte selection cannot balloon memory just to earn
+            // the friendly size-limit copy.
+            let reportedSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+            if let reportedSize, reportedSize > ChatAttachmentPolicy.maximumAttachmentBytes {
+                let megabytes = ChatAttachmentPolicy.maximumAttachmentBytes / (1_024 * 1_024)
+                model.reportAttachmentProblem(
+                    "\"\(url.lastPathComponent)\" is larger than the \(megabytes) MB attachment limit."
+                )
+                continue
+            }
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), !data.isEmpty else {
                 model.reportAttachmentProblem(
                     "\"\(url.lastPathComponent)\" couldn't be read. Try picking it again."
                 )
@@ -410,8 +424,8 @@ private struct ChatContentView: View {
         var name = suggestedName
         if ChatAttachmentPolicy.sniffedImageMIME(data) == nil,
            !ChatAttachmentPolicy.isPDF(data),
-           let image = UIImage(data: data),
-           let jpeg = image.jpegData(compressionQuality: 0.85) {
+           data.count <= ChatAttachmentPolicy.maximumAttachmentBytes,
+           let jpeg = Self.transcodedJPEG(from: data) {
             payload = jpeg
             name = suggestedName.map { ($0 as NSString).deletingPathExtension + ".jpg" }
         }
@@ -420,6 +434,31 @@ private struct ChatContentView: View {
             suggestedName: name,
             sequence: nextAttachmentSequence()
         ))
+    }
+
+    /// Convert through ImageIO's bounded thumbnail decoder — never a
+    /// full-resolution raster pass — so a crafted dimension bomb cannot
+    /// exhaust memory the way `UIImage(data:)` would (the ScreenCapture
+    /// validation precedent). 4096 px preserves more detail than the vision
+    /// pipeline consumes. Non-image bytes cheaply return nil and stage as a
+    /// plain file instead.
+    private static func transcodedJPEG(from data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(
+            data as CFData,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ), CGImageSourceGetCount(source) >= 1,
+           let frame = CGImageSourceCreateThumbnailAtIndex(
+               source,
+               0,
+               [
+                   kCGImageSourceCreateThumbnailFromImageAlways: true,
+                   kCGImageSourceCreateThumbnailWithTransform: true,
+                   kCGImageSourceThumbnailMaxPixelSize: 4_096,
+                   kCGImageSourceShouldCache: false,
+               ] as CFDictionary
+           )
+        else { return nil }
+        return UIImage(cgImage: frame).jpegData(compressionQuality: 0.85)
     }
 
     private var transcript: some View {
@@ -531,6 +570,7 @@ private struct ChatContentView: View {
             onInterrupt: { Task { await model.interrupt() } },
             supportsAttachments: model.supportsAttachments,
             hasStagedAttachments: !model.pendingAttachments.isEmpty,
+            uploadLocked: model.isUploadingAttachments,
             onAttachPhotos: { showPhotoPicker = true },
             onAttachFiles: { showFileImporter = true }
         )
@@ -853,6 +893,9 @@ private struct ChatComposerBar: View {
     let onInterrupt: () -> Void
     var supportsAttachments = false
     var hasStagedAttachments = false
+    /// True while a send's attachment uploads are in flight: the send action
+    /// locks so a second tap cannot start an overlapping upload batch.
+    var uploadLocked = false
     var onAttachPhotos: () -> Void = {}
     var onAttachFiles: () -> Void = {}
 
@@ -877,7 +920,7 @@ private struct ChatComposerBar: View {
                 }
                 .accessibilityLabel("Add attachment")
                 .accessibilityHint("Attach photos, GIFs, PDFs, or files to your next message")
-                .disabled(!sessionReady || hasUnknownSendOutcome || busy)
+                .disabled(!sessionReady || hasUnknownSendOutcome || busy || uploadLocked)
             }
 
             TextField(
@@ -926,6 +969,7 @@ private struct ChatComposerBar: View {
                 .disabled(
                     !sessionReady
                         || hasUnknownSendOutcome
+                        || uploadLocked
                         || (trimmedDraft.isEmpty && !hasStagedAttachments)
                         || !supportsMethod(draftDispatchMethod)
                 )
@@ -2438,6 +2482,15 @@ private enum AttachmentPreviewStore {
     static func removeTemporaryFile(_ url: URL?) {
         guard let url else { return }
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Remove the whole preview directory. iOS only purges tmp under
+    /// storage pressure, so surface teardown sweeps deterministically.
+    static func removeAllTemporaryFiles() {
+        try? FileManager.default.removeItem(
+            at: FileManager.default.temporaryDirectory
+                .appendingPathComponent("AttachmentPreviews", isDirectory: true)
+        )
     }
 }
 

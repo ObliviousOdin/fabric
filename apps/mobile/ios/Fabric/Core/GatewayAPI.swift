@@ -1877,10 +1877,20 @@ struct GatewayAPI {
             }
             return confirmed
         }
-        _ = try await client.request(
+        let result = try await client.requestObject(
             "slash.exec",
             params: ["session_id": sessionId, "command": "/title \(title)"]
         )
+        // `/title` reports semantic failures as ordinary output text, not an
+        // RPC error. Surface the outcomes that mean the rename did NOT
+        // persist (duplicate title, missing row, worker-queued draft) so the
+        // UI cannot claim success for a title the gateway dropped.
+        if let output = (result["output"] as? String)?.lowercased(),
+           output.contains("already in use")
+            || output.contains("not found")
+            || output.contains("queued") {
+            throw GatewayClientError.rpc(message: "The gateway did not save this title.")
+        }
         return title
     }
 

@@ -52,6 +52,20 @@ final class SettingsExperiencePresentationTests: XCTestCase {
         XCTAssertEqual(reconnecting.gateway?.authentication, "Password protected; password is not saved")
         XCTAssertEqual(reconnecting.execution.title, "Verifying execution")
 
+        // A gateway whose user opted into keeping the password must say so —
+        // the no-storage claim would otherwise be untrue.
+        let keptPassword = SettingsExperiencePresentation(
+            gateway: gateway,
+            phase: .reconnecting,
+            negotiation: .negotiating,
+            clientBuild: clientBuild,
+            hasStoredPassword: true
+        )
+        XCTAssertEqual(
+            keptPassword.gateway?.authentication,
+            "Password protected; password saved in Keychain on this iPhone"
+        )
+
         let disconnected = SettingsExperiencePresentation(
             gateway: nil,
             phase: .disconnected,

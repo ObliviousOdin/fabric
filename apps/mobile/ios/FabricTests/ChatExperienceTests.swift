@@ -1037,7 +1037,9 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertTrue(renamed)
         XCTAssertEqual(recorder.preferTyped, [false])
         XCTAssertEqual(model.sessionTitle, "Sprint notes")
-        XCTAssertTrue(model.canRenameSession)
+        // The rename affordance itself stays hidden until the conversation
+        // has a turn: a rowless draft's slash title would be queued and lost.
+        XCTAssertFalse(model.canRenameSession)
     }
 
     @MainActor
@@ -1197,7 +1199,7 @@ final class ChatExperienceTests: XCTestCase {
         let oversized = ChatComposerAttachment(
             kind: .image,
             filename: "huge.png",
-            data: Data(count: ChatAttachmentPolicy.maximumImageBytes + 1),
+            data: Data(count: ChatAttachmentPolicy.maximumAttachmentBytes + 1),
             mimeType: "image/png"
         )
         model.stageAttachment(oversized)

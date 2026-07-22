@@ -933,6 +933,10 @@ struct PetActivitySnapshot: Equatable {
     var reasoning = false
     var errorBeat = false
     var celebrateBeat = false
+    // Pre-wired to keep the priority order identical to `agent/pet/state.py`.
+    // The mobile event stream carries no plan-finished/todo signal yet, so
+    // `message.complete` fires `celebrate` (jump) to match the desktop app; the
+    // calmer `wave` becomes reachable once such a signal exists.
     var justCompletedBeat = false
 
     static func derive(_ s: PetActivitySnapshot) -> PetState {

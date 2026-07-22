@@ -114,6 +114,11 @@ final class AppModel {
     private let removeGatewayFromStore: (String) throws -> Void
     private let resetGatewayStore: () throws -> Void
     private var petThumbnailCache: [String: String] = [:]
+    /// Bumped at the start of every pet refresh (and on an explicit disable) so a
+    /// slow in-flight `pet.info` response cannot overwrite a newer adoption or
+    /// disable that resolved first — pet RPCs run concurrently on the gateway
+    /// worker pool, so responses can reorder within one connection.
+    private var petRefreshEpoch = 0
     let api: GatewayAPI
 
     var activeGateway: SavedGateway? {
@@ -680,9 +685,11 @@ final class AppModel {
             return
         }
         let generation = connectionGeneration
+        petRefreshEpoch += 1
+        let epoch = petRefreshEpoch
         do {
             let meta = try await api.petInfoMeta()
-            guard connectionGeneration == generation, phase == .connected else { return }
+            guard connectionGeneration == generation, petRefreshEpoch == epoch, phase == .connected else { return }
             guard meta.enabled else {
                 petState = .disabled
                 return
@@ -695,11 +702,11 @@ final class AppModel {
             }
             petState = .loading
             let sheet = try await api.petInfo()
-            guard connectionGeneration == generation, phase == .connected else { return }
+            guard connectionGeneration == generation, petRefreshEpoch == epoch, phase == .connected else { return }
             petState = sheet.map { .active(PetDisplay(sheet: $0)) } ?? .disabled
         } catch {
-            guard connectionGeneration == generation, phase == .connected else { return }
-            petState = .unavailable("Pets are advertised but unreachable right now.")
+            guard connectionGeneration == generation, petRefreshEpoch == epoch, phase == .connected else { return }
+            petState = .unavailable("Pets are advertised but unreachable right now. Fabric retries automatically when you reconnect or return to the app.")
         }
     }
 
@@ -709,7 +716,11 @@ final class AppModel {
     }
 
     func disablePet() async throws {
+        let generation = connectionGeneration
         try await api.petDisable()
+        guard connectionGeneration == generation, phase == .connected else { return }
+        // Supersede any in-flight refresh so a stale pet.info can't re-enable the UI.
+        petRefreshEpoch += 1
         petState = .disabled
     }
 

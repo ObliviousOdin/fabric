@@ -479,9 +479,10 @@ private struct ChatContentView: View {
 
     private var transcript: some View {
         TranscriptView(messages: model.messages)
-            // Decorative companion pinned inside the transcript region so it
-            // can never cover the composer or a blocking approval/prompt.
-            .overlay(alignment: .bottomTrailing) {
+            // Decorative companion docked below the transcript's safe area so it
+            // never covers the newest message (follow mode anchors content to the
+            // bottom), the composer, or a blocking approval/prompt.
+            .safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
                 if case .active(let pet) = appModel.petState {
                     PetSpriteView(sheet: pet.sheet, state: model.petState, height: 64)
                         .padding(.trailing, 12)
@@ -3010,7 +3011,11 @@ struct PetSpriteView: View {
         guard sheet.frameW > 0, sheet.frameH > 0, sheet.loopMs > 0 else { return nil }
         let name = resolvedRowName
         guard let index = sheet.stateRows.firstIndex(of: name) else { return nil }
-        let frames = sheet.framesByRow[name] ?? 0
+        // The gateway fail-opens `framesByRow` to empty on a decode hiccup; match
+        // the desktop renderer and fall back to `framesPerState` (still bounds-
+        // checked against the decoded atlas) so an active pet never renders blank.
+        let declared = sheet.framesByRow[name] ?? 0
+        let frames = declared > 0 ? declared : min(sheet.framesPerState, atlasWidth / sheet.frameW)
         guard frames > 0,
               (index + 1) * sheet.frameH <= atlasHeight,
               frames * sheet.frameW <= atlasWidth

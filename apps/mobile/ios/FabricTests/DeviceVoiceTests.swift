@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import Fabric
 
@@ -77,6 +78,14 @@ final class DeviceVoiceTests: XCTestCase {
         XCTAssertEqual(DeviceDictationState.requestingPermission.stopAction, .cancel)
         XCTAssertEqual(DeviceDictationState.listening.stopAction, .finish)
         XCTAssertEqual(DeviceDictationState.finalizing.stopAction, .none)
+    }
+
+    func testRouteChangePolicyIgnoresOnlyAppControlledChanges() {
+        XCTAssertFalse(DeviceVoiceRouteChangePolicy.invalidatesCurrentRoute(.categoryChange))
+        XCTAssertFalse(DeviceVoiceRouteChangePolicy.invalidatesCurrentRoute(.override))
+        XCTAssertTrue(DeviceVoiceRouteChangePolicy.invalidatesCurrentRoute(.oldDeviceUnavailable))
+        XCTAssertTrue(DeviceVoiceRouteChangePolicy.invalidatesCurrentRoute(.newDeviceAvailable))
+        XCTAssertTrue(DeviceVoiceRouteChangePolicy.invalidatesCurrentRoute(.routeConfigurationChange))
     }
 
     func testStaleVoicePreferenceFallsBackToBestInstalledVoice() {

@@ -77,6 +77,12 @@ enum DeviceDictationStopAction: Equatable {
     case finish
 }
 
+enum DeviceVoiceRouteChangePolicy {
+    static func invalidatesCurrentRoute(_ reason: AVAudioSession.RouteChangeReason) -> Bool {
+        reason != .categoryChange && reason != .override
+    }
+}
+
 /// Keeps a user's pre-existing draft byte-for-byte and appends the current
 /// partial transcript. The transcript is never submitted automatically.
 enum VoiceDraftComposer {
@@ -509,9 +515,8 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
     @objc nonisolated private func audioRouteChanged(_ notification: Notification) {
         guard let value = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber,
               let reason = AVAudioSession.RouteChangeReason(rawValue: value.uintValue),
-              reason != .categoryChange,
-              reason != .override else { return }
-        Task { @MainActor [weak self] in self?.handleAudioInputInvalidation() }
+              DeviceVoiceRouteChangePolicy.invalidatesCurrentRoute(reason) else { return }
+        Task { @MainActor [weak self] in self?.handleAudioRouteInvalidation() }
     }
 
     @objc nonisolated private func audioEngineConfigurationChanged(_ notification: Notification) {
@@ -538,6 +543,11 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
         guard dictationState == .listening else { return }
         cancelDictation()
         issue = .audioInputUnavailable
+    }
+
+    private func handleAudioRouteInvalidation() {
+        if isSpeaking { stopSpeaking() }
+        handleAudioInputInvalidation()
     }
 
     private func handleMediaServicesReset() {

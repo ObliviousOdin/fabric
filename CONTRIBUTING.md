@@ -18,6 +18,25 @@ We value contributions in this order:
 
 ---
 
+## Find your path (what to read for your change)
+
+Fabric's contributor docs are large — you don't have to read all of `AGENTS.md` plus this guide end-to-end before a scoped change. But **every** change owes the [60-second contract](AGENT_GUARDRAILS.md#0-the-60-second-contract) (branch, commit identity, merge gate) and the [per-zone pre-flight](AGENT_GUARDRAILS.md#6-pre-flight-per-zone-run-before-you-push). Beyond that, read the row that matches what you're building:
+
+| Your change | Read this first |
+|---|---|
+| **Bug fix / small code change** | `AGENTS.md` → *File Dependency Chain* and *Known Pitfalls* |
+| **New skill** | [Should it be a Skill or a Tool?](#should-it-be-a-skill-or-a-tool) · [Adding a Skill](#adding-a-skill) · [Skill authoring standards (HARDLINE)](#skill-authoring-standards-hardline) |
+| **New built-in tool** | `AGENTS.md` → *The Footprint Ladder* (justify a tool over a skill first) · [Adding a New Tool](#adding-a-new-tool) |
+| **New provider / plugin** | `website/docs/developer-guide/` — the model-, memory-, browser-, and web-search-provider plugin guides |
+| **Touches OS / path / subprocess behavior** | [Cross-Platform Compatibility](#cross-platform-compatibility) |
+| **Security-sensitive** | [Security Considerations](#security-considerations) · [`SECURITY.md`](SECURITY.md) |
+| **Adds or bumps a dependency** | [Dependency pinning policy](#dependency-pinning-policy-supply-chain-hardening) |
+| **Docs only** | This router plus the 60-second contract — you can skip the engineering deep-dive |
+
+This is a navigation aid, not a licence to skip the guardrails: the 60-second contract and your zone's pre-flight apply no matter which row you land on.
+
+---
+
 ## Before You Start: Search First
 
 A quick search before you build saves your time and keeps the PR queue clean — duplicates are common here, so it's worth a minute up front.
@@ -599,6 +618,8 @@ Gateway and messaging sessions never collect secrets in-band; they instruct the 
 See `skills/gifs/gif-search/` and `skills/email/himalaya/` for examples.
 
 ### Skill authoring standards (HARDLINE)
+
+> **Canonical source.** These standards live here only. `AGENTS.md` links to this section instead of restating the rules — if you change them, change them here so the two never drift.
 
 Every new or modernized skill — bundled, optional, or contributed — must meet these standards before merge. Reviewers reject PRs that violate them.
 

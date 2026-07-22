@@ -6,6 +6,7 @@ All notable changes to Fabric are documented in this file.
 
 ### Added
 
+- Fabric Mobile (iOS) gained saved, gated sign-in for known gateways, session rename, rich chat-history restore, and prompt attachments.
 - Fabric Mobile (iOS) grew from a remote text client toward a robust native product: rich assistant-transcript rendering, a searchable pinned session library, reliable remote controls, a lifecycle-safe Live View, and streaming scroll preservation that holds position as tokens arrive.
 - Loop 0 of the mobile upgrade plan landed the shared capability-manifest governance layer and cross-platform wire contracts (a TypeScript reference plus Swift and Kotlin ports) for future device-node families — device node, node invocation, trust center, connected nodes, push, and session admin — all additive-optional and gated behind the durable-Work fail-closed precedent, so nothing activates until a gateway advertises it.
 - A hidden durable-Work inbox model is present but dark: it stays out of the mobile surfaces until its full gateway contract is reviewed and enabled.

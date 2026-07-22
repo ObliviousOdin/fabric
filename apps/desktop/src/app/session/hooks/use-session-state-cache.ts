@@ -46,6 +46,14 @@ function sameMessageList(a: ChatMessage[], b: ChatMessage[]): boolean {
   return true
 }
 
+// Upper bound on how many visited-session transcripts stay resident in the
+// renderer (#63). Without it, every session ever opened kept its full message
+// array alive for the renderer's lifetime — unbounded heap growth after
+// switching through many large sessions. The on-screen session, the active
+// runtime, and any session still doing work are never evicted; a cold-switched
+// session that gets evicted simply re-resumes on the next visit.
+export const MAX_CACHED_SESSIONS = 12
+
 interface SessionStateCacheOptions {
   activeSessionId: string | null
   busyRef: MutableRefObject<boolean>
@@ -96,10 +104,58 @@ export function useSessionStateCache({
     selectedStoredSessionIdRef.current = selectedStoredSessionId
   }, [selectedStoredSessionId])
 
+  // Move a runtime id to the most-recently-used position. JS Maps iterate in
+  // insertion order and re-setting an existing key does NOT re-order it, so a
+  // delete+set is how the LRU keeps its recency ordering (oldest first).
+  const touchRuntimeRecency = useCallback((sessionId: string) => {
+    const cache = sessionStateByRuntimeIdRef.current
+    const state = cache.get(sessionId)
+
+    if (state !== undefined) {
+      cache.delete(sessionId)
+      cache.set(sessionId, state)
+    }
+  }, [])
+
+  // Drop the least-recently-used cached transcripts once the cache exceeds its
+  // bound, skipping any session that must stay warm: the on-screen view, the
+  // active runtime, or one still doing work. Also purges the stored→runtime
+  // index for anything evicted so a later visit resumes cleanly (#63).
+  const evictColdSessions = useCallback(() => {
+    const cache = sessionStateByRuntimeIdRef.current
+
+    if (cache.size <= MAX_CACHED_SESSIONS) {
+      return
+    }
+
+    const active = activeSessionIdRef.current
+    const view = viewSessionIdRef.current
+
+    for (const [runtimeId, state] of cache) {
+      if (cache.size <= MAX_CACHED_SESSIONS) {
+        break
+      }
+
+      if (runtimeId === active || runtimeId === view || state.busy) {
+        continue
+      }
+
+      cache.delete(runtimeId)
+
+      const stored = state.storedSessionId
+
+      if (stored && runtimeIdByStoredSessionIdRef.current.get(stored) === runtimeId) {
+        runtimeIdByStoredSessionIdRef.current.delete(stored)
+      }
+    }
+  }, [])
+
   const ensureSessionState = useCallback((sessionId: string, storedSessionId?: string | null) => {
     const existing = sessionStateByRuntimeIdRef.current.get(sessionId)
 
     if (existing) {
+      touchRuntimeRecency(sessionId)
+
       if (storedSessionId !== undefined) {
         const previousStoredSessionId = existing.storedSessionId
         existing.storedSessionId = storedSessionId
@@ -127,8 +183,11 @@ export function useSessionStateCache({
       runtimeIdByStoredSessionIdRef.current.set(storedSessionId, sessionId)
     }
 
+    // A new distinct session just grew the cache — trim the cold tail.
+    evictColdSessions()
+
     return created
-  }, [])
+  }, [evictColdSessions, touchRuntimeRecency])
 
   const flushPendingViewState = useCallback(() => {
     const pending = pendingViewStateRef.current

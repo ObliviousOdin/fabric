@@ -19,7 +19,7 @@ import {
   setTurnStartedAt
 } from '@/store/session'
 
-import { useSessionStateCache } from './use-session-state-cache'
+import { MAX_CACHED_SESSIONS, useSessionStateCache } from './use-session-state-cache'
 
 type Cache = ReturnType<typeof useSessionStateCache>
 
@@ -317,5 +317,81 @@ describe('useSessionStateCache — cross-thread error isolation', () => {
     })
 
     expect($messages.get().some(message => message.error === 'OpenRouter 403')).toBe(true)
+  })
+})
+
+describe('useSessionStateCache — LRU eviction (#63)', () => {
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('bounds the cache and evicts the least-recently-used cold sessions', () => {
+    let cache!: Cache
+    render(<Harness activeSessionId="active" onReady={c => (cache = c)} selectedStoredSessionId={null} />)
+
+    act(() => {
+      // Active runtime (must survive) and a busy background session (must survive).
+      cache.ensureSessionState('active')
+      cache.updateSessionState('busy', state => ({ ...state, busy: true }))
+
+      // Now open many cold sessions, oldest first.
+      for (let i = 0; i < MAX_CACHED_SESSIONS + 5; i += 1) {
+        cache.ensureSessionState(`cold-${i}`)
+      }
+    })
+
+    const map = cache.sessionStateByRuntimeIdRef.current
+    // The cache never grows past the bound.
+    expect(map.size).toBe(MAX_CACHED_SESSIONS)
+    // Protected sessions are retained regardless of age.
+    expect(map.has('active')).toBe(true)
+    expect(map.has('busy')).toBe(true)
+    // The oldest cold sessions were evicted; the newest survive.
+    expect(map.has('cold-0')).toBe(false)
+    expect(map.has(`cold-${MAX_CACHED_SESSIONS + 4}`)).toBe(true)
+  })
+
+  it('drops the stored→runtime index entry for an evicted session', () => {
+    let cache!: Cache
+    render(<Harness activeSessionId="active" onReady={c => (cache = c)} selectedStoredSessionId={null} />)
+
+    act(() => {
+      cache.ensureSessionState('active')
+      cache.ensureSessionState('victim', 'victim-stored')
+
+      // Push 'victim' out with fresher cold sessions.
+      for (let i = 0; i < MAX_CACHED_SESSIONS + 2; i += 1) {
+        cache.ensureSessionState(`later-${i}`)
+      }
+    })
+
+    expect(cache.sessionStateByRuntimeIdRef.current.has('victim')).toBe(false)
+    // The reverse index must not keep pointing at an evicted runtime, or a
+    // later visit would read a warm entry that no longer exists.
+    expect(cache.runtimeIdByStoredSessionIdRef.current.has('victim-stored')).toBe(false)
+  })
+
+  it('re-touches a revisited session so it is not the next to be evicted', () => {
+    let cache!: Cache
+    render(<Harness activeSessionId="active" onReady={c => (cache = c)} selectedStoredSessionId={null} />)
+
+    act(() => {
+      cache.ensureSessionState('active')
+      cache.ensureSessionState('oldest')
+
+      for (let i = 0; i < MAX_CACHED_SESSIONS - 3; i += 1) {
+        cache.ensureSessionState(`mid-${i}`)
+      }
+
+      // Revisit 'oldest' — this bumps its recency to most-recent.
+      cache.ensureSessionState('oldest')
+      // Two more new sessions force one eviction.
+      cache.ensureSessionState('new-1')
+      cache.ensureSessionState('new-2')
+    })
+
+    // 'oldest' survived because the revisit moved it off the cold tail.
+    expect(cache.sessionStateByRuntimeIdRef.current.has('oldest')).toBe(true)
   })
 })

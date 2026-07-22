@@ -42,6 +42,15 @@ type MessageGroup = { id: string; weight: number } & (
 // fight use-stick-to-bottom (the single scroll owner).
 const RENDER_BUDGET = 300
 
+// Session-switch settle (#63). After a transcript swaps in it lays out over
+// several frames; we pin to the true bottom on each content-size change until
+// layout stays quiet for SETTLE_QUIET_MS, then hand back to the scroll library.
+// SETTLE_MAX_MS is a hard cap so a never-quiescent transcript still hands off
+// promptly. This replaces an up-to-90-frame (≈1.5s at 60Hz) loop that read
+// scrollHeight and wrote scrollTop every animation frame on every switch.
+const SETTLE_QUIET_MS = 80
+const SETTLE_MAX_MS = 1_000
+
 interface ThreadMessageListProps {
   clampToComposer: boolean
   components: ThreadMessageComponents
@@ -198,37 +207,53 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     stopScroll()
     el.scrollTop = el.scrollHeight
 
-    let frame = 0
-    let stableFrames = 0
-    let lastHeight = el.scrollHeight
+    const content = contentRef.current
 
-    const settle = () => {
-      const node = scrollRef.current
+    // Without a content node or ResizeObserver (older/headless env), do a single
+    // final pin and skip the settle loop entirely.
+    if (!content || typeof ResizeObserver === 'undefined') {
+      void scrollToBottom('instant')
 
-      if (!node) {
-        return
-      }
-
-      const height = node.scrollHeight
-
-      stableFrames = height === lastHeight ? stableFrames + 1 : 0
-      lastHeight = height
-      node.scrollTop = height
-
-      // ~5 steady frames ≈ layout has settled; the frame cap bounds slow loads.
-      if (stableFrames >= 5 || ++frame > 90) {
-        void scrollToBottom('instant')
-
-        return
-      }
-
-      rafId = requestAnimationFrame(settle)
+      return
     }
 
-    let rafId = requestAnimationFrame(settle)
+    const pinToBottom = () => {
+      const node = scrollRef.current
 
-    return () => cancelAnimationFrame(rafId)
-  }, [scrollRef, scrollToBottom, sessionKey, stopScroll])
+      if (node) {
+        node.scrollTop = node.scrollHeight
+      }
+    }
+
+    let quietTimer = 0
+
+    const handoff = () => {
+      window.clearTimeout(quietTimer)
+      window.clearTimeout(capTimer)
+      void scrollToBottom('instant')
+    }
+
+    // Hard cap: a transcript that never fully quiesces (an animated element,
+    // a slow image) still hands control back rather than pinning forever.
+    const capTimer = window.setTimeout(handoff, SETTLE_MAX_MS)
+
+    // Fires exactly when the content box changes size (rows/tool cards/images
+    // mounting) and goes silent the moment layout settles. Setting scrollTop
+    // doesn't resize `content`, so pinning can't retrigger the observer.
+    const observer = new ResizeObserver(() => {
+      pinToBottom()
+      window.clearTimeout(quietTimer)
+      quietTimer = window.setTimeout(handoff, SETTLE_QUIET_MS)
+    })
+
+    observer.observe(content)
+
+    return () => {
+      observer.disconnect()
+      window.clearTimeout(quietTimer)
+      window.clearTimeout(capTimer)
+    }
+  }, [contentRef, scrollRef, scrollToBottom, sessionKey, stopScroll])
 
   // Prepend an older page while preserving the on-screen position. The user is
   // scrolled up (reading history) so the stick-to-bottom lock is escaped and

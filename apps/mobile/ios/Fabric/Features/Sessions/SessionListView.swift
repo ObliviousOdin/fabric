@@ -602,7 +602,9 @@ struct SessionListView: View {
             }
         }
         .contextMenu {
-            if let session = item.activeSession, supportsRename {
+            // A zero-message session has no gateway DB row yet, so a title
+            // sent through the slash dispatch would be queued and lost.
+            if let session = item.activeSession, supportsRename, session.messageCount > 0 {
                 Button {
                     renameDraft = item.displayTitle == "Untitled session" ? "" : item.displayTitle
                     renameTarget = session

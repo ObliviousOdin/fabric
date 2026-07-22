@@ -18,7 +18,9 @@ struct AddGatewayView: View {
     @State private var label = ""
     @State private var urlText = ""
     @State private var mode: Mode = .token
-    @State private var rememberPassword = true
+    // Keeping the password is strictly opt-in: the credential persists only
+    // after the user flips this on.
+    @State private var rememberPassword = false
     @State private var credentialState = GatewayEndpointCredentialState()
     @State private var providerName: String?
     @State private var requiresTotp = false
@@ -527,7 +529,7 @@ struct SignInSheet: View {
     @State private var username: String
     @State private var password = ""
     @State private var otp = ""
-    @State private var rememberPassword = true
+    @State private var rememberPassword: Bool
     @State private var providerName: String?
     @State private var requiresTotp = false
     @State private var providerDiscoveryFailed = false
@@ -538,6 +540,9 @@ struct SignInSheet: View {
     init(gateway: SavedGateway) {
         self.gateway = gateway
         _username = State(initialValue: gateway.username)
+        // Re-auth seeds the toggle from the user's previous choice: keeping
+        // stays kept, and a server never opted into stays opt-in.
+        _rememberPassword = State(initialValue: GatewayStore.hasStoredPassword(gateway))
     }
 
     private var canKeepPassword: Bool {
@@ -684,9 +689,12 @@ struct SignInSheet: View {
             requiresTotp = provider.requiresTotp
             // A TOTP provider can never auto-sign-in with a stale code, so
             // this sheet appears on every session lapse. Prefill the kept
-            // password so only the fresh 6-digit code needs typing.
+            // password so only the fresh 6-digit code needs typing. The
+            // transport gate matches every other kept-password consumer.
             if provider.requiresTotp,
+               canKeepPassword,
                password.isEmpty,
+               GatewayStore.hasStoredPassword(gateway),
                let kept = GatewayStore.password(id: gateway.id),
                !kept.isEmpty {
                 password = kept

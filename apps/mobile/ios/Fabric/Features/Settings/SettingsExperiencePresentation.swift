@@ -153,7 +153,7 @@ struct SettingsGatewayIdentity: Equatable {
     let transport: String
     let transportWarning: String?
 
-    init(gateway: SavedGateway) {
+    init(gateway: SavedGateway, hasStoredPassword: Bool = false) {
         label = gateway.label.isEmpty ? "Fabric gateway" : gateway.label
         endpoint = Self.displayEndpoint(gateway.baseURL)
         transport = GatewayTransportPresentation.label(for: gateway.baseURL)
@@ -161,6 +161,8 @@ struct SettingsGatewayIdentity: Equatable {
         switch gateway.authMode {
         case .token:
             authentication = "Credential protected in Keychain"
+        case .gated where hasStoredPassword:
+            authentication = "Password protected; password saved in Keychain on this iPhone"
         case .gated:
             authentication = "Password protected; password is not saved"
         }
@@ -310,7 +312,8 @@ struct SettingsExperiencePresentation: Equatable {
             gateway: appModel.activeGateway,
             phase: appModel.phase,
             negotiation: appModel.capabilityNegotiation,
-            clientBuild: clientBuild
+            clientBuild: clientBuild,
+            hasStoredPassword: appModel.activeGateway.map(appModel.hasStoredPassword) ?? false
         )
     }
 
@@ -318,9 +321,12 @@ struct SettingsExperiencePresentation: Equatable {
         gateway: SavedGateway?,
         phase: AppModel.Phase,
         negotiation: GatewayCapabilityNegotiation?,
-        clientBuild: SettingsClientBuildInfo
+        clientBuild: SettingsClientBuildInfo,
+        hasStoredPassword: Bool = false
     ) {
-        self.gateway = gateway.map(SettingsGatewayIdentity.init(gateway:))
+        self.gateway = gateway.map {
+            SettingsGatewayIdentity(gateway: $0, hasStoredPassword: hasStoredPassword)
+        }
         connection = Self.connectionPresentation(
             phase: phase,
             gatewayLabel: self.gateway?.label

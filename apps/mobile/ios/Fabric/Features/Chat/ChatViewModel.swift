@@ -448,7 +448,7 @@ enum AssistantTurnReducer {
         return "\(prefix):\(nextSequence)"
     }
 
-    private static func trimActivityParts(in parts: inout [AssistantTurnPart]) {
+    static func trimActivityParts(in parts: inout [AssistantTurnPart]) {
         var overflow = parts.reduce(into: 0) { count, part in
             if case .text = part.content { return }
             count += 1
@@ -501,17 +501,20 @@ struct ChatComposerAttachment: Identifiable, Equatable {
 /// gateway's magic-byte sniffing and caps so an over-limit or unsupported
 /// upload fails on-device with clear copy instead of a server error.
 enum ChatAttachmentPolicy {
-    /// `_ATTACH_BYTES_MAX_BYTES` in `tui_gateway/server.py`.
-    static let maximumImageBytes = 25 * 1_024 * 1_024
-    /// `_PDF_ATTACH_MAX_BYTES` — pdf.attach also caps at 25 rendered pages.
-    static let maximumPDFBytes = 50 * 1_024 * 1_024
-    /// file.attach rides a data URL through the same request envelope as
-    /// image uploads; keep the same client-side bound.
-    static let maximumFileBytes = 25 * 1_024 * 1_024
+    /// The gateway itself accepts larger decoded payloads (25 MB images and
+    /// 50 MB PDFs — `_ATTACH_BYTES_MAX_BYTES` / `_PDF_ATTACH_MAX_BYTES` in
+    /// `tui_gateway/server.py`), but every upload travels as ONE base64
+    /// JSON-RPC WebSocket text frame and the serving uvicorn keeps its
+    /// default 16 MiB `ws_max_size`. 10 MB raw (~13.3 MiB encoded plus the
+    /// JSON envelope) is the largest payload that reliably clears that
+    /// transport bound instead of closing the socket mid-send.
+    static let maximumAttachmentBytes = 10 * 1_024 * 1_024
     static let maximumStagedAttachments = 8
 
     /// The image formats the server's `_sniff_image_ext` accepts, detected
-    /// by the same magic bytes.
+    /// by the same magic bytes. BMP additionally requires the header's
+    /// zeroed reserved fields so ordinary text starting with "BM" is not
+    /// misrouted to the image upload the server would then reject.
     static func sniffedImageMIME(_ data: Data) -> String? {
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
         if data.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
@@ -521,7 +524,11 @@ enum ChatAttachmentPolicy {
            data.dropFirst(8).prefix(4).elementsEqual(Data("WEBP".utf8)) {
             return "image/webp"
         }
-        if data.starts(with: Data("BM".utf8)) { return "image/bmp" }
+        if data.count >= 14,
+           data.starts(with: Data("BM".utf8)),
+           data.dropFirst(6).prefix(4).allSatisfy({ $0 == 0 }) {
+            return "image/bmp"
+        }
         return nil
     }
 
@@ -590,14 +597,8 @@ enum ChatAttachmentPolicy {
         guard !attachment.data.isEmpty else {
             return "\"\(attachment.filename)\" is empty and can't be attached."
         }
-        let cap: Int
-        switch attachment.kind {
-        case .image: cap = maximumImageBytes
-        case .pdf: cap = maximumPDFBytes
-        case .file: cap = maximumFileBytes
-        }
-        guard attachment.data.count <= cap else {
-            let megabytes = cap / (1_024 * 1_024)
+        guard attachment.data.count <= maximumAttachmentBytes else {
+            let megabytes = maximumAttachmentBytes / (1_024 * 1_024)
             return "\"\(attachment.filename)\" is larger than the \(megabytes) MB attachment limit."
         }
         return nil
@@ -612,6 +613,13 @@ struct TranscriptAttachmentPreview: Identifiable, Equatable {
     let kind: ChatComposerAttachment.Kind
     let filename: String
     let data: Data
+
+    /// Bytes are immutable per preview id, so equality is identity. SwiftUI
+    /// re-compares the whole transcript on every streamed delta; this keeps
+    /// that diff from byte-comparing multi-megabyte media each time.
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.kind == rhs.kind && lhs.filename == rhs.filename
+    }
 }
 
 /// One transcript row. Assistant messages accumulate `message.delta` text
@@ -1372,10 +1380,12 @@ struct ChatGatewayOperations {
     let steer: (String, String) async throws -> Bool
     let execSlash: (String, String) async throws -> String?
     let submitLegacyBackground: (String, String) async throws -> String?
-    /// (sessionId, title, preferTypedMethod) → server-confirmed title. The
-    /// default keeps existing test fixtures compiling; production wires the
-    /// real rename below.
-    var renameSession: (String, String, Bool) async throws -> String = { _, title, _ in title }
+    /// (sessionId, title, preferTypedMethod) → server-confirmed title. Like
+    /// the attach defaults below, this fails closed so a fixture that never
+    /// wired rename cannot fake a successful server rename.
+    var renameSession: (String, String, Bool) async throws -> String = { _, _, _ in
+        throw GatewayClientError.rpc(message: "Renaming is unavailable.")
+    }
     /// (sessionId, data, filename) → server placeholder line. Defaults fail
     /// closed so a fixture without attachment support cannot fake an upload.
     var attachImage: (String, Data, String) async throws -> String = { _, _, _ in
@@ -1438,6 +1448,15 @@ final class ChatViewModel {
     private(set) var sessionTitle: String?
     /// Attachments staged for the next plain prompt.
     private(set) var pendingAttachments: [ChatComposerAttachment] = []
+    /// True while a send is uploading its staged attachments; the composer
+    /// locks its send action so a second tap cannot start an overlapping
+    /// upload batch.
+    private(set) var isUploadingAttachments = false
+    /// Receipts for uploads that already succeeded within the current staged
+    /// batch, keyed by attachment id. A failed batch keeps its items staged;
+    /// the retry replays these receipts instead of double-queuing the bytes
+    /// on the gateway.
+    private var stagedUploadOutcomes: [UUID: StagedUploadOutcome] = [:]
     /// Server-issued Work namespace that fences durable background mutations
     /// and the in-memory Job recovery path. It does not render a Work UI.
     private(set) var workIdentity: FabricWorkSessionIdentity?
@@ -1781,6 +1800,7 @@ final class ChatViewModel {
         // Staged attachment bytes are draft-local; release them with the
         // surface instead of holding picked media in memory.
         pendingAttachments.removeAll()
+        stagedUploadOutcomes.removeAll()
     }
 
     /// Route a composer submit the way the TUI does: a busy turn gets a
@@ -1825,22 +1845,22 @@ final class ChatViewModel {
     @discardableResult
     private func submitPrompt(_ trimmed: String, sessionId: String) async -> Bool {
         guard canCall("prompt.submit", action: "Sending messages") else { return false }
+        guard !isUploadingAttachments else { return false }
 
         // Upload staged attachments first: the gateway folds queued images
         // and PDF pages into this prompt's turn, and file refs must appear in
-        // the prompt text. A failed upload keeps the remaining items staged
-        // and does not submit a half-described prompt.
+        // the prompt text. A failed upload keeps EVERY item staged (already-
+        // confirmed receipts are memoized above) and does not submit a
+        // half-described prompt.
         let staged = pendingAttachments
-        var promptLines: [String] = []
-        var placeholders: [String] = []
-        for attachment in staged {
+        if !staged.isEmpty {
+            isUploadingAttachments = true
+        }
+        defer { isUploadingAttachments = false }
+        for attachment in staged where stagedUploadOutcomes[attachment.id] == nil {
             do {
-                let outcome = try await uploadAttachment(attachment, sessionId: sessionId)
-                pendingAttachments.removeAll { $0.id == attachment.id }
-                placeholders.append(outcome.placeholder)
-                if outcome.mustAppearInPrompt {
-                    promptLines.append(outcome.placeholder)
-                }
+                stagedUploadOutcomes[attachment.id] =
+                    try await uploadAttachment(attachment, sessionId: sessionId)
             } catch {
                 messages.append(TranscriptMessage(
                     role: .system,
@@ -1852,6 +1872,12 @@ final class ChatViewModel {
                 return false
             }
         }
+        let outcomes = staged.compactMap { stagedUploadOutcomes[$0.id] }
+        let placeholders = outcomes.map(\.placeholder)
+        let promptLines = outcomes.filter(\.mustAppearInPrompt).map(\.placeholder)
+        let stagedIDs = Set(staged.map(\.id))
+        pendingAttachments.removeAll { stagedIDs.contains($0.id) }
+        for id in stagedIDs { stagedUploadOutcomes.removeValue(forKey: id) }
 
         var promptText = trimmed
         if !promptLines.isEmpty {
@@ -1863,9 +1889,18 @@ final class ChatViewModel {
         }
         guard !promptText.isEmpty else { return false }
 
+        // The placeholder copy is server-authored; it enters presentation
+        // only redacted and bounded, while the wire prompt keeps the exact
+        // refs the gateway issued.
+        let presentationText = trimmed.isEmpty
+            ? ChatPresentationSafety.sanitized(
+                placeholders.joined(separator: "\n"),
+                maximumCharacters: ChatPresentationSafety.maximumActivityDetailCharacters
+            )
+            : trimmed
         messages.append(TranscriptMessage(
             role: .user,
-            text: trimmed.isEmpty ? placeholders.joined(separator: "\n") : trimmed,
+            text: presentationText,
             attachments: staged.map {
                 TranscriptAttachmentPreview(
                     id: $0.id,
@@ -2271,6 +2306,10 @@ final class ChatViewModel {
 
     func removeAttachment(id: UUID) {
         pendingAttachments.removeAll { $0.id == id }
+        // If this item already uploaded in a failed batch, its bytes stay
+        // queued on the gateway and fold into the next prompt; the client
+        // has no un-queue RPC, so only the local receipt is dropped.
+        stagedUploadOutcomes.removeValue(forKey: id)
     }
 
     /// Surface a local ingest problem (unreadable photo, denied file) using
@@ -2287,9 +2326,13 @@ final class ChatViewModel {
 
     /// Whether this conversation can be renamed right now. The typed
     /// `session.title` RPC and the always-shipped `/title` slash dispatch are
-    /// both accepted; either one is enough.
+    /// both accepted; either one is enough. A conversation with no turns yet
+    /// is excluded: its gateway DB row does not exist until the first prompt,
+    /// so a slash-dispatched title would only be queued in the worker and
+    /// silently lost.
     var canRenameSession: Bool {
         sessionReady && sessionId != nil
+            && !messages.isEmpty
             && (supportsMethod("session.title") || supportsMethod("slash.exec"))
     }
 
@@ -2306,7 +2349,13 @@ final class ChatViewModel {
             return false
         }
         do {
-            sessionTitle = try await operations.renameSession(sessionId, title, preferTyped)
+            // The confirmed title is server-authored on the typed path;
+            // bound and redact it like every other server string that
+            // reaches presentation.
+            sessionTitle = ChatPresentationSafety.sanitized(
+                try await operations.renameSession(sessionId, title, preferTyped),
+                maximumCharacters: 200
+            )
             return true
         } catch {
             messages.append(TranscriptMessage(
@@ -2668,6 +2717,9 @@ final class ChatViewModel {
                         id: nextPartID("text"),
                         content: .text(message.text)
                     ))
+                    // The appended reasoning can push the turn one past the
+                    // activity bound; apply the live reducer's exact trim.
+                    AssistantTurnReducer.trimActivityParts(in: &parts)
                     restored.append(TranscriptMessage(
                         role: .assistant,
                         text: message.text,

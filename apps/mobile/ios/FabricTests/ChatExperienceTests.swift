@@ -236,6 +236,7 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertEqual(reasoning.text, "Final reasoning summary")
     }
 
+    @MainActor
     func testRestoredAssistantTextRetainsReasoningBeforeTheAnswer() throws {
         let live = LiveSession(
             sessionId: "runtime-1",
@@ -263,6 +264,7 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertEqual(text, "Ready to ship.")
     }
 
+    @MainActor
     func testRestoredReasoningIsRedactedAndBounded() throws {
         let source = "token=restore-secret "
             + String(repeating: "r", count: ChatPresentationSafety.maximumReasoningCharacters + 500)
@@ -995,7 +997,6 @@ final class ChatExperienceTests: XCTestCase {
     }
 
     @MainActor
-    @MainActor
     func testRenamePrefersTypedMethodAndPublishesConfirmedTitle() async {
         let recorder = RenameRecorder()
         var operations = makeOperations(counter: ChatMutationCounter(), failure: .socketClosed)
@@ -1225,6 +1226,7 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertFalse(model.pendingAttachments.contains { $0.filename == "one-too-many" })
     }
 
+    @MainActor
     private func makeModel(
         methods: Set<String>,
         operations: ChatGatewayOperations

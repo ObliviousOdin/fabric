@@ -55,6 +55,8 @@ struct ChatView: View {
                 )
             } else {
                 ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(FabricTheme.canvas.ignoresSafeArea())
             }
         }
         .navigationTitle(model?.sessionTitle ?? title)
@@ -311,6 +313,10 @@ private struct ChatContentView: View {
 
             controlDock
         }
+        // A pushed conversation must never fall back to the system backdrop
+        // (near-black in dark mode) while the transcript lays out — paint the
+        // Fabric canvas behind every state, matching the connected Home.
+        .background(FabricTheme.canvas.ignoresSafeArea())
         .sheet(isPresented: $showCommandCatalog) {
             CommandCatalogSheet(
                 api: model.api,
@@ -540,8 +546,9 @@ private struct ChatContentView: View {
         }
 
         if let status = model.statusLine {
-            HStack(alignment: .top, spacing: 6) {
-                ProgressView().controlSize(.mini)
+            HStack(alignment: .top, spacing: 8) {
+                WorkingDots(color: FabricTheme.threadActive, diameter: 4)
+                    .padding(.top, 4)
                 Text(status)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1508,6 +1515,7 @@ struct TranscriptView: View {
     @State private var viewportHeight: CGFloat = 0
     @State private var lastScrollOffset: CGFloat = 0
     @State private var latestUserMessageID: UUID?
+    @State private var didInitialScrollToLatest = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -1568,6 +1576,18 @@ struct TranscriptView: View {
             }
             .onAppear {
                 latestUserMessageID = messages.last(where: { $0.role == .user })?.id
+                // `onChange(of: messages)` never fires for a transcript that is
+                // already populated on first appearance (opened from history), so
+                // place the viewport at the newest turn after the first layout
+                // pass, forcing the lazy rows to materialize immediately. Keep
+                // this one-shot so returning to the view never steals a reader's
+                // manually chosen position.
+                if !didInitialScrollToLatest, let lastId = messages.last?.id {
+                    didInitialScrollToLatest = true
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(lastId, anchor: .bottom)
+                    }
+                }
             }
             .overlay(alignment: .bottom) {
                 if follow.showsJumpToLatest {
@@ -1711,18 +1731,43 @@ private struct AssistantTurnBody: View {
                     onRichLayoutReady: onRichLayoutReady
                 )
             } else {
-                ForEach(message.assistantParts) { part in
-                    switch part.content {
-                    case .text(let text):
+                // Fold contiguous reasoning/tool runs into a single compact
+                // timeline so a working turn no longer stacks a full-width card
+                // per step. Answer text keeps rendering inline in source order.
+                let segments = AssistantTurnSegment.segments(from: message.assistantParts)
+                let lastTextSegmentID = segments.last { segment in
+                    if case .text = segment { return true }
+                    return false
+                }?.id
+                ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
+                    let isLastSegment = index == segments.count - 1
+                    switch segment {
+                    case .text(_, let text):
                         AssistantMessageBody(
                             text: text,
                             streaming: message.streaming,
-                            onRichLayoutReady: onRichLayoutReady
+                            onRichLayoutReady: segment.id == lastTextSegmentID
+                                ? onRichLayoutReady
+                                : nil
                         )
-                    case .reasoning(let reasoning):
-                        ReasoningDisclosureCard(reasoning: reasoning)
-                    case .tool(let tool):
-                        ToolActivityCard(tool: tool)
+                    case .activity(_, let parts):
+                        // A run with any tool call — or the live run — collapses
+                        // into the timeline. A completed reasoning-only run keeps
+                        // its existing one-tap disclosure so extended thinking is
+                        // not buried two taps deep.
+                        let isLive = (message.streaming && isLastSegment) || segment.hasActiveTool
+                        if segment.containsTool || isLive {
+                            AssistantActivityTimeline(
+                                parts: parts,
+                                isLive: isLive
+                            )
+                        } else {
+                            ForEach(parts) { part in
+                                if case .reasoning(let reasoning) = part.content {
+                                    ReasoningDisclosureCard(reasoning: reasoning)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1730,6 +1775,274 @@ private struct AssistantTurnBody: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Fabric response and activity")
+    }
+}
+
+/// Ordered split of one assistant turn: contiguous reasoning/tool activity
+/// collapses into a single timeline segment, while text stays inline. This is a
+/// pure view-layer transform — the reducer, its ordering guarantees, and every
+/// reducer test are untouched.
+private enum AssistantTurnSegment: Identifiable {
+    case text(id: String, String)
+    case activity(id: String, [AssistantTurnPart])
+
+    var id: String {
+        switch self {
+        case .text(let id, _): return "text-seg:\(id)"
+        case .activity(let id, _): return "activity-seg:\(id)"
+        }
+    }
+
+    var containsTool: Bool {
+        guard case .activity(_, let parts) = self else { return false }
+        return parts.contains { part in
+            if case .tool = part.content { return true }
+            return false
+        }
+    }
+
+    var hasActiveTool: Bool {
+        guard case .activity(_, let parts) = self else { return false }
+        return parts.contains { part in
+            if case .tool(let tool) = part.content {
+                return tool.state == .running || tool.state == .generating
+            }
+            return false
+        }
+    }
+
+    static func segments(from parts: [AssistantTurnPart]) -> [AssistantTurnSegment] {
+        var result: [AssistantTurnSegment] = []
+        var activity: [AssistantTurnPart] = []
+
+        func flushActivity() {
+            guard let first = activity.first else { return }
+            result.append(.activity(id: first.id, activity))
+            activity.removeAll(keepingCapacity: true)
+        }
+
+        for part in parts {
+            switch part.content {
+            case .text(let text):
+                flushActivity()
+                result.append(.text(id: part.id, text))
+            case .reasoning, .tool:
+                activity.append(part)
+            }
+        }
+        flushActivity()
+        return result
+    }
+}
+
+/// Compact, collapsible stand-in for a run of tool/reasoning cards. While live
+/// the header names the current step (with a gentle working indicator) so it is
+/// obvious what Fabric is doing without the full stack; once complete it reads
+/// "N steps · duration" and expands on tap to the exact same detail cards.
+private struct AssistantActivityTimeline: View {
+    let parts: [AssistantTurnPart]
+    let isLive: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                header
+            }
+            .buttonStyle(.plain)
+            .background(FabricTheme.surfaceInset)
+            .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radius))
+            .accessibilityIdentifier("chat-activity-timeline")
+            .accessibilityLabel(voiceOverLabel)
+            .accessibilityHint(isExpanded ? "Collapse activity detail" : "Expand activity detail")
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(parts) { part in
+                        switch part.content {
+                        case .reasoning(let reasoning):
+                            ReasoningDisclosureCard(reasoning: reasoning)
+                        case .tool(let tool):
+                            ToolActivityCard(tool: tool)
+                        case .text:
+                            EmptyView()
+                        }
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            leadingGlyph
+                .frame(width: 20, height: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(titleText)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(isLive ? FabricTheme.threadActive : FabricTheme.text)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
+                if let subtitle = subtitleText {
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(FabricTheme.textMuted)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                }
+            }
+            Spacer(minLength: 6)
+            if !isLive, let duration = totalDurationText {
+                Text(duration)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(FabricTheme.textMuted)
+            }
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(FabricTheme.textMuted)
+                .rotationEffect(.degrees(isExpanded ? 0 : -90))
+        }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: FabricTheme.minTarget, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var leadingGlyph: some View {
+        if isLive {
+            WorkingDots(color: FabricTheme.threadActive)
+        } else if hasFailure {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(FabricTheme.warning)
+        } else if toolCount == 0 {
+            Image(systemName: "brain")
+                .foregroundStyle(FabricTheme.textMuted)
+        } else {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(FabricTheme.success)
+        }
+    }
+
+    private var toolCount: Int {
+        parts.reduce(into: 0) { count, part in
+            if case .tool = part.content { count += 1 }
+        }
+    }
+
+    private var hasFailure: Bool {
+        parts.contains { part in
+            if case .tool(let tool) = part.content, tool.state == .failed { return true }
+            return false
+        }
+    }
+
+    private var latestTool: AssistantTurnPart.Tool? {
+        for part in parts.reversed() {
+            if case .tool(let tool) = part.content { return tool }
+        }
+        return nil
+    }
+
+    private var activeTool: AssistantTurnPart.Tool? {
+        for part in parts.reversed() {
+            if case .tool(let tool) = part.content,
+               tool.state == .running || tool.state == .generating {
+                return tool
+            }
+        }
+        return nil
+    }
+
+    private func toolTitle(_ name: String) -> String {
+        name.replacingOccurrences(of: "_", with: " ")
+    }
+
+    private var titleText: String {
+        if isLive {
+            if let tool = activeTool, tool.state == .running {
+                return "Running \(toolTitle(tool.name))"
+            }
+            if let tool = activeTool, tool.state == .generating {
+                return "Preparing \(toolTitle(tool.name))"
+            }
+            return "Thinking…"
+        }
+        if toolCount == 0 { return "Reasoning" }
+        return "\(toolCount) \(toolCount == 1 ? "step" : "steps")"
+    }
+
+    private var subtitleText: String? {
+        if isLive {
+            if let detail = activeTool?.detail, !detail.isEmpty { return detail }
+            return nil
+        }
+        if hasFailure { return "A step reported a problem" }
+        return nil
+    }
+
+    private var totalDurationText: String? {
+        let total = parts.reduce(into: 0.0) { sum, part in
+            if case .tool(let tool) = part.content,
+               let seconds = tool.durationSeconds, seconds > 0 {
+                sum += seconds
+            }
+        }
+        guard total > 0 else { return nil }
+        return total.formatted(.number.precision(.fractionLength(1))) + "s"
+    }
+
+    private var voiceOverLabel: String {
+        if isLive { return "Fabric activity in progress, \(titleText)" }
+        if toolCount == 0 { return "Fabric reasoning" }
+        let noun = toolCount == 1 ? "step" : "steps"
+        return "Fabric activity, \(toolCount) \(noun)"
+            + (hasFailure ? ", a step reported a problem" : "")
+    }
+}
+
+/// A small three-dot indicator that gently breathes while Fabric is working —
+/// the "typing" affordance for an empty streaming turn and the live-activity
+/// glyph. Self-contained via `TimelineView` (the PetSpriteView pattern) and
+/// gated on Reduce Motion so it never animates when the reader opted out.
+private struct WorkingDots: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var color: Color = FabricTheme.action
+    var diameter: CGFloat = 5
+
+    var body: some View {
+        Group {
+            if reduceMotion {
+                HStack(spacing: diameter * 0.6) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        Circle()
+                            .fill(color.opacity(0.55))
+                            .frame(width: diameter, height: diameter)
+                    }
+                }
+            } else {
+                TimelineView(.animation) { context in
+                    let time = context.date.timeIntervalSinceReferenceDate
+                    HStack(spacing: diameter * 0.6) {
+                        ForEach(0..<3, id: \.self) { index in
+                            let norm = (sin(time * 3.4 + Double(index) * 0.7) + 1) / 2
+                            Circle()
+                                .fill(color)
+                                .frame(width: diameter, height: diameter)
+                                .opacity(0.35 + norm * 0.65)
+                                .scaleEffect(0.72 + norm * 0.28)
+                        }
+                    }
+                }
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -2390,13 +2703,24 @@ private struct AssistantMessageBody: View {
         Group {
             switch streaming ? AssistantTranscriptPresentationMode.streamingPlain : .rich {
             case .streamingPlain:
-                Text(verbatim: text.isEmpty ? "…" : text)
-                    .font(.subheadline)
-                    .foregroundStyle(FabricTheme.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    .accessibilityLabel("Fabric")
-                    .accessibilityValue(text.isEmpty ? "Streaming response" : text)
+                if text.isEmpty {
+                    // A just-started turn shows a gentle typing indicator instead
+                    // of a static ellipsis, so the wait reads as live, not stalled.
+                    WorkingDots(color: FabricTheme.textMuted, diameter: 6)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityElement()
+                        .accessibilityLabel("Fabric")
+                        .accessibilityValue("Working")
+                } else {
+                    Text(verbatim: text)
+                        .font(.subheadline)
+                        .foregroundStyle(FabricTheme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .accessibilityLabel("Fabric")
+                        .accessibilityValue(text)
+                }
             case .rich:
                 if let document = renderCache.document {
                     AssistantTranscriptView(document: document)

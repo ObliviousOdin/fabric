@@ -173,7 +173,21 @@ final class FabricExperienceUITests: XCTestCase {
         let app = launchFixture("chat-activity")
 
         XCTAssertTrue(app.navigationBars["Release readiness"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts["Reasoning"].exists)
+
+        // Tool and reasoning detail now lives inside a compact, collapsible
+        // activity timeline so a working turn no longer floods the transcript.
+        // Expand it before asserting the per-step detail.
+        let activityTimeline = app.buttons["chat-activity-timeline"]
+        XCTAssertTrue(activityTimeline.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            activityTimeline.label.localizedCaseInsensitiveContains("Fabric activity in progress")
+        )
+        XCTAssertTrue(
+            activityTimeline.label.localizedCaseInsensitiveContains("Running release check")
+        )
+        activityTimeline.tap()
+
+        XCTAssertTrue(app.staticTexts["Reasoning"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["xcodebuild"].exists)
         XCTAssertTrue(app.staticTexts["Approval needed"].exists)
         let allowOnce = app.buttons["Allow once"]

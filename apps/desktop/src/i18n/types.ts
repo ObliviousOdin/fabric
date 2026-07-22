@@ -1203,6 +1203,50 @@ export interface Translations {
     createAction: string
   }
 
+  connections: {
+    title: string
+    search: string
+    loading: string
+    empty: string
+    noResults: (query: string) => string
+    hintSlack: string
+    hintGithub: string
+    hintTailscale: string
+    tabs: Record<'accounts' | 'all' | 'messaging' | 'network' | 'tools', string>
+    messagingTitle: string
+    messagingDesc: string
+    toolsTitle: string
+    toolsDesc: string
+    accountsTitle: string
+    accountsDesc: string
+    networkTitle: string
+    networkDesc: string
+    statusConnected: string
+    statusOff: string
+    statusNotSetUp: string
+    statusError: string
+    statusNeedsAttention: string
+    statusNotConnected: string
+    statusOptional: string
+    setUp: string
+    manage: string
+    connect: string
+    configure: string
+    accountConnected: string
+    accountConnectHint: string
+    restartToApply: string
+    platformEnabled: (name: string) => string
+    platformDisabled: (name: string) => string
+    toggleFailed: (name: string) => string
+    connectFailed: (name: string) => string
+    enableAria: (name: string) => string
+    disableAria: (name: string) => string
+    gatewayTitle: string
+    gatewayDesc: string
+    tailscaleTitle: string
+    tailscaleDesc: string
+  }
+
   design: {
     title: string
     subtitle: string

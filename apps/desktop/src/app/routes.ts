@@ -8,6 +8,7 @@ export const DESIGN_ROUTE = '/design'
 export const VOICE_NOTES_ROUTE = '/voice-notes'
 export const SOCIAL_ROUTE = '/social'
 export const MESSAGING_ROUTE = '/messaging'
+export const CONNECTIONS_ROUTE = '/connections'
 export const ARTIFACTS_ROUTE = '/artifacts'
 export const CRON_ROUTE = '/cron'
 export const PROFILES_ROUTE = '/profiles'
@@ -19,6 +20,7 @@ export type AppView =
   | 'artifacts'
   | 'chat'
   | 'command-center'
+  | 'connections'
   | 'cron'
   | 'design'
   | 'messaging'
@@ -33,6 +35,7 @@ export type AppRouteId =
   | 'agents'
   | 'artifacts'
   | 'command-center'
+  | 'connections'
   | 'cron'
   | 'design'
   | 'messaging'
@@ -59,6 +62,7 @@ export const APP_ROUTES = [
   { id: 'voice-notes', path: VOICE_NOTES_ROUTE, view: 'voice-notes' },
   { id: 'social', path: SOCIAL_ROUTE, view: 'social' },
   { id: 'messaging', path: MESSAGING_ROUTE, view: 'messaging' },
+  { id: 'connections', path: CONNECTIONS_ROUTE, view: 'connections' },
   { id: 'artifacts', path: ARTIFACTS_ROUTE, view: 'artifacts' },
   { id: 'cron', path: CRON_ROUTE, view: 'cron' },
   { id: 'profiles', path: PROFILES_ROUTE, view: 'profiles' },

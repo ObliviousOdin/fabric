@@ -148,6 +148,7 @@ import type { VoiceNoteCreateRequest } from './voice-notes'
 const AgentsView = lazy(async () => ({ default: (await import('./agents')).AgentsView }))
 const ArtifactsView = lazy(async () => ({ default: (await import('./artifacts')).ArtifactsView }))
 const CommandCenterView = lazy(async () => ({ default: (await import('./command-center')).CommandCenterView }))
+const ConnectionsView = lazy(async () => ({ default: (await import('./connections')).ConnectionsView }))
 const CronView = lazy(async () => ({ default: (await import('./cron')).CronView }))
 const DesignView = lazy(async () => ({ default: (await import('./design')).DesignView }))
 const SocialView = lazy(async () => ({ default: (await import('./social')).SocialView }))
@@ -1460,6 +1461,14 @@ export function DesktopController() {
               </Suspense>
             }
             path="messaging"
+          />
+          <Route
+            element={
+              <Suspense fallback={null}>
+                <ConnectionsView setStatusbarItemGroup={setStatusbarItemGroup} />
+              </Suspense>
+            }
+            path="connections"
           />
           <Route
             element={

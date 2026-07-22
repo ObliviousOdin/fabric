@@ -1131,12 +1131,16 @@ private enum TranscriptScroll {
     static let coordinateSpace = "fabric.transcript.scroll"
 }
 
-/// Bottom edge of the transcript content, measured in the scroll view's
-/// coordinate space. Compared against the viewport height it yields the reader's
-/// distance from the latest content.
-private struct TranscriptContentMaxYKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+/// The transcript content's frame in the scroll view's coordinate space. Its
+/// `maxY` versus the viewport height gives the reader's distance from the latest
+/// content; its `minY` (the scroll offset) changes on any viewport move — a
+/// touch drag, trackpad, hardware key, scroll bar, or a VoiceOver scroll action
+/// — yet stays put when content merely grows at the bottom. That distinction is
+/// what lets follow disengage on every scroll input method while still ignoring
+/// streaming growth.
+private struct TranscriptContentFrameKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         value = nextValue()
     }
 }
@@ -1206,18 +1210,25 @@ struct TranscriptFollowState: Equatable {
     /// has scrolled up is never yanked when Markdown re-lays out.
     func richLayoutReadyShouldScroll() -> Bool { isFollowing }
 
-    /// The reader dragged the transcript. Pulling more than the tolerance away
-    /// from the bottom is an explicit, timing-free signal to stop following; a
-    /// drag that stays at the bottom leaves follow untouched.
-    mutating func readerDidDrag(distanceFromBottom: CGFloat) {
-        if distanceFromBottom > Self.bottomTolerance {
-            isFollowing = false
+    /// The reader moved the viewport — by a touch drag, trackpad, hardware key,
+    /// scroll bar, or a VoiceOver scroll action. Any of these changes the scroll
+    /// offset, so all of them route here: more than the tolerance from the
+    /// bottom disengages follow, and returning to the bottom re-engages it. This
+    /// is the single disengage path, so no scroll input method is missed — a
+    /// touch-only signal would leave assistive and hardware scrolling stuck in
+    /// follow. It is timing-free: driven by measured offset, never a delay.
+    mutating func viewportDidScroll(distanceFromBottom: CGFloat) {
+        isFollowing = distanceFromBottom <= Self.bottomTolerance
+        if isFollowing {
+            hasPendingContentBelow = false
         }
     }
 
-    /// The viewport settled at a measured distance from the bottom. Reaching the
-    /// bottom re-engages follow; content-growth drift never disengages here, so
-    /// streaming below a scrolled-up reader cannot flip follow back on.
+    /// The transcript re-laid out without the reader moving it — a streaming
+    /// delta grew the content, or the view rotated (the scroll offset is
+    /// unchanged). Reaching the bottom (e.g. after our own snap-to-latest)
+    /// re-engages follow; growth below a scrolled-up reader never does, so
+    /// streaming cannot flip follow back on.
     mutating func viewportDidSettle(distanceFromBottom: CGFloat) {
         guard distanceFromBottom <= Self.bottomTolerance else { return }
         isFollowing = true
@@ -1242,9 +1253,9 @@ struct TranscriptView: View {
     let messages: [TranscriptMessage]
 
     @State private var follow = TranscriptFollowState()
-    @State private var distanceFromBottom: CGFloat = 0
-    @State private var contentMaxY: CGFloat = 0
+    @State private var contentFrame: CGRect = .zero
     @State private var viewportHeight: CGFloat = 0
+    @State private var lastScrollOffset: CGFloat = 0
     @State private var latestUserMessageID: UUID?
 
     var body: some View {
@@ -1269,10 +1280,10 @@ struct TranscriptView: View {
                 .background(
                     GeometryReader { geometry in
                         Color.clear.preference(
-                            key: TranscriptContentMaxYKey.self,
+                            key: TranscriptContentFrameKey.self,
                             value: geometry.frame(
                                 in: .named(TranscriptScroll.coordinateSpace)
-                            ).maxY
+                            )
                         )
                     }
                 )
@@ -1286,19 +1297,13 @@ struct TranscriptView: View {
                     )
                 }
             )
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 1)
-                    .onChanged { _ in
-                        follow.readerDidDrag(distanceFromBottom: distanceFromBottom)
-                    }
-            )
-            .onPreferenceChange(TranscriptContentMaxYKey.self) { value in
-                contentMaxY = value
-                recomputeDistance()
+            .onPreferenceChange(TranscriptContentFrameKey.self) { value in
+                contentFrame = value
+                updateFollowFromGeometry()
             }
             .onPreferenceChange(TranscriptViewportHeightKey.self) { value in
                 viewportHeight = value
-                recomputeDistance()
+                updateFollowFromGeometry()
             }
             .onChange(of: messages) {
                 let currentUserID = messages.last(where: { $0.role == .user })?.id
@@ -1330,13 +1335,22 @@ struct TranscriptView: View {
         }
     }
 
-    /// Recompute the reader's distance from the bottom from the latest geometry
-    /// and feed it to the follow policy. Called on every content/viewport layout
-    /// change; it only ever re-engages follow (at the bottom) and never
-    /// disengages, so streaming growth below a scrolled-up reader is inert here.
-    private func recomputeDistance() {
-        distanceFromBottom = max(0, contentMaxY - viewportHeight)
-        follow.viewportDidSettle(distanceFromBottom: distanceFromBottom)
+    /// Feed the latest scroll geometry to the follow policy. A change in the
+    /// content's top offset (`minY`) means the reader moved the viewport by some
+    /// input method, so follow may disengage or re-engage; an unchanged offset
+    /// means the transcript only grew or re-laid out, so follow may re-engage at
+    /// the bottom but is never disengaged. This routes every scroll input method
+    /// through the disengage path while keeping streaming growth from falsely
+    /// disengaging.
+    private func updateFollowFromGeometry() {
+        let distanceFromBottom = max(0, contentFrame.maxY - viewportHeight)
+        let scrollOffset = contentFrame.minY
+        if abs(scrollOffset - lastScrollOffset) > 0.5 {
+            lastScrollOffset = scrollOffset
+            follow.viewportDidScroll(distanceFromBottom: distanceFromBottom)
+        } else {
+            follow.viewportDidSettle(distanceFromBottom: distanceFromBottom)
+        }
     }
 }
 

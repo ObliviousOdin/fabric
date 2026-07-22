@@ -74,22 +74,27 @@ feeds it measured geometry and explicit reader intent:
 | --- | --- | --- |
 | Transcript grew (delta / complete / new row) | `onChange(of: messages)` | `transcriptDidGrow(newUserTurn:)` → scroll only while following; a **fresh user turn always re-engages**; growth while disengaged is remembered as "pending below" |
 | Completed row rich relayout | `onRichLayoutReady` | `richLayoutReadyShouldScroll()` → follows **only** when engaged |
-| Reader dragged the transcript | `.simultaneousGesture(DragGesture)` | `readerDidDrag(distanceFromBottom:)` → disengages when pulled past the tolerance (explicit, **timing-free**) |
-| Viewport settled at a measured distance | `GeometryReader` preferences (content maxY vs. viewport height) | `viewportDidSettle(distanceFromBottom:)` → **re-engages at the bottom only; never disengages**, so streaming growth below a scrolled-up reader can't flip follow back on |
+| Reader moved the viewport — **any** input method (touch, trackpad, hardware key, scroll bar, VoiceOver scroll action) | `GeometryReader` content-frame preference: the top offset (`minY`) changed | `viewportDidScroll(distanceFromBottom:)` → disengages past the tolerance, re-engages at the bottom (explicit, **timing-free**) |
+| Transcript re-laid out without a reader move (streaming growth / rotation) | same preference: offset (`minY`) unchanged, only `maxY` grew | `viewportDidSettle(distanceFromBottom:)` → **re-engages at the bottom only; never disengages**, so streaming growth below a scrolled-up reader can't flip follow back on |
 | "Jump to latest" tapped | overlay button | `jumpToLatest()` → re-engage + scroll |
 
 Key invariants that make it robust without a fragile heuristic:
 
-- **Disengage is driven by an explicit drag**, never by content growth or a
-  delay. During active streaming the transcript grows constantly; only a real
-  user drag past `bottomTolerance` (24 pt) stops follow.
-- **Re-engage is driven by geometry** (distance ≤ tolerance) — reached either by
-  the user scrolling back to the bottom or by our own snap — so momentum flicks
-  resolve correctly and content growth never re-arms follow.
+- **Disengage is driven by a change in the scroll offset (`minY`), from any input
+  method** — not by a touch gesture alone and never by a delay. This was the
+  correction to the first revision, which used a touch-only `DragGesture` and so
+  left VoiceOver / hardware / trackpad scrolling stuck in follow.
+- **Streaming growth cannot falsely disengage:** appending content at the bottom
+  changes `maxY` but leaves the top offset `minY` unchanged, so it takes the
+  settle path (re-engage-only), never the scroll path. Only a real viewport move
+  changes `minY`.
+- **Re-engage is driven by geometry** (distance ≤ `bottomTolerance`, 24 pt) —
+  reached by the reader returning to the bottom or by our own snap — so momentum
+  flicks resolve correctly and growth never re-arms follow.
 - **`showsJumpToLatest == !isFollowing && hasPendingContentBelow`**, matching the
   acceptance criterion "away from the bottom **and** newer content exists".
 - iOS 17.0 deployment target ⇒ no iOS-18 `onScrollGeometryChange`; the
-  content-maxY-vs-viewport-height `GeometryReader` pattern is used instead.
+  content-frame-vs-viewport-height `GeometryReader` pattern is used instead.
 
 ### 1.3 What changed
 
@@ -115,9 +120,9 @@ tracked files leaves the generated project byte-identical, so the `main`
 
 | #90 acceptance criterion | Where satisfied |
 | --- | --- |
-| Scroll up mid-stream and keep reading; deltas don't move the viewport | `readerDidDrag` disengages; `transcriptDidGrow` returns `.hold` when disengaged |
+| Scroll up mid-stream and keep reading; deltas don't move the viewport | `viewportDidScroll` disengages; `transcriptDidGrow` returns `.hold` when disengaged |
 | Still follows the bottom smoothly when not scrolled away | `transcriptDidGrow` returns `.scrollToLatest` while following |
-| Manual up-scroll disengages without a fragile timing heuristic | `DragGesture` + explicit tolerance; no delay/timer |
+| Manual up-scroll disengages without a fragile timing heuristic — via **any** input method (touch, trackpad, hardware, scroll bar, VoiceOver) | `viewportDidScroll` on an offset (`minY`) change + explicit tolerance; no delay/timer |
 | Accessible "Jump to latest" appears when away + newer content exists | `showsJumpToLatest` + `JumpToLatestButton` (label + hint + 44-pt) |
 | Tapping it scrolls to newest and resumes follow | `jumpToLatest()` + animated `scrollTo` |
 | Rich Markdown relayout doesn't steal position when disengaged | `richLayoutReadyShouldScroll()` gate |
@@ -130,15 +135,16 @@ tracked files leaves the generated project byte-identical, so the `main`
 - **Verified (reasoning + Linux-runnable):** the pure-state logic is proven by
   the new XCTest cases; the existing hosted scroll test
   (`ResumeHistoryTests.testCompletingTallRichReplyKeepsTranscriptAtBottomAfterRelayout`)
-  exercises a fresh, engaged, never-dragged transcript, for which the new code is
-  behaviourally identical to the old unconditional scroll (follow defaults
-  engaged, `viewportDidSettle` never disengages, the untouched `DragGesture`
-  cannot fire) — so it should stay green.
+  exercises a fresh, engaged transcript with no reader-initiated scroll, for which
+  the new code is behaviourally identical to the old unconditional scroll (follow
+  defaults engaged; the offset only changes via our own snap, which re-engages at
+  the bottom; `viewportDidSettle` never disengages) — so it should stay green.
 - **NOT verified here:** `xcodebuild test` and the on-device gestural/VoiceOver
   behaviour — this environment is Linux with no Xcode, and the `ios` job is
   PR-skipped. Requires the local macOS loop before merge (§0). The
-  `GeometryReader`/`DragGesture`/`ScrollViewReader` wiring in particular must be
-  exercised on a simulator + physical device.
+  `GeometryReader`/offset-tracking/`ScrollViewReader` wiring in particular must be
+  exercised on a simulator + physical device (including a VoiceOver scroll to
+  confirm disengagement).
 
 ---
 

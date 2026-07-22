@@ -17,6 +17,7 @@ import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { cn } from "@/lib/utils";
 import { useBelowBreakpoint } from "@nous-research/ui/hooks/use-below-breakpoint";
 import { useSidebarStatus } from "@/hooks/useSidebarStatus";
+import { useSocialStudioEnabled } from "@/hooks/useSocialStudioEnabled";
 import { PageHeaderProvider } from "@/contexts/PageHeaderProvider";
 import { ProfileProvider } from "@/contexts/ProfileProvider";
 import { useProfileScope } from "@/contexts/useProfileScope";
@@ -299,12 +300,19 @@ function AppShell() {
     [manifests],
   );
 
+  // Social Studio is opt-in (see `useSocialStudioEnabled`): the page stays
+  // reachable by URL, but its sidebar entry only appears once enabled — the
+  // same gate pattern the Insights entry uses above.
+  const [socialEnabled] = useSocialStudioEnabled();
+
   const builtinNav = useMemo(
     () =>
-      BUILTIN_NAV_ITEMS.filter(
-        (item) => showTokenAnalytics || item.path !== "/workspace/insights",
-      ),
-    [showTokenAnalytics],
+      BUILTIN_NAV_ITEMS.filter((item) => {
+        if (item.path === "/workspace/insights") return showTokenAnalytics;
+        if (item.path === "/workspace/social") return socialEnabled;
+        return true;
+      }),
+    [showTokenAnalytics, socialEnabled],
   );
 
   const sidebarNavBySurface = useMemo(

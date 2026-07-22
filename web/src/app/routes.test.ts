@@ -50,6 +50,7 @@ describe("application route catalog", () => {
       "Home",
       "Chat",
       "Design",
+      "Social",
       "Work Board",
       "Conversations",
       "Agents",

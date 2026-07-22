@@ -219,6 +219,7 @@ export interface Translations {
       knowledge: string;
       memory: string;
       securityAccess: string;
+      social?: string;
       system: string;
       workBoard: string;
       workspace: string;
@@ -269,6 +270,50 @@ export interface Translations {
     subtitle: string;
     systemLabel: string;
     title: string;
+  };
+
+  /** Social Studio workspace; locales fall back to English until translated. */
+  social?: {
+    title: string;
+    subtitle: string;
+    tabCompose: string;
+    tabLibrary: string;
+    disable: string;
+    enable: string;
+    disabledNote: string;
+    backHome: string;
+    briefLabel: string;
+    briefPlaceholder: string;
+    channelLabel: string;
+    goalLabel: string;
+    toneLabel: string;
+    formatLabel: string;
+    imageLabel: string;
+    imageHint: string;
+    start: string;
+    reviewHint: string;
+    howItWorksTitle: string;
+    howItWorks: readonly [string, string, string, string];
+    scannedNote: string;
+    scan: string;
+    scanMore: string;
+    emptyTitle: string;
+    emptyBody: string;
+    loadFailed: string;
+    retry: string;
+    drafts: string;
+    withImage: string;
+    textOnly: string;
+    copyCaption: string;
+    copied: string;
+    captionLabel: string;
+    openConversation: string;
+    imageAlt: string;
+    homeCardEyebrow: string;
+    homeCardTitle: string;
+    homeCardBody: string;
+    homeEnable: string;
+    homeOpen: string;
   };
 
   // ── Status page ──

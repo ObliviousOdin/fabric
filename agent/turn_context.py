@@ -490,9 +490,13 @@ def build_turn_context(
         )()
 
         if _preflight_deferred:
+            # #61: name the metrics distinctly so a reader can tell the noisy
+            # pre-API estimate apart from what the provider actually charged —
+            # conflating them is what made compaction look like it fired at
+            # ~50-57% real occupancy.
             logger.info(
-                "Skipping preflight compression: rough estimate ~%s >= %s, "
-                "but last real provider prompt was %s after compression",
+                "Skipping preflight compression: rough_context_pressure=~%s >= threshold=%s, "
+                "but provider_prompt_tokens (last real request) was %s after compression",
                 f"{_preflight_tokens:,}",
                 f"{_compressor.threshold_tokens:,}",
                 f"{_compressor.last_real_prompt_tokens:,}",
@@ -511,10 +515,15 @@ def build_turn_context(
                 getattr(agent, "codex_app_server_auto_compaction", "native"),
             )
         elif _compressor.should_compress(_preflight_tokens):
+            # #61: log rough_context_pressure and the last provider_prompt_tokens
+            # side by side so a "fired at 50% real usage" report is diagnosable
+            # from the gap between the two rather than a single ambiguous number.
             logger.info(
-                "Preflight compression: ~%s tokens >= %s threshold (model %s, ctx %s)",
+                "Preflight compression firing: rough_context_pressure=~%s >= threshold=%s "
+                "(provider_prompt_tokens_last=%s, model %s, ctx %s)",
                 f"{_preflight_tokens:,}",
                 f"{_compressor.threshold_tokens:,}",
+                f"{_compressor.last_real_prompt_tokens:,}",
                 agent.model,
                 f"{_compressor.context_length:,}",
             )

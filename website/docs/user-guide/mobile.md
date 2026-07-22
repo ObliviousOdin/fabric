@@ -32,6 +32,19 @@ Fabric requires a configured gateway authentication provider before it will
 expose a non-loopback bind. The command can guide you through provider setup;
 it never falls back to an unauthenticated public server.
 
+For a phone and computer connected to the same Tailscale tailnet, use the
+private HTTPS tunnel mode instead:
+
+```bash
+fabric mobile --tailscale --install none
+```
+
+This checks that Tailscale is connected, binds Fabric only to `127.0.0.1`,
+configures and verifies Tailscale Serve, and puts the machine's MagicDNS HTTPS
+origin in the QR. It will not overwrite an unrelated service already mounted
+at the Tailscale HTTPS root. This is the zero-typing pairing path: the QR holds
+the current Fabric session token, so treat it like a password.
+
 Scan the printed QR with the PWA landing page or a native Fabric client. Treat
 the QR as a password when it contains a token. Pairing credentials stay in the
 URL fragment, which is not sent in HTTP requests, referrers, or proxy logs.
@@ -47,9 +60,10 @@ a private overlay network, or a trusted HTTPS tunnel.
 
 ## HTTPS and PWA installation
 
-Browsers normally require HTTPS to install a PWA outside localhost. When a
-trusted reverse tunnel terminates HTTPS and forwards to a loopback Fabric
-server, advertise its public origin explicitly:
+Browsers normally require HTTPS to install a PWA outside localhost.
+`--tailscale` manages the recommended private tunnel automatically. For another
+trusted reverse tunnel that terminates HTTPS and forwards to a loopback Fabric
+server, advertise its origin explicitly:
 
 ```bash
 fabric mobile \
@@ -118,7 +132,9 @@ requests are not retried automatically after an ambiguous network failure.
 ## Troubleshooting
 
 - **The phone cannot connect:** verify the QR host is reachable from the phone;
-  do not advertise the computer's loopback address over LAN.
+  do not advertise the computer's loopback address over LAN. With
+  `--tailscale`, confirm that both devices show as connected to the same
+  tailnet.
 - **The PWA will not install:** use an HTTPS `--qr-url`; ordinary LAN HTTP is not
   a secure browser context.
 - **A public bind is refused:** configure a password/auth provider first. This

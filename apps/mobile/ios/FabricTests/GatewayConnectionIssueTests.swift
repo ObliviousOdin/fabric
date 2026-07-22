@@ -64,4 +64,17 @@ final class GatewayConnectionIssueTests: XCTestCase {
         XCTAssertFalse(message.contains("token"))
         XCTAssertFalse(message.contains("do-not-render"))
     }
+
+    func testGatewayWebSocketAcceptsLargeFabricResponsesWithinABoundedLimit() throws {
+        let url = try XCTUnwrap(URL(string: "wss://fabric.invalid/api/ws"))
+        let task = URLSession.shared.webSocketTask(with: url)
+        let foundationDefault = task.maximumMessageSize
+        defer { task.cancel() }
+
+        JsonRpcGatewayClient.configureWebSocket(task)
+
+        XCTAssertGreaterThan(task.maximumMessageSize, foundationDefault)
+        XCTAssertGreaterThanOrEqual(task.maximumMessageSize, 4 * 1024 * 1024)
+        XCTAssertLessThanOrEqual(task.maximumMessageSize, 16 * 1024 * 1024)
+    }
 }

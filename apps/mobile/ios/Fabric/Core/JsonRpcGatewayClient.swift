@@ -68,6 +68,12 @@ final class JsonRpcGatewayClient: NSObject {
     static let defaultRequestTimeout: TimeInterval = 120
     static let defaultConnectTimeout: TimeInterval = 15
 
+    /// Foundation defaults WebSocket messages to 1 MiB. Some expected Fabric
+    /// responses (notably an enabled pet spritesheet) legitimately exceed that
+    /// and otherwise make iOS close an already-authenticated socket with 1009.
+    /// Keep explicit headroom without accepting unbounded gateway frames.
+    private static let maximumInboundMessageSize = 8 * 1024 * 1024
+
     var onEvent: ((GatewayEvent) -> Void)?
     var onStateChange: ((GatewayConnectionState) -> Void)?
 
@@ -131,6 +137,7 @@ final class JsonRpcGatewayClient: NSObject {
                     return
                 }
                 let task = self.urlSession.webSocketTask(with: wsURL)
+                Self.configureWebSocket(task)
                 self.socket = task
                 self.socketURL = wsURL
                 self.connectContinuation = (attemptId, continuation)
@@ -160,6 +167,10 @@ final class JsonRpcGatewayClient: NSObject {
                 task.resume()
             }
         }
+    }
+
+    static func configureWebSocket(_ task: URLSessionWebSocketTask) {
+        task.maximumMessageSize = maximumInboundMessageSize
     }
 
     func close() {

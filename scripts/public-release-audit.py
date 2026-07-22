@@ -1010,6 +1010,11 @@ def audit_git_history(root: Path = ROOT) -> list[Issue]:
                 "-C",
                 str(root),
                 "log",
+                # GitHub Actions stores pull-request test merges beneath these
+                # transient refs. They are not published history, and their
+                # generated metadata must not affect the public-history gate.
+                "--exclude=refs/pull/*/merge",
+                "--exclude=refs/remotes/pull/*/merge",
                 "--all",
                 "--format=%x1e%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B",
             ],

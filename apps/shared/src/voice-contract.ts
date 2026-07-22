@@ -304,8 +304,12 @@ export function parsePhoneAudio(
       required(raw, "mime_type", "phone_audio"),
       "phone_audio.mime_type",
       128,
-    ).toLowerCase();
-    if (!mimeType.startsWith("audio/") && mimeType !== "video/webm") {
+    );
+    if (
+      !/^(?:audio\/[a-z0-9][a-z0-9.+-]*(?:;[a-z0-9][a-z0-9_-]*=[a-z0-9][a-z0-9.,_+-]*)*|video\/webm)(?![\s\S])/.test(
+        mimeType,
+      )
+    ) {
       return fail("phone_audio.mime_type must describe audio.");
     }
     return {

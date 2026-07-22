@@ -60,6 +60,11 @@ private const val MAX_AUDIO_MS = 3_600_000
 private const val MAX_TEXT_CHARACTERS = 1_000_000
 private val TRANSCRIPTION_STATUSES = setOf("completed", "no_speech", "cancelled", "failed")
 private val PHONE_AUDIO_MODES = setOf("dictate", "voice_note", "ask_fabric", "chat")
+private val PHONE_AUDIO_MIME_PATTERN = Regex(
+    "^(?:audio/[a-z0-9][a-z0-9.+-]*" +
+        "(?:;[a-z0-9][a-z0-9_-]*=[a-z0-9][a-z0-9.,_+-]*)*" +
+        "|video/webm)",
+)
 
 private fun fail(message: String): Nothing = throw VoiceContractDecodeException(message)
 
@@ -79,17 +84,29 @@ private fun stringValue(
     if (!primitive.isString) fail("$path must be a string.")
     val result = primitive.content
     if (!allowEmpty && result.isBlank()) fail("$path must not be empty.")
-    if (result.length > maximum) fail("$path is too long.")
+    if (result.codePointCount(0, result.length) > maximum) fail("$path is too long.")
     return result
 }
 
 private fun optionalString(value: JsonObject, key: String, path: String, maximum: Int): String? =
     value[key]?.let { stringValue(it, "$path.$key", maximum) }
 
+private fun integerPrimitive(value: JsonElement?, path: String): Int {
+    val primitive = value as? JsonPrimitive ?: fail("$path must be an integer.")
+    if (primitive.isString) fail("$path must be an integer.")
+    return primitive.intOrNull ?: fail("$path must be an integer.")
+}
+
 private fun integerValue(value: JsonElement?, path: String): Int {
-    val result = (value as? JsonPrimitive)?.intOrNull ?: fail("$path must be an integer.")
+    val result = integerPrimitive(value, path)
     if (result !in 0..MAX_AUDIO_MS) fail("$path is outside the supported range.")
     return result
+}
+
+private fun booleanValue(value: JsonElement?, path: String): Boolean {
+    val primitive = value as? JsonPrimitive ?: fail("$path must be a boolean.")
+    if (primitive.isString) fail("$path must be a boolean.")
+    return primitive.booleanOrNull ?: fail("$path must be a boolean.")
 }
 
 private fun parseTranscription(value: JsonElement): TranscriptionResultV1 {
@@ -97,8 +114,10 @@ private fun parseTranscription(value: JsonElement): TranscriptionResultV1 {
     if (stringValue(required(raw, "schema", "transcription"), "transcription.schema", 128) != "fabric.transcription") {
         fail("transcription.schema is unsupported.")
     }
-    val version = (required(raw, "version", "transcription") as? JsonPrimitive)?.intOrNull
-        ?: fail("transcription.version must be an integer.")
+    val version = integerPrimitive(
+        required(raw, "version", "transcription"),
+        "transcription.version",
+    )
     if (version != FABRIC_TRANSCRIPTION_CONTRACT_VERSION) {
         throw VoiceContractIncompatibleException("fabric.transcription", version)
     }
@@ -141,8 +160,10 @@ private fun parseTranscription(value: JsonElement): TranscriptionResultV1 {
     val error = if (status == "failed") {
         if (text.isNotEmpty()) fail("failed transcription text must be empty.")
         val errorValue = objectValue(required(raw, "error", "transcription"), "transcription.error")
-        val retryable = (required(errorValue, "retryable", "transcription.error") as? JsonPrimitive)
-            ?.booleanOrNull ?: fail("transcription.error.retryable must be a boolean.")
+        val retryable = booleanValue(
+            required(errorValue, "retryable", "transcription.error"),
+            "transcription.error.retryable",
+        )
         TranscriptionErrorV1(
             code = stringValue(required(errorValue, "code", "transcription.error"), "transcription.error.code", 128),
             message = stringValue(
@@ -194,8 +215,10 @@ fun parsePhoneAudio(value: JsonElement): VoiceContractParseResult<PhoneAudioEnve
         val raw = objectValue(value, "phone_audio")
         val contract = stringValue(required(raw, "contract", "phone_audio"), "phone_audio.contract", 128)
         if (contract != "fabric.phone_audio") fail("phone_audio.contract is unsupported.")
-        val version = (required(raw, "version", "phone_audio") as? JsonPrimitive)?.intOrNull
-            ?: fail("phone_audio.version must be an integer.")
+        val version = integerPrimitive(
+            required(raw, "version", "phone_audio"),
+            "phone_audio.version",
+        )
         if (version != FABRIC_PHONE_AUDIO_CONTRACT_VERSION) {
             throw VoiceContractIncompatibleException(contract, version)
         }
@@ -205,8 +228,8 @@ fun parsePhoneAudio(value: JsonElement): VoiceContractParseResult<PhoneAudioEnve
             required(raw, "mime_type", "phone_audio"),
             "phone_audio.mime_type",
             128,
-        ).lowercase()
-        if (!mimeType.startsWith("audio/") && mimeType != "video/webm") {
+        )
+        if (!PHONE_AUDIO_MIME_PATTERN.matches(mimeType)) {
             fail("phone_audio.mime_type must describe audio.")
         }
         PhoneAudioEnvelopeV1(

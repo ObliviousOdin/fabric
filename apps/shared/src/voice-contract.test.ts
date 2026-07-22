@@ -78,6 +78,42 @@ describe("canonical fabric voice fixture corpus", () => {
     });
   });
 
+  it("requires canonical phone-audio MIME types", () => {
+    for (const mime_type of [
+      "Audio/WAV",
+      "audio/",
+      "audio/webm;Codecs=opus",
+      "audio/wav\n",
+    ]) {
+      expect(
+        parsePhoneAudio({ ...phoneAudioVoiceNote, mime_type }),
+      ).toMatchObject({
+        kind: "invalid",
+      });
+    }
+  });
+
+  it("counts string limits in Unicode code points", () => {
+    expect(
+      parseTranscriptionResult({
+        ...transcriptionCompleted,
+        provider: "😀".repeat(128),
+      }),
+    ).toMatchObject({ kind: "verified" });
+    expect(
+      parseTranscriptionResult({
+        ...transcriptionCompleted,
+        provider: "😀".repeat(129),
+      }),
+    ).toMatchObject({ kind: "invalid" });
+    expect(
+      parseTranscriptionResult({
+        ...transcriptionCompleted,
+        provider: "e\u0301".repeat(65),
+      }),
+    ).toMatchObject({ kind: "invalid" });
+  });
+
   it("rejects an error field on a non-failed result even when null", () => {
     expect(
       parseTranscriptionResult({ ...transcriptionCompleted, error: null }),

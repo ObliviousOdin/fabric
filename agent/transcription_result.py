@@ -8,6 +8,7 @@ does not claim that the gateway recorded the phone microphone.
 from __future__ import annotations
 
 import copy
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -93,7 +94,11 @@ def validate_transcription_result(value: Any) -> dict[str, Any]:
         "transcription.request_id",
         maximum=128,
     )
-    status = _required(result, "status", "transcription")
+    status = _string(
+        _required(result, "status", "transcription"),
+        "transcription.status",
+        maximum=32,
+    )
     if status not in TRANSCRIPTION_STATUSES:
         raise VoiceContractError("transcription.status is invalid")
     text = _string(
@@ -185,15 +190,25 @@ def validate_phone_audio(value: Any) -> dict[str, Any]:
         "phone_audio.capture_id",
         maximum=128,
     )
-    mode = _required(envelope, "mode", "phone_audio")
+    mode = _string(
+        _required(envelope, "mode", "phone_audio"),
+        "phone_audio.mode",
+        maximum=32,
+    )
     if mode not in PHONE_AUDIO_MODES:
         raise VoiceContractError("phone_audio.mode is invalid")
     mime_type = _string(
         _required(envelope, "mime_type", "phone_audio"),
         "phone_audio.mime_type",
         maximum=128,
-    ).lower()
-    if not (mime_type.startswith("audio/") or mime_type == "video/webm"):
+    )
+    if (
+        re.fullmatch(
+            r"(?:audio/[a-z0-9][a-z0-9.+-]*(?:;[a-z0-9][a-z0-9_-]*=[a-z0-9][a-z0-9.,_+-]*)*|video/webm)",
+            mime_type,
+        )
+        is None
+    ):
         raise VoiceContractError("phone_audio.mime_type must describe audio")
     _integer(
         _required(envelope, "duration_ms", "phone_audio"), "phone_audio.duration_ms"
@@ -210,16 +225,29 @@ def coerce_transcription_result(
     provider: str | None,
 ) -> dict[str, Any]:
     """Use a valid provider result or synthesize v1 for a legacy provider."""
+    normalized_request_id = _string(request_id, "transcription.request_id", maximum=128)
+    normalized_transcript = _string(
+        transcript,
+        "transcription.text",
+        maximum=_MAX_TEXT_CHARS,
+        allow_empty=True,
+    )
+    normalized_provider = (
+        _string(provider, "transcription.provider", maximum=128)
+        if provider is not None
+        else None
+    )
     if isinstance(value, Mapping):
         try:
             parsed = validate_transcription_result(value)
             if (
                 parsed["status"] in {"completed", "no_speech"}
-                and parsed["text"] == transcript
+                and parsed["request_id"] == normalized_request_id
+                and parsed["text"] == normalized_transcript
                 and (
-                    not provider
+                    not normalized_provider
                     or not parsed.get("provider")
-                    or parsed["provider"] == provider
+                    or parsed["provider"] == normalized_provider
                 )
             ):
                 return parsed
@@ -228,16 +256,15 @@ def coerce_transcription_result(
         except VoiceContractError:
             pass
 
-    normalized_request_id = _string(request_id, "transcription.request_id", maximum=128)
     result: dict[str, Any] = {
         "schema": TRANSCRIPTION_SCHEMA,
         "version": TRANSCRIPTION_VERSION,
         "request_id": normalized_request_id,
-        "status": "completed" if transcript else "no_speech",
-        "text": transcript,
+        "status": "completed" if normalized_transcript else "no_speech",
+        "text": normalized_transcript,
         "segments": [],
         "warnings": [],
     }
-    if provider:
-        result["provider"] = _string(provider, "transcription.provider", maximum=128)
-    return result
+    if normalized_provider:
+        result["provider"] = normalized_provider
+    return validate_transcription_result(result)

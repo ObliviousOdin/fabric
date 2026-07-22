@@ -77,6 +77,58 @@ final class VoiceContractTests: XCTestCase {
         }
     }
 
+    func testOptionalFieldsRejectExplicitNull() throws {
+        let optionalFields = [
+            "provider",
+            "language",
+            "duration_ms",
+            "processing_ms",
+            "model",
+            "segments",
+            "warnings",
+        ]
+        for field in optionalFields {
+            var completed = try fixtureObject("transcription-completed")
+            completed[field] = NSNull()
+            let data = try JSONSerialization.data(withJSONObject: completed)
+            guard case .invalid = FabricVoiceContractParser.parseTranscription(data) else {
+                return XCTFail("Explicit null must be invalid for \(field)")
+            }
+        }
+    }
+
+    func testPhoneAudioRequiresCanonicalMIMEType() throws {
+        for mimeType in ["Audio/WAV", "audio/", "audio/webm;Codecs=opus", "audio/wav\n"] {
+            var envelope = try fixtureObject("phone-audio-voice-note")
+            envelope["mime_type"] = mimeType
+            let data = try JSONSerialization.data(withJSONObject: envelope)
+            guard case .invalid = FabricVoiceContractParser.parsePhoneAudio(data) else {
+                return XCTFail("Non-canonical MIME type must be invalid: \(mimeType)")
+            }
+        }
+    }
+
+    func testStringLimitsCountUnicodeCodePoints() throws {
+        var completed = try fixtureObject("transcription-completed")
+        completed["provider"] = String(repeating: "😀", count: 128)
+        var data = try JSONSerialization.data(withJSONObject: completed)
+        guard case .verified = FabricVoiceContractParser.parseTranscription(data) else {
+            return XCTFail("128 Unicode code points should verify")
+        }
+
+        completed["provider"] = String(repeating: "😀", count: 129)
+        data = try JSONSerialization.data(withJSONObject: completed)
+        guard case .invalid = FabricVoiceContractParser.parseTranscription(data) else {
+            return XCTFail("129 Unicode code points must be invalid")
+        }
+
+        completed["provider"] = String(repeating: "e\u{0301}", count: 65)
+        data = try JSONSerialization.data(withJSONObject: completed)
+        guard case .invalid = FabricVoiceContractParser.parseTranscription(data) else {
+            return XCTFail("130 decomposed Unicode scalars must be invalid")
+        }
+    }
+
     private func parseKind<Value: Equatable>(_ result: FabricVoiceContractParseResult<Value>) -> String {
         switch result {
         case .verified: return "verified"

@@ -17,6 +17,25 @@ enum FabricPhoneAudioMode: String, Codable, Equatable {
     case chat
 }
 
+private extension KeyedDecodingContainer {
+    func decodeOptionalNonNull<T: Decodable>(
+        _ type: T.Type,
+        forKey key: Key
+    ) throws -> T? {
+        guard contains(key) else { return nil }
+        if try decodeNil(forKey: key) {
+            throw DecodingError.valueNotFound(
+                type,
+                DecodingError.Context(
+                    codingPath: codingPath,
+                    debugDescription: "Optional contract fields may be omitted but not null."
+                )
+            )
+        }
+        return try decode(type, forKey: key)
+    }
+}
+
 struct FabricTranscriptionSegmentV1: Codable, Equatable {
     let startMS: Int
     let endMS: Int
@@ -74,18 +93,18 @@ struct FabricTranscriptionResultV1: Codable, Equatable {
         requestID = try values.decode(String.self, forKey: .requestID)
         status = try values.decode(FabricTranscriptionStatus.self, forKey: .status)
         text = try values.decode(String.self, forKey: .text)
-        provider = try values.decodeIfPresent(String.self, forKey: .provider)
-        language = try values.decodeIfPresent(String.self, forKey: .language)
-        durationMS = try values.decodeIfPresent(Int.self, forKey: .durationMS)
-        processingMS = try values.decodeIfPresent(Int.self, forKey: .processingMS)
-        model = try values.decodeIfPresent(String.self, forKey: .model)
-        segments = try values.decodeIfPresent(
+        provider = try values.decodeOptionalNonNull(String.self, forKey: .provider)
+        language = try values.decodeOptionalNonNull(String.self, forKey: .language)
+        durationMS = try values.decodeOptionalNonNull(Int.self, forKey: .durationMS)
+        processingMS = try values.decodeOptionalNonNull(Int.self, forKey: .processingMS)
+        model = try values.decodeOptionalNonNull(String.self, forKey: .model)
+        segments = try values.decodeOptionalNonNull(
             [FabricTranscriptionSegmentV1].self,
             forKey: .segments
         ) ?? []
-        warnings = try values.decodeIfPresent([String].self, forKey: .warnings) ?? []
+        warnings = try values.decodeOptionalNonNull([String].self, forKey: .warnings) ?? []
         containsErrorField = values.contains(.error)
-        error = try values.decodeIfPresent(FabricTranscriptionErrorV1.self, forKey: .error)
+        error = try values.decodeOptionalNonNull(FabricTranscriptionErrorV1.self, forKey: .error)
     }
 }
 
@@ -175,11 +194,10 @@ enum FabricVoiceContractParser {
                 )
             }
             let envelope = try decoder.decode(FabricPhoneAudioEnvelopeV1.self, from: data)
-            guard !envelope.captureID.isEmpty, envelope.captureID.count <= 128 else {
+            guard !envelope.captureID.isEmpty, textLength(envelope.captureID) <= 128 else {
                 return .invalid(message: "Phone audio capture ID is invalid.")
             }
-            let mimeType = envelope.mimeType.lowercased()
-            guard mimeType.hasPrefix("audio/") || mimeType == "video/webm" else {
+            guard validMIMEType(envelope.mimeType) else {
                 return .invalid(message: "Phone audio MIME type is invalid.")
             }
             guard validMilliseconds(envelope.durationMS) else {
@@ -207,15 +225,15 @@ enum FabricVoiceContractParser {
         guard result.version == fabricTranscriptionContractVersion else {
             return .incompatible(contract: result.schema, version: result.version)
         }
-        guard !result.requestID.isEmpty, result.requestID.count <= 128 else {
+        guard !result.requestID.isEmpty, textLength(result.requestID) <= 128 else {
             return .invalid(message: "Transcription request ID is invalid.")
         }
-        guard result.text.count <= maximumTextCharacters,
+        guard textLength(result.text) <= maximumTextCharacters,
               result.segments.count <= 10_000,
               result.warnings.count <= 64,
-              result.provider.map({ !$0.isEmpty && $0.count <= 128 }) ?? true,
-              result.language.map({ !$0.isEmpty && $0.count <= 64 }) ?? true,
-              result.model.map({ !$0.isEmpty && $0.count <= 128 }) ?? true,
+              result.provider.map({ !$0.isEmpty && textLength($0) <= 128 }) ?? true,
+              result.language.map({ !$0.isEmpty && textLength($0) <= 64 }) ?? true,
+              result.model.map({ !$0.isEmpty && textLength($0) <= 128 }) ?? true,
               result.durationMS.map(validMilliseconds) ?? true,
               result.processingMS.map(validMilliseconds) ?? true else {
             return .invalid(message: "Transcription metadata exceeds its bounds.")
@@ -225,11 +243,11 @@ enum FabricVoiceContractParser {
                   validMilliseconds(segment.endMS),
                   segment.endMS >= segment.startMS,
                   result.durationMS.map({ segment.endMS <= $0 }) ?? true,
-                  segment.text.count <= maximumTextCharacters else {
+                  textLength(segment.text) <= maximumTextCharacters else {
                 return .invalid(message: "Transcription segment is invalid.")
             }
         }
-        guard result.warnings.allSatisfy({ $0.count <= 1_000 }) else {
+        guard result.warnings.allSatisfy({ textLength($0) <= 1_000 }) else {
             return .invalid(message: "Transcription warning is invalid.")
         }
         switch result.status {
@@ -237,9 +255,9 @@ enum FabricVoiceContractParser {
             guard result.text.isEmpty,
                   let error = result.error,
                   !error.code.isEmpty,
-                  error.code.count <= 128,
+                  textLength(error.code) <= 128,
                   !error.message.isEmpty,
-                  error.message.count <= 4_000 else {
+                  textLength(error.message) <= 4_000 else {
                 return .invalid(message: "Failed transcription error is invalid.")
             }
         case .noSpeech, .cancelled:
@@ -252,6 +270,18 @@ enum FabricVoiceContractParser {
             }
         }
         return .verified(result)
+    }
+
+    private static func textLength(_ value: String) -> Int {
+        value.unicodeScalars.count
+    }
+
+    private static func validMIMEType(_ value: String) -> Bool {
+        let pattern =
+            "^(?:audio/[a-z0-9][a-z0-9.+-]*" +
+            "(?:;[a-z0-9][a-z0-9_-]*=[a-z0-9][a-z0-9.,_+-]*)*" +
+            "|video/webm)(?![\\s\\S])"
+        return value.range(of: pattern, options: .regularExpression) != nil
     }
 
     private static func validMilliseconds(_ value: Int) -> Bool {

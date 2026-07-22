@@ -1784,6 +1784,53 @@ class TestWebServerEndpoints:
         assert captured["path"].endswith(".webm")
         assert not Path(captured["path"]).exists()
 
+    def test_audio_transcription_rejects_invalid_request_id_before_transcribing(self, monkeypatch):
+        import tools.transcription_tools as transcription_tools
+
+        called = False
+
+        def fake_transcribe_audio(_path):
+            nonlocal called
+            called = True
+            return {"success": True, "transcript": "should not run"}
+
+        monkeypatch.setattr(transcription_tools, "transcribe_audio", fake_transcribe_audio)
+        resp = self.client.post(
+            "/api/audio/transcribe",
+            json={
+                "data_url": "data:audio/webm;base64,aGVsbG8=",
+                "mime_type": "audio/webm",
+                "request_id": "x" * 129,
+            },
+        )
+
+        assert resp.status_code == 400
+        assert called is False
+
+    def test_audio_transcription_rejects_oversized_provider_transcript(self, monkeypatch):
+        import tools.transcription_tools as transcription_tools
+
+        monkeypatch.setattr(
+            transcription_tools,
+            "transcribe_audio",
+            lambda _path: {
+                "success": True,
+                "transcript": "x" * 1_000_001,
+                "provider": "fixture",
+            },
+        )
+        resp = self.client.post(
+            "/api/audio/transcribe",
+            json={
+                "data_url": "data:audio/webm;base64,aGVsbG8=",
+                "mime_type": "audio/webm",
+                "request_id": "bounded-request",
+            },
+        )
+
+        assert resp.status_code == 400
+        assert "character limit" in resp.json()["detail"]
+
     def test_audio_transcription_preserves_valid_structured_result(self, monkeypatch):
         import tools.transcription_tools as transcription_tools
 

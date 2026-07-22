@@ -68,6 +68,45 @@ class VoiceContractTest {
         assertTrue(parseTranscriptionResult(completed) is VoiceContractParseResult.Invalid)
     }
 
+    @Test
+    fun quotedNumbersAndBooleansAreRejected() {
+        val completed = fixture("transcription-completed.json").jsonObject
+        val quotedVersion = JsonObject(completed + ("version" to JsonPrimitive("1")))
+        assertTrue(parseTranscriptionResult(quotedVersion) is VoiceContractParseResult.Invalid)
+
+        val quotedDuration = JsonObject(completed + ("duration_ms" to JsonPrimitive("20")))
+        assertTrue(parseTranscriptionResult(quotedDuration) is VoiceContractParseResult.Invalid)
+
+        val failed = fixture("transcription-failed.json").jsonObject
+        val error = failed.getValue("error").jsonObject
+        val quotedRetryable = JsonObject(
+            failed + ("error" to JsonObject(error + ("retryable" to JsonPrimitive("false")))),
+        )
+        assertTrue(parseTranscriptionResult(quotedRetryable) is VoiceContractParseResult.Invalid)
+    }
+
+    @Test
+    fun phoneAudioRequiresCanonicalMimeType() {
+        val envelope = fixture("phone-audio-voice-note.json").jsonObject
+        listOf("Audio/WAV", "audio/", "audio/webm;Codecs=opus", "audio/wav\n").forEach { mimeType ->
+            val value = JsonObject(envelope + ("mime_type" to JsonPrimitive(mimeType)))
+            assertTrue(parsePhoneAudio(value) is VoiceContractParseResult.Invalid)
+        }
+    }
+
+    @Test
+    fun stringLimitsCountUnicodeCodePoints() {
+        val completed = fixture("transcription-completed.json").jsonObject
+        val boundary = JsonObject(completed + ("provider" to JsonPrimitive("😀".repeat(128))))
+        assertTrue(parseTranscriptionResult(boundary) is VoiceContractParseResult.Verified)
+
+        val tooManyEmoji = JsonObject(completed + ("provider" to JsonPrimitive("😀".repeat(129))))
+        assertTrue(parseTranscriptionResult(tooManyEmoji) is VoiceContractParseResult.Invalid)
+
+        val tooManyScalars = JsonObject(completed + ("provider" to JsonPrimitive("e\u0301".repeat(65))))
+        assertTrue(parseTranscriptionResult(tooManyScalars) is VoiceContractParseResult.Invalid)
+    }
+
     private fun resultKind(value: VoiceContractParseResult<*>): String = when (value) {
         is VoiceContractParseResult.Verified -> "verified"
         is VoiceContractParseResult.Incompatible -> "incompatible"

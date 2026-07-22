@@ -3956,6 +3956,10 @@ async def transcribe_audio_upload(payload: AudioTranscriptionRequest):
             status_code=400, detail="Payload must be an audio recording"
         )
 
+    request_id = (payload.request_id or str(uuid.uuid4())).strip()
+    if not request_id or len(request_id) > 128:
+        raise HTTPException(status_code=400, detail="Invalid transcription request ID")
+
     try:
         audio_bytes = base64.b64decode(encoded, validate=True)
     except (binascii.Error, ValueError):
@@ -4004,7 +4008,6 @@ async def transcribe_audio_upload(payload: AudioTranscriptionRequest):
         coerce_transcription_result,
     )
 
-    request_id = (payload.request_id or str(uuid.uuid4())).strip()
     transcript = str(result.get("transcript") or "").strip()
     provider = result.get("provider")
     try:

@@ -101,6 +101,7 @@ import {
   DESIGN_ROUTE,
   MESSAGING_ROUTE,
   SKILLS_ROUTE,
+  SOCIAL_ROUTE,
   VOICE_NOTES_ROUTE
 } from '../../routes'
 import type { SidebarNavItem } from '../../types'
@@ -152,6 +153,7 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
   },
   { id: 'voice-notes', label: '', icon: props => <Codicon name="record" {...props} />, route: VOICE_NOTES_ROUTE },
   { id: 'design', label: '', icon: props => <Codicon name="symbol-color" {...props} />, route: DESIGN_ROUTE },
+  { id: 'social', label: '', icon: props => <Codicon name="megaphone" {...props} />, route: SOCIAL_ROUTE },
   { id: 'messaging', label: '', icon: props => <Codicon name="comment" {...props} />, route: MESSAGING_ROUTE },
   { id: 'artifacts', label: '', icon: props => <Codicon name="files" {...props} />, route: ARTIFACTS_ROUTE }
 ]
@@ -1063,6 +1065,7 @@ export function ChatSidebar({
                   (item.id === 'skills' && currentView === 'skills') ||
                   (item.id === 'voice-notes' && currentView === 'voice-notes') ||
                   (item.id === 'design' && currentView === 'design') ||
+                  (item.id === 'social' && currentView === 'social') ||
                   (item.id === 'messaging' && currentView === 'messaging') ||
                   (item.id === 'artifacts' && currentView === 'artifacts')
 

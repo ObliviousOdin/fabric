@@ -130,6 +130,7 @@ export type SidebarNavId =
   | 'new-session'
   | 'settings'
   | 'skills'
+  | 'social'
   | 'voice-notes'
 
 export interface SidebarNavItem {

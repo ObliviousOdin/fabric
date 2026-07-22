@@ -1044,7 +1044,8 @@ export const en: Translations = {
       skills: { title: 'Capabilities', detail: 'Skills, tools, and MCP servers' },
       messaging: { title: 'Messaging', detail: 'Set up Telegram, Slack, Discord, and more' },
       artifacts: { title: 'Artifacts', detail: 'Browse generated outputs' },
-      design: { title: 'Design', detail: 'Create prototypes and design systems' }
+      design: { title: 'Design', detail: 'Create prototypes and design systems' },
+      social: { title: 'Social', detail: 'Draft and copy posts for LinkedIn' }
     },
     sectionEntries: {
       sessions: { title: 'Sessions panel', detail: 'Search, pin, and manage sessions' },
@@ -1529,6 +1530,45 @@ export const en: Translations = {
     }
   },
 
+  social: {
+    title: 'Social Studio',
+    subtitle:
+      'Turn a conversation into a ready-to-post update. Draft it here, then open your Library to copy the caption and grab the image.',
+    tabCompose: 'Compose',
+    tabLibrary: 'Library',
+    briefLabel: "What's the post about?",
+    briefPlaceholder:
+      "We just shipped our agent dashboard after six weeks heads-down. Here's what I learned about shipping fast without breaking trust…",
+    channelLabel: 'Channel',
+    goalLabel: 'Goal',
+    toneLabel: 'Voice',
+    formatLabel: 'Format',
+    imageLabel: 'Include a matching image',
+    imageHint: 'Ask the agent to design a graphic you can post alongside the caption.',
+    start: 'Draft in a new chat',
+    reviewHint: 'This opens a fresh chat with the prepared brief so you can review it before sending.',
+    howItWorksTitle: 'How it works',
+    howItWorks: [
+      'Describe the post and pick a voice.',
+      'Fabric drafts it in a fresh chat, where you can refine it.',
+      'The finished post lands in your Library.',
+      'Copy the caption and image, then paste into LinkedIn.'
+    ],
+    scanning: 'Scanning recent conversations…',
+    refresh: 'Refresh',
+    scannedNote: count => `Scanned your ${count} most recent conversations.`,
+    emptyTitle: 'No posts yet',
+    emptyBody: 'Draft one in Compose. When the agent writes a post, it shows up here ready to copy.',
+    loadFailed: "Couldn't load your conversations.",
+    copyCaption: 'Copy caption',
+    openConversation: 'Open',
+    withImage: 'With image',
+    textOnly: 'Text only',
+    drafts: count => `${count} drafts`,
+    imageAlt: 'Generated image for the post',
+    untitled: 'Untitled conversation'
+  },
+
   artifacts: {
     search: 'Search artifacts...',
     refresh: 'Refresh artifacts',
@@ -1571,7 +1611,8 @@ export const en: Translations = {
       'voice-notes': 'Voice Notes',
       messaging: 'Messaging',
       artifacts: 'Artifacts',
-      design: 'Design'
+      design: 'Design',
+      social: 'Social'
     },
     searchAria: 'Search sessions',
     searchPlaceholder: 'Search sessions…',

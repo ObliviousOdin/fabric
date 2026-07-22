@@ -3017,8 +3017,8 @@ struct PetSpriteView: View {
         let declared = sheet.framesByRow[name] ?? 0
         let frames = declared > 0 ? declared : min(sheet.framesPerState, atlasWidth / sheet.frameW)
         guard frames > 0,
-              (index + 1) * sheet.frameH <= atlasHeight,
-              frames * sheet.frameW <= atlasWidth
+              index < atlasHeight / sheet.frameH,
+              frames <= atlasWidth / sheet.frameW
         else { return nil }
         return SpriteRow(
             index: index,

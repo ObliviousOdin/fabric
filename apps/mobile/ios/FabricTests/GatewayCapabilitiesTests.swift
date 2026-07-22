@@ -328,11 +328,32 @@ final class GatewayCapabilitiesTests: XCTestCase {
         XCTAssertEqual(sheet?.framesByRow["waving"], 6)
         XCTAssertEqual(sheet?.stateRows, ["idle", "waving"])
 
+        var widerPhysicalRow = payload
+        widerPhysicalRow["framesPerState"] = 6
+        widerPhysicalRow["framesByRow"] = ["idle": 4, "waving": 8]
+        XCTAssertEqual(PetSpriteSheet.from(payload: widerPhysicalRow)?.framesByRow["waving"], 8)
+
         XCTAssertNil(PetSpriteSheet.from(payload: ["enabled": false]))
 
         var degenerate = payload
         degenerate["frameW"] = 0
         XCTAssertNil(PetSpriteSheet.from(payload: degenerate))
+
+        var overflowingWidth = payload
+        overflowingWidth["frameW"] = Int.max
+        XCTAssertNil(PetSpriteSheet.from(payload: overflowingWidth))
+
+        var overflowingHeight = payload
+        overflowingHeight["frameH"] = Int.max
+        XCTAssertNil(PetSpriteSheet.from(payload: overflowingHeight))
+
+        var oversizedRows = payload
+        oversizedRows["stateRows"] = Array(repeating: "idle", count: 129)
+        XCTAssertNil(PetSpriteSheet.from(payload: oversizedRows))
+
+        var oversizedFrameCount = payload
+        oversizedFrameCount["framesByRow"] = ["idle": Int.max]
+        XCTAssertNil(PetSpriteSheet.from(payload: oversizedFrameCount))
     }
 
     func testScopedGrantsIsAPureFlagWithNoMethodSetCheck() throws {

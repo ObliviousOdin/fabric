@@ -314,6 +314,13 @@ struct ActiveSession: Identifiable, Hashable, Codable {
 /// ragged rows are padded with transparent frames — renderers must never
 /// animate `framesPerState` blindly.
 struct PetSpriteSheet: Equatable {
+    // Gateway data is untrusted. These limits stay well above the canonical
+    // 192 x 208, single-digit-column, 9-row pet atlas while keeping every
+    // derived pixel extent small enough to validate before the renderer sees it.
+    private static let maximumAtlasDimension = 8_192
+    private static let maximumFramesPerRow = 256
+    private static let maximumStateRows = 128
+
     let slug: String
     let displayName: String
     let mime: String
@@ -327,7 +334,8 @@ struct PetSpriteSheet: Equatable {
     let loopMs: Int
     let stateRows: [String]
 
-    /// nil unless the payload is enabled and its geometry is sane (> 0).
+    /// nil unless the payload is enabled and its geometry is positive, bounded,
+    /// and internally consistent.
     static func from(payload: [String: Any]) -> PetSpriteSheet? {
         guard payload["enabled"] as? Bool == true,
               let slug = payload["slug"] as? String, !slug.isEmpty,
@@ -335,9 +343,26 @@ struct PetSpriteSheet: Equatable {
               !spritesheetBase64.isEmpty,
               let frameW = integer(payload["frameW"]), frameW > 0,
               let frameH = integer(payload["frameH"]), frameH > 0,
-              let framesPerState = integer(payload["framesPerState"]), framesPerState > 0,
+              let framesPerState = integer(payload["framesPerState"]),
+              (1...maximumFramesPerRow).contains(framesPerState),
               let loopMs = integer(payload["loopMs"]), loopMs > 0,
-              let stateRows = payload["stateRows"] as? [String], !stateRows.isEmpty
+              let stateRows = payload["stateRows"] as? [String],
+              (1...maximumStateRows).contains(stateRows.count),
+              let framesByState = frameCounts(
+                  payload["framesByState"]
+              ),
+              let framesByRow = frameCounts(
+                  payload["framesByRow"]
+              ),
+              fitsAtlas(
+                  cellSize: frameW,
+                  cellCount: maximumDeclaredFrames(
+                      fallback: framesPerState,
+                      framesByState: framesByState,
+                      framesByRow: framesByRow
+                  )
+              ),
+              fitsAtlas(cellSize: frameH, cellCount: stateRows.count)
         else { return nil }
         return PetSpriteSheet(
             slug: slug,
@@ -348,8 +373,8 @@ struct PetSpriteSheet: Equatable {
             frameW: frameW,
             frameH: frameH,
             framesPerState: framesPerState,
-            framesByState: frameCounts(payload["framesByState"]),
-            framesByRow: frameCounts(payload["framesByRow"]),
+            framesByState: framesByState,
+            framesByRow: framesByRow,
             loopMs: loopMs,
             stateRows: stateRows
         )
@@ -360,11 +385,36 @@ struct PetSpriteSheet: Equatable {
         return (value as? NSNumber)?.intValue
     }
 
-    private static func frameCounts(_ value: Any?) -> [String: Int] {
-        guard let raw = value as? [String: Any] else { return [:] }
-        return raw.reduce(into: [:]) { counts, entry in
-            if let count = integer(entry.value) { counts[entry.key] = count }
+    private static func fitsAtlas(cellSize: Int, cellCount: Int) -> Bool {
+        let (extent, overflow) = cellSize.multipliedReportingOverflow(by: cellCount)
+        return !overflow && extent <= maximumAtlasDimension
+    }
+
+    private static func maximumDeclaredFrames(
+        fallback: Int,
+        framesByState: [String: Int],
+        framesByRow: [String: Int]
+    ) -> Int {
+        max(
+            fallback,
+            max(framesByState.values.max() ?? 0, framesByRow.values.max() ?? 0)
+        )
+    }
+
+    private static func frameCounts(_ value: Any?) -> [String: Int]? {
+        guard let value else { return [:] }
+        guard let raw = value as? [String: Any], raw.count <= maximumStateRows else {
+            return nil
         }
+
+        var counts: [String: Int] = [:]
+        for (name, rawCount) in raw {
+            guard let count = integer(rawCount),
+                  (0...maximumFramesPerRow).contains(count)
+            else { return nil }
+            counts[name] = count
+        }
+        return counts
     }
 }
 

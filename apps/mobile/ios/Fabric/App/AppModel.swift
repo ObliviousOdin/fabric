@@ -151,8 +151,9 @@ final class AppModel {
         return gateway
     }
 
-    /// Save a gated (sign-in) server. No token; the password is entered at
-    /// connect time and never persisted.
+    /// Save a gated (sign-in) server. No token or password enters metadata;
+    /// an explicitly kept password is written separately to Keychain only
+    /// after a successful sign-in.
     func saveGatedGateway(label: String, baseURL: URL, username: String) -> SavedGateway {
         let existing = gateways.first { $0.endpointKey == SavedGateway.endpointKey(for: baseURL) }
         let gateway = SavedGateway(
@@ -338,7 +339,18 @@ final class AppModel {
         if rememberPassword == false {
             GatewayStore.deletePassword(id: gateway.id)
         }
-        await connect(gateway) {
+        await connect(
+            gateway,
+            onConnected: {
+                guard rememberPassword == true,
+                      let password,
+                      !password.isEmpty else { return }
+                // A Keychain failure must not disturb an established
+                // connection; the connected presentation will truthfully
+                // report that no password was kept.
+                try? GatewayStore.savePassword(password, for: gateway)
+            }
+        ) {
             if let password, !password.isEmpty {
                 try await GatewayAPI.passwordLogin(
                     gateway: gateway,
@@ -355,14 +367,6 @@ final class AppModel {
                 return try GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)
             }
             return try await Self.gatedReconnectURL(for: gateway, using: authSession)
-        }
-        if rememberPassword == true,
-           let password, !password.isEmpty,
-           phase == .connected,
-           activeGatewayId == gateway.id {
-            // Keep only a password that just signed in successfully, and never
-            // let a Keychain failure disturb the established connection.
-            try? GatewayStore.savePassword(password, for: gateway)
         }
     }
 
@@ -418,6 +422,7 @@ final class AppModel {
     private func connect(
         _ gateway: SavedGateway,
         automaticReconnect: Bool = false,
+        onConnected: (() -> Void)? = nil,
         wsURL: @escaping () async throws -> URL
     ) async {
         guard !automaticReconnect || phase == .reconnecting else { return }
@@ -475,6 +480,7 @@ final class AppModel {
             permitsAutomaticReconnect = true
             connectionGeneration += 1
             lastConnectError = nil
+            onConnected?()
             phase = .connected
             if !GatewayStore.hasCompletedConnectionIntro(id: gateway.id) {
                 connectedIntroGatewayId = gateway.id

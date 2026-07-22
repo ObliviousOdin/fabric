@@ -62,6 +62,7 @@ struct RootView: View {
                 ConnectedGatewayIntroView(
                     gateway: gateway,
                     negotiation: appModel.capabilityNegotiation,
+                    hasStoredPassword: appModel.hasStoredPassword(gateway),
                     onContinue: {
                         ConnectedAppShellSelection.resetForCompletedIntro()
                         appModel.completeConnectedIntro()

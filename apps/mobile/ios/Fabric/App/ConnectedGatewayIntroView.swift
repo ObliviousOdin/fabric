@@ -7,10 +7,25 @@ import SwiftUI
 struct ConnectedGatewayIntroView: View {
     let gateway: SavedGateway
     let negotiation: GatewayCapabilityNegotiation?
+    let hasStoredPassword: Bool
     let onContinue: () -> Void
     let onSwitchServer: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    init(
+        gateway: SavedGateway,
+        negotiation: GatewayCapabilityNegotiation?,
+        hasStoredPassword: Bool = false,
+        onContinue: @escaping () -> Void,
+        onSwitchServer: @escaping () -> Void
+    ) {
+        self.gateway = gateway
+        self.negotiation = negotiation
+        self.hasStoredPassword = hasStoredPassword
+        self.onContinue = onContinue
+        self.onSwitchServer = onSwitchServer
+    }
 
     var body: some View {
         ScrollView {
@@ -49,15 +64,16 @@ struct ConnectedGatewayIntroView: View {
                         )
                     }
                     Divider().padding(.leading, 56)
-                    ConnectionFactRow(
-                        icon: gateway.authMode == .token ? "key.fill" : "person.badge.key.fill",
-                        title: gateway.authMode == .token
-                            ? "Token protected in Keychain"
-                            : "Password is not saved",
-                        detail: gateway.authMode == .token
-                            ? "This server's token stays in protected storage on this iPhone."
-                            : "Fabric keeps only the server address and username on this iPhone."
+                    let credentialFact = ConnectedGatewayIntroPresentation.credentialFact(
+                        for: gateway,
+                        hasStoredPassword: hasStoredPassword
                     )
+                    ConnectionFactRow(
+                        icon: credentialFact.icon,
+                        title: credentialFact.title,
+                        detail: credentialFact.detail
+                    )
+                    .accessibilityIdentifier("connected-gateway-credential")
                 }
                 .background(FabricTheme.surfaceRaised)
                 .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radiusLarge))
@@ -123,6 +139,32 @@ struct ConnectedGatewayFact: Equatable {
 }
 
 enum ConnectedGatewayIntroPresentation {
+    static func credentialFact(
+        for gateway: SavedGateway,
+        hasStoredPassword: Bool
+    ) -> ConnectedGatewayFact {
+        switch gateway.authMode {
+        case .token:
+            ConnectedGatewayFact(
+                icon: "key.fill",
+                title: "Token protected in Keychain",
+                detail: "This server's token stays in protected storage on this iPhone."
+            )
+        case .gated where hasStoredPassword:
+            ConnectedGatewayFact(
+                icon: "person.badge.key.fill",
+                title: "Password saved in Keychain",
+                detail: "This server's password stays in protected storage on this iPhone."
+            )
+        case .gated:
+            ConnectedGatewayFact(
+                icon: "person.badge.key.fill",
+                title: "Password is not saved",
+                detail: "Fabric keeps only the server address and username on this iPhone."
+            )
+        }
+    }
+
     static func executionFacts(
         for negotiation: GatewayCapabilityNegotiation?
     ) -> [ConnectedGatewayFact] {

@@ -884,6 +884,8 @@ private struct ChatActionStrip: View {
 /// fixture interaction, accessibility labels, command dispatch gating, and
 /// minimum target sizes aligned with the shipping surface.
 private struct ChatComposerBar: View {
+    @FocusState private var draftFocused: Bool
+
     @Binding var draft: String
     let busy: Bool
     let sessionReady: Bool
@@ -929,6 +931,7 @@ private struct ChatComposerBar: View {
                 axis: .vertical
             )
             .textFieldStyle(.roundedBorder)
+            .focused($draftFocused)
             .lineLimit(1...5)
             .frame(minHeight: FabricTheme.minTarget)
             .accessibilityIdentifier("chat-composer")
@@ -994,6 +997,7 @@ private struct ChatComposerBar: View {
     private func submitDraft() {
         let text = draft
         draft = ""
+        draftFocused = false
         onSend(text)
     }
 }
@@ -1501,6 +1505,7 @@ struct TranscriptView: View {
                 )
             }
             .coordinateSpace(.named(TranscriptScroll.coordinateSpace))
+            .scrollDismissesKeyboard(.interactively)
             .background(
                 GeometryReader { geometry in
                     Color.clear.preference(

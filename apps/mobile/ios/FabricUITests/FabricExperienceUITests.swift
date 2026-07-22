@@ -185,15 +185,21 @@ final class FabricExperienceUITests: XCTestCase {
     }
 
     /// Opt-in production-wiring smoke against a disposable source gateway.
-    /// The test-runner environment provides a one-use pairing URL; this test
-    /// never includes it in arguments, assertion messages, attachments, or logs.
+    /// The test-runner environment provides a one-use pairing URL and may
+    /// provide disposable gated credentials. The test never includes them in
+    /// arguments, assertion messages, attachments, or logs.
     func testDisposableGatewayPairingReachesTheRealConnectedShell() throws {
+        let environment = ProcessInfo.processInfo.environment
         guard
-            let pairingURL = ProcessInfo.processInfo.environment["FABRIC_TEST_GATEWAY_PAIRING_URL"],
+            let pairingURL = environment["FABRIC_TEST_GATEWAY_PAIRING_URL"],
             !pairingURL.isEmpty
         else {
             throw XCTSkip("Disposable Fabric gateway pairing is not configured")
         }
+        let gatedUsername = environment["FABRIC_TEST_GATEWAY_USERNAME"] ?? ""
+        let gatedPassword = environment["FABRIC_TEST_GATEWAY_PASSWORD"] ?? ""
+        let testsGatedSignIn = !gatedUsername.isEmpty && !gatedPassword.isEmpty
+        let rememberPassword = environment["FABRIC_TEST_GATEWAY_REMEMBER_PASSWORD"] != "0"
 
         let app = XCUIApplication()
         addTeardownBlock { app.terminate() }
@@ -206,13 +212,87 @@ final class FabricExperienceUITests: XCTestCase {
         ]
         app.launch()
 
+        if testsGatedSignIn {
+            let username = app.textFields["Username"]
+            let password = app.secureTextFields["Password"]
+            XCTAssertTrue(username.waitForExistence(timeout: 8))
+            XCTAssertTrue(password.exists)
+            username.tap()
+            if let existingUsername = username.value as? String,
+               !existingUsername.isEmpty,
+               existingUsername != "Username" {
+                username.typeText(
+                    String(repeating: XCUIKeyboardKey.delete.rawValue, count: existingUsername.count)
+                )
+            }
+            username.typeText(gatedUsername)
+            password.tap()
+            password.typeText(gatedPassword)
+            let returnKey = app.keyboards.buttons["return"]
+            if returnKey.exists {
+                returnKey.tap()
+            } else {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+            }
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+
+            let remember = app.switches["Remember password on this iPhone"]
+            XCTAssertTrue(remember.exists)
+            scrollTo(remember, in: app)
+            let isRemembering = switchIsOn(remember)
+            if isRemembering != rememberPassword {
+                remember.coordinate(
+                    withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)
+                ).tap()
+            }
+            let rememberSettled = XCTNSPredicateExpectation(
+                predicate: NSPredicate(
+                    format: "value == %@",
+                    rememberPassword ? "1" : "0"
+                ),
+                object: remember
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [rememberSettled], timeout: 3), .completed)
+
+            let signIn = app.buttons["Sign in and connect"]
+            scrollTo(signIn, in: app)
+            let enabled = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "enabled == true"),
+                object: signIn
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 10), .completed)
+            signIn.tap()
+        }
+
         let ready = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@", "Ready on ")
         ).firstMatch
         XCTAssertTrue(ready.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["Sign in"].waitForNonExistence(timeout: 5))
+        let declineSystemPasswordSave = app.buttons["Not Now"]
+        if declineSystemPasswordSave.waitForExistence(timeout: 1) {
+            declineSystemPasswordSave.tap()
+        }
         XCTAssertTrue(app.staticTexts["Fabric runs on this gateway"].exists)
+        if testsGatedSignIn {
+            let credentialTitle = rememberPassword
+                ? "Password saved in Keychain"
+                : "Password is not saved"
+            let credentialFact = app.descendants(matching: .any)["connected-gateway-credential"]
+            XCTAssertTrue(credentialFact.exists)
+            XCTAssertTrue(
+                credentialFact.label.contains(credentialTitle),
+                "Credential fact label was: \(credentialFact.label)"
+            )
+        }
 
-        app.buttons["Continue to Fabric"].tap()
+        let continueButton = app.buttons["Continue to Fabric"]
+        let continueReady = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "hittable == true"),
+            object: continueButton
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [continueReady], timeout: 5), .completed)
+        continueButton.tap()
         XCTAssertTrue(app.staticTexts["What should we get done?"].waitForExistence(timeout: 8))
 
         app.buttons["Sessions"].tap()
@@ -221,9 +301,50 @@ final class FabricExperienceUITests: XCTestCase {
         app.buttons["Settings"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Connection"].exists)
+        if testsGatedSignIn {
+            let connectedServer = app.descendants(matching: .any).matching(
+                NSPredicate(format: "label == %@", "Connected server")
+            ).firstMatch
+            XCTAssertTrue(connectedServer.waitForExistence(timeout: 5))
+            let identity = String(describing: connectedServer.value)
+            if rememberPassword {
+                XCTAssertTrue(
+                    identity.contains("password saved in Keychain on this iPhone"),
+                    "Connected server accessibility value was: \(identity)"
+                )
+            } else {
+                XCTAssertTrue(
+                    identity.contains("password is not saved"),
+                    "Connected server accessibility value was: \(identity)"
+                )
+            }
+        }
 
         app.buttons["Home"].tap()
         XCTAssertTrue(app.staticTexts["What should we get done?"].waitForExistence(timeout: 5))
+
+        guard testsGatedSignIn else { return }
+
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "FABRIC_E2E_PAIRING_URL")
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Choose your Fabric"].waitForExistence(timeout: 8))
+        let savedGateway = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "127.0.0.1")
+        ).firstMatch
+        XCTAssertTrue(savedGateway.exists)
+        savedGateway.tap()
+
+        if rememberPassword {
+            XCTAssertTrue(app.staticTexts["What should we get done?"].waitForExistence(timeout: 15))
+            XCTAssertFalse(app.navigationBars["Sign in"].exists)
+        } else {
+            let password = app.secureTextFields["Password"]
+            XCTAssertTrue(password.waitForExistence(timeout: 15))
+            XCTAssertEqual(app.switches["Remember password on this iPhone"].value as? String, "0")
+            XCTAssertEqual(password.value as? String, "Password")
+        }
     }
 
     func testChatBlockingInteractionRemainsReachableAtAccessibilityTextSizes() {
@@ -315,5 +436,11 @@ final class FabricExperienceUITests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    private func switchIsOn(_ element: XCUIElement) -> Bool {
+        if let string = element.value as? String { return string == "1" }
+        if let number = element.value as? NSNumber { return number.boolValue }
+        return false
     }
 }

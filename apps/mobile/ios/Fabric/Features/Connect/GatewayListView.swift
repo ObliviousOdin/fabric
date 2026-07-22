@@ -7,7 +7,6 @@ struct GatewayListView: View {
     @Environment(AppModel.self) private var appModel
 
     @State private var addEntry: AddGatewayEntry?
-    @State private var signIn: SavedGateway?
     @State private var gatewayPendingRemoval: SavedGateway?
     @State private var showForgetFailure = false
 
@@ -46,13 +45,6 @@ struct GatewayListView: View {
             }
             .sheet(item: $addEntry) { entry in
                 AddGatewayView(startsInAdvancedSetup: entry == .advanced)
-            }
-            .sheet(item: $signIn) { gateway in
-                SignInSheet(gateway: gateway)
-            }
-            .onChange(of: appModel.pendingSignInGateway?.id, initial: true) {
-                guard appModel.pendingSignInGateway != nil else { return }
-                signIn = appModel.takePendingSignInGateway()
             }
         }
     }

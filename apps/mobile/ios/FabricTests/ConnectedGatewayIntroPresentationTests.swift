@@ -2,6 +2,29 @@ import XCTest
 @testable import Fabric
 
 final class ConnectedGatewayIntroPresentationTests: XCTestCase {
+    func testCredentialFactTruthfullyDescribesSavedGatedPassword() throws {
+        let gateway = SavedGateway(
+            id: "gated",
+            label: "Personal Mac",
+            baseURL: try XCTUnwrap(URL(string: "https://fabric.example.test")),
+            authMode: .gated,
+            username: "owner"
+        )
+
+        let saved = ConnectedGatewayIntroPresentation.credentialFact(
+            for: gateway,
+            hasStoredPassword: true
+        )
+        XCTAssertEqual(saved.title, "Password saved in Keychain")
+        XCTAssertTrue(saved.detail.contains("protected storage"))
+
+        let unsaved = ConnectedGatewayIntroPresentation.credentialFact(
+            for: gateway,
+            hasStoredPassword: false
+        )
+        XCTAssertEqual(unsaved.title, "Password is not saved")
+    }
+
     func testCompletingIntroAlwaysSelectsHomeForTheConnectedShell() throws {
         let suiteName = "ConnectedAppShellSelectionTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

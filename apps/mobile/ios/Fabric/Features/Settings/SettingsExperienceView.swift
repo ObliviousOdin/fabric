@@ -272,7 +272,7 @@ struct SettingsExperienceContent: View {
                     Label("About Fabric Mobile", systemImage: "lock.shield")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(FabricTheme.text)
-                    Text("Fabric Mobile is a remote control for your Fabric gateway. Treat gateway access as machine-control access. Token credentials are protected in Keychain; gated passwords are used for sign-in and are not saved.")
+                    Text("Fabric Mobile is a remote control for your Fabric gateway. Treat gateway access as machine-control access. Token credentials are protected in Keychain; gated passwords are saved only when you opt in on this iPhone.")
                         .font(.footnote)
                         .foregroundStyle(FabricTheme.textMuted)
                         .fixedSize(horizontal: false, vertical: true)

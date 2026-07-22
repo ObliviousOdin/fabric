@@ -67,11 +67,13 @@ const MAX_TEXT_CHARS = 1_000_000;
 
 class VoiceDecodeError extends Error {}
 class VoiceIncompatibleError extends Error {
-  constructor(
-    readonly contract: string,
-    readonly version: number,
-  ) {
+  readonly contract: string;
+  readonly version: number;
+
+  constructor(contract: string, version: number) {
     super(`${contract} version ${version} is incompatible.`);
+    this.contract = contract;
+    this.version = version;
   }
 }
 

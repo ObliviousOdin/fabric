@@ -58,4 +58,29 @@ describe("canonical fabric voice fixture corpus", () => {
       mime_type: "audio/mp4",
     });
   });
+
+  it("checks future versions before version-specific enum values", () => {
+    const futureResult = {
+      ...transcriptionIncompatible,
+      status: "completed_with_speakers",
+    };
+    expect(parseTranscriptionResult(futureResult)).toMatchObject({
+      kind: "incompatible",
+      contract: "fabric.transcription",
+      version: 2,
+    });
+    expect(
+      parsePhoneAudio({ ...phoneAudioVoiceNote, result: futureResult }),
+    ).toMatchObject({
+      kind: "incompatible",
+      contract: "fabric.transcription",
+      version: 2,
+    });
+  });
+
+  it("rejects an error field on a non-failed result even when null", () => {
+    expect(
+      parseTranscriptionResult({ ...transcriptionCompleted, error: null }),
+    ).toMatchObject({ kind: "invalid" });
+  });
 });

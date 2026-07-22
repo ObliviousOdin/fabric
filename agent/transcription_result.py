@@ -142,6 +142,7 @@ def validate_transcription_result(value: Any) -> dict[str, Any]:
             allow_empty=True,
         )
 
+    has_error = "error" in result
     error_value = result.get("error")
     if status == "failed":
         if text:
@@ -159,7 +160,7 @@ def validate_transcription_result(value: Any) -> dict[str, Any]:
         )
         if not isinstance(_required(error, "retryable", "transcription.error"), bool):
             raise VoiceContractError("transcription.error.retryable must be a boolean")
-    elif error_value is not None:
+    elif has_error:
         raise VoiceContractError("only failed transcriptions may contain error")
     elif status in {"no_speech", "cancelled"} and text:
         raise VoiceContractError(f"{status} transcription text must be empty")

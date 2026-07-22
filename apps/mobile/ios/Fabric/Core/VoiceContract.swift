@@ -49,6 +49,7 @@ struct FabricTranscriptionResultV1: Codable, Equatable {
     let segments: [FabricTranscriptionSegmentV1]
     let warnings: [String]
     let error: FabricTranscriptionErrorV1?
+    fileprivate let containsErrorField: Bool
 
     enum CodingKeys: String, CodingKey {
         case schema
@@ -83,6 +84,7 @@ struct FabricTranscriptionResultV1: Codable, Equatable {
             forKey: .segments
         ) ?? []
         warnings = try values.decodeIfPresent([String].self, forKey: .warnings) ?? []
+        containsErrorField = values.contains(.error)
         error = try values.decodeIfPresent(FabricTranscriptionErrorV1.self, forKey: .error)
     }
 }
@@ -113,6 +115,20 @@ enum FabricVoiceContractParseResult<Value: Equatable>: Equatable {
     case invalid(message: String)
 }
 
+private struct FabricTranscriptionHeader: Decodable {
+    let schema: String
+    let version: Int
+}
+
+private struct FabricPhoneAudioHeader: Decodable {
+    let contract: String
+    let version: Int
+}
+
+private struct FabricPhoneAudioV1Header: Decodable {
+    let result: FabricTranscriptionHeader
+}
+
 enum FabricVoiceContractParser {
     private static let maximumAudioMS = 3_600_000
     private static let maximumTextCharacters = 1_000_000
@@ -121,7 +137,15 @@ enum FabricVoiceContractParser {
         _ data: Data
     ) -> FabricVoiceContractParseResult<FabricTranscriptionResultV1> {
         do {
-            let result = try JSONDecoder().decode(FabricTranscriptionResultV1.self, from: data)
+            let decoder = JSONDecoder()
+            let header = try decoder.decode(FabricTranscriptionHeader.self, from: data)
+            guard header.schema == "fabric.transcription" else {
+                return .invalid(message: "Transcription schema is unsupported.")
+            }
+            guard header.version == fabricTranscriptionContractVersion else {
+                return .incompatible(contract: header.schema, version: header.version)
+            }
+            let result = try decoder.decode(FabricTranscriptionResultV1.self, from: data)
             return try validate(result)
         } catch {
             return .invalid(message: "Transcription result is malformed.")
@@ -132,13 +156,25 @@ enum FabricVoiceContractParser {
         _ data: Data
     ) -> FabricVoiceContractParseResult<FabricPhoneAudioEnvelopeV1> {
         do {
-            let envelope = try JSONDecoder().decode(FabricPhoneAudioEnvelopeV1.self, from: data)
-            guard envelope.contract == "fabric.phone_audio" else {
+            let decoder = JSONDecoder()
+            let header = try decoder.decode(FabricPhoneAudioHeader.self, from: data)
+            guard header.contract == "fabric.phone_audio" else {
                 return .invalid(message: "Phone audio contract is unsupported.")
             }
-            guard envelope.version == fabricPhoneAudioContractVersion else {
-                return .incompatible(contract: envelope.contract, version: envelope.version)
+            guard header.version == fabricPhoneAudioContractVersion else {
+                return .incompatible(contract: header.contract, version: header.version)
             }
+            let v1Header = try decoder.decode(FabricPhoneAudioV1Header.self, from: data)
+            guard v1Header.result.schema == "fabric.transcription" else {
+                return .invalid(message: "Transcription schema is unsupported.")
+            }
+            guard v1Header.result.version == fabricTranscriptionContractVersion else {
+                return .incompatible(
+                    contract: v1Header.result.schema,
+                    version: v1Header.result.version
+                )
+            }
+            let envelope = try decoder.decode(FabricPhoneAudioEnvelopeV1.self, from: data)
             guard !envelope.captureID.isEmpty, envelope.captureID.count <= 128 else {
                 return .invalid(message: "Phone audio capture ID is invalid.")
             }
@@ -207,11 +243,11 @@ enum FabricVoiceContractParser {
                 return .invalid(message: "Failed transcription error is invalid.")
             }
         case .noSpeech, .cancelled:
-            guard result.text.isEmpty, result.error == nil else {
+            guard result.text.isEmpty, !result.containsErrorField else {
                 return .invalid(message: "Empty transcription status is inconsistent.")
             }
         case .completed:
-            guard result.error == nil else {
+            guard !result.containsErrorField else {
                 return .invalid(message: "Completed transcription cannot contain an error.")
             }
         }

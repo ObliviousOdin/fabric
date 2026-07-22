@@ -5,15 +5,15 @@
   "type": "object",
   "required": ["schema", "version", "request_id", "status", "text"],
   "properties": {
-    "schema": {"const": "fabric.transcription"},
-    "version": {"const": 1},
-    "request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "schema": { "const": "fabric.transcription" },
+    "version": { "const": 1 },
+    "request_id": { "type": "string", "minLength": 1, "maxLength": 128 },
     "status": {
       "enum": ["completed", "no_speech", "cancelled", "failed"]
     },
-    "text": {"type": "string", "maxLength": 1000000},
-    "provider": {"type": "string", "minLength": 1, "maxLength": 128},
-    "language": {"type": "string", "minLength": 1, "maxLength": 64},
+    "text": { "type": "string", "maxLength": 1000000 },
+    "provider": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "language": { "type": "string", "minLength": 1, "maxLength": 64 },
     "duration_ms": {
       "type": "integer",
       "minimum": 0,
@@ -24,7 +24,7 @@
       "minimum": 0,
       "maximum": 3600000
     },
-    "model": {"type": "string", "minLength": 1, "maxLength": 128},
+    "model": { "type": "string", "minLength": 1, "maxLength": 128 },
     "segments": {
       "type": "array",
       "maxItems": 10000,
@@ -32,9 +32,9 @@
         "type": "object",
         "required": ["start_ms", "end_ms", "text"],
         "properties": {
-          "start_ms": {"type": "integer", "minimum": 0, "maximum": 3600000},
-          "end_ms": {"type": "integer", "minimum": 0, "maximum": 3600000},
-          "text": {"type": "string", "maxLength": 1000000}
+          "start_ms": { "type": "integer", "minimum": 0, "maximum": 3600000 },
+          "end_ms": { "type": "integer", "minimum": 0, "maximum": 3600000 },
+          "text": { "type": "string", "maxLength": 1000000 }
         },
         "additionalProperties": true
       }
@@ -42,31 +42,35 @@
     "warnings": {
       "type": "array",
       "maxItems": 64,
-      "items": {"type": "string", "maxLength": 1000}
+      "items": { "type": "string", "maxLength": 1000 }
     },
     "error": {
       "type": "object",
       "required": ["code", "message", "retryable"],
       "properties": {
-        "code": {"type": "string", "minLength": 1, "maxLength": 128},
-        "message": {"type": "string", "minLength": 1, "maxLength": 4000},
-        "retryable": {"type": "boolean"}
+        "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "retryable": { "type": "boolean" }
       },
       "additionalProperties": true
     }
   },
   "allOf": [
     {
-      "if": {"properties": {"status": {"const": "failed"}}},
-      "then": {"required": ["error"], "properties": {"text": {"const": ""}}}
+      "if": { "properties": { "status": { "const": "failed" } } },
+      "then": {
+        "required": ["error"],
+        "properties": { "text": { "const": "" } }
+      },
+      "else": { "not": { "required": ["error"] } }
     },
     {
       "if": {
         "properties": {
-          "status": {"enum": ["no_speech", "cancelled"]}
+          "status": { "enum": ["no_speech", "cancelled"] }
         }
       },
-      "then": {"properties": {"text": {"const": ""}}}
+      "then": { "properties": { "text": { "const": "" } } }
     }
   ],
   "additionalProperties": true

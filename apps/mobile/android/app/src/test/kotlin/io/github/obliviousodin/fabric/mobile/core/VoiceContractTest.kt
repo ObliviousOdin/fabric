@@ -3,7 +3,9 @@ package io.github.obliviousodin.fabric.mobile.core
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -38,6 +40,32 @@ class VoiceContractTest {
         assertEquals("voice_note", value.mode)
         assertEquals("audio/mp4", value.mimeType)
         assertEquals("completed", value.result.status)
+    }
+
+    @Test
+    fun futureVersionsAreCheckedBeforeVersionSpecificEnumValues() {
+        val futureResult = JsonObject(
+            fixture("transcription-incompatible.json").jsonObject +
+                ("status" to JsonPrimitive("completed_with_speakers")),
+        )
+        val transcription = parseTranscriptionResult(futureResult)
+        assertTrue(transcription is VoiceContractParseResult.Incompatible)
+        assertEquals(2, (transcription as VoiceContractParseResult.Incompatible).version)
+
+        val phoneAudio = JsonObject(
+            fixture("phone-audio-voice-note.json").jsonObject + ("result" to futureResult),
+        )
+        val envelope = parsePhoneAudio(phoneAudio)
+        assertTrue(envelope is VoiceContractParseResult.Incompatible)
+        assertEquals(2, (envelope as VoiceContractParseResult.Incompatible).version)
+    }
+
+    @Test
+    fun nonFailedResultRejectsErrorFieldEvenWhenNull() {
+        val completed = JsonObject(
+            fixture("transcription-completed.json").jsonObject + ("error" to JsonNull),
+        )
+        assertTrue(parseTranscriptionResult(completed) is VoiceContractParseResult.Invalid)
     }
 
     private fun resultKind(value: VoiceContractParseResult<*>): String = when (value) {

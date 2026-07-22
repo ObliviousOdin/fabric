@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from agent.transcription_result import (
     VoiceContractError,
@@ -40,6 +41,21 @@ def test_transcription_v1_distinguishes_incompatible_and_invalid():
         validate_transcription_result(fixture("transcription-incompatible.json"))
     with pytest.raises(VoiceContractError):
         validate_transcription_result(fixture("transcription-malformed.json"))
+
+
+def test_transcription_v1_rejects_error_field_for_non_failed_status():
+    schema = fixture("transcription-result.schema.json")
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    value = fixture("transcription-completed.json")
+    validator.validate(value)
+    value["error"] = None
+
+    with pytest.raises(VoiceContractError, match="only failed"):
+        validate_transcription_result(value)
+
+    errors = list(validator.iter_errors(value))
+    assert errors, "the canonical schema must reject error on a completed result"
 
 
 @pytest.mark.parametrize(

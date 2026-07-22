@@ -11,16 +11,19 @@ transcription results, voice-note workflows, system-wide dictation, and
 phone-owned audio. It complements the current [Voice Mode feature
 reference](/user-guide/features/voice-mode) and [setup
 guide](/guides/use-voice-mode-with-fabric); roadmap items below are not claims
-that an unshipped feature is already available.
+that an unshipped feature is already available. Implementers should also follow
+the current [STT configuration contract](/user-guide/features/tts#voice-message-transcription-stt)
+and [plugin authoring guide](/developer-guide/plugins/).
 
 ## Implementation Status
 
-- Fabric already supports CLI and messaging voice modes and the Desktop chat
-  microphone; the native iOS dictation/read-aloud implementation is merged.
-- Native iOS voice landed in [PR #100](https://github.com/ObliviousOdin/fabric/pull/100)
-  and is the phone-owned baseline for this roadmap.
-- Reusable rich transcription results, Voice Notes, Android capture,
-  system-wide Ask Fabric, IME integration, and App Intents remain phased work.
+| Surface                                               | Status                     | Current boundary                                                                                                                                      |
+| ----------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI, messaging, and Desktop chat microphone           | Shipped                    | Existing voice modes and `/api/audio/transcribe` remain unchanged                                                                                     |
+| Native iOS dictation/read-aloud                       | Merged baseline            | [PR #100](https://github.com/ObliviousOdin/fabric/pull/100) added phone-owned source; physical-device verification and shared-result migration remain |
+| Rich transcription results and Voice Notes            | Proposed                   | Provider-neutral contracts and explicit workflow are defined below                                                                                    |
+| AutoWhisper warm-runtime integration                  | Proposed, externally owned | Runtime protocol and standalone plugin ship from the AutoWhisper repository                                                                           |
+| Android, IME, App Intents, and system-wide Ask Fabric | Proposed                   | Platform work follows the shared contracts and lifecycle guards below                                                                                 |
 
 ## Problem
 
@@ -28,7 +31,7 @@ Fabric can already record microphone audio in Desktop and route it through the c
 
 ## Solution
 
-Extract a reusable AutoWhisper runtime with a versioned, local stdio protocol, publish an AutoWhisper-owned Fabric transcription plugin that uses Fabric's existing `/api/audio/transcribe` path, and add a versioned `TranscriptionResult` plus phone-audio contract to Fabric. Build Desktop Voice Notes, opt-in system-wide Dictate and Ask Fabric modes, and native iOS/Android capture on those contracts. Keep meeting capture, diarization, wearables, widgets, and broad background recording as later layers.
+Extract a reusable AutoWhisper runtime with a versioned, local stdio protocol, publish an AutoWhisper-owned Fabric transcription plugin beneath Fabric's existing `/api/audio/transcribe` → transcription-dispatcher path, and add a versioned `TranscriptionResult` plus phone-audio contract to Fabric. Build Desktop Voice Notes, opt-in system-wide Dictate and Ask Fabric modes, and native iOS/Android capture on those contracts. Keep meeting capture, diarization, wearables, widgets, and broad background recording as later layers.
 
 ## Product Modes
 
@@ -43,20 +46,20 @@ The mode must be selected before recording. A transcript captured in Dictate mod
 
 ## Acceptance Criteria
 
-- [ ] AutoWhisper builds a reusable runtime library and keeps the Whisper model warm across multiple requests.
-- [ ] `autowhisper serve --stdio` accepts newline-delimited JSON requests on stdin, emits one JSON response per request on stdout, and sends all logs to stderr.
-- [ ] `autowhisper transcribe <path> --json` returns `TranscriptionResult` v1 and supports files decodable by the bundled miniaudio decoder.
-- [ ] The protocol handles `health`, `capabilities`, `transcribe_file`, and `shutdown` without opening a network listener.
-- [ ] The AutoWhisper-owned Fabric plugin registers the provider name `autowhisper`, normalizes unsupported input when needed, and returns Fabric's existing `{success, transcript, provider, error?}` envelope.
-- [ ] Fabric Desktop continues to call `/api/audio/transcribe`; selecting `stt.provider: autowhisper` requires no renderer-specific provider branch.
-- [ ] Desktop Voice Notes supports recording, transcript review/editing, and an explicit conversion to a Markdown result containing summary, decisions, tasks, and follow-up.
-- [ ] System-wide Dictate and Ask Fabric are opt-in, visibly distinct, independently configurable, and preserve existing AutoWhisper Dictate behavior by default.
-- [ ] `TranscriptionResult` v1 has cross-language fixtures consumed by C++, Python, TypeScript, Swift, and Kotlin tests.
-- [ ] Phone audio is captured on the phone and never represented by the existing gateway-host `voice.record` or `voice.tts` methods.
-- [ ] Native iOS dictation/read-aloud is implemented, but physical-device verification and migration to the shared result contract remain.
-- [ ] Android can record/transcribe in app and invoke Dictate/Ask from an IME; iOS exposes App Intents suitable for Shortcuts and the Action button.
-- [ ] No audio or transcript telemetry is emitted unless a generic user-facing telemetry opt-in exists and the user explicitly enables it.
-- [ ] Existing CLI, Desktop chat microphone, gateway-host voice, and AutoWhisper daemon behavior remain compatible.
+- AutoWhisper builds a reusable runtime library and keeps the Whisper model warm across multiple requests.
+- `autowhisper serve --stdio` accepts newline-delimited JSON requests on stdin, emits one JSON response per request on stdout, and sends all logs to stderr.
+- `autowhisper transcribe <path> --json` returns `TranscriptionResult` v1 and supports files decodable by the bundled miniaudio decoder.
+- The protocol handles `health`, `capabilities`, `transcribe_file`, and `shutdown` without opening a network listener.
+- The AutoWhisper-owned Fabric plugin registers the provider name `autowhisper`, normalizes unsupported input when needed, and returns Fabric's existing `{success, transcript, provider, error?}` envelope.
+- Fabric Desktop continues to call `/api/audio/transcribe`; selecting `stt.provider: autowhisper` requires no renderer-specific provider branch.
+- Desktop Voice Notes supports recording, transcript review/editing, and an explicit conversion to a Markdown result containing summary, decisions, tasks, and follow-up.
+- System-wide Dictate and Ask Fabric are opt-in, visibly distinct, independently configurable, and preserve existing AutoWhisper Dictate behavior by default.
+- `TranscriptionResult` v1 has cross-language fixtures consumed by C++, Python, TypeScript, Swift, and Kotlin tests.
+- Phone audio is captured on the phone and never represented by the existing gateway-host `voice.record` or `voice.tts` methods.
+- Native iOS dictation/read-aloud is implemented, but physical-device verification and migration to the shared result contract remain.
+- Android can record/transcribe in app and invoke Dictate/Ask from an IME; iOS exposes App Intents suitable for Shortcuts and the Action button.
+- No audio or transcript telemetry is emitted unless a generic user-facing telemetry opt-in exists and the user explicitly enables it.
+- Existing CLI, Desktop chat microphone, gateway-host voice, and AutoWhisper daemon behavior remain compatible.
 
 ## Constraints
 
@@ -71,6 +74,7 @@ The mode must be selected before recording. A transcript captured in Dictate mod
 - Must bound input size, duration, line size, transcript size, and request processing time at every process boundary.
 - Must preserve logs on stderr and machine-readable protocol data on stdout.
 - Must treat audio files and transcripts as sensitive local data and remove temporary normalized files after each call.
+- Must not emit outbound audio/transcript telemetry until Fabric has a generic user-facing opt-in gate and the user enables it. Audio, transcript, and temporary-path content never enters logs or capability events; existing content-free in-process capability observations may continue.
 
 ## Runtime Modes
 
@@ -170,7 +174,13 @@ paths or internal classes. The AutoWhisper-owned implementation is expected to:
 
 `status` is one of `completed`, `no_speech`, `cancelled`, or `failed`. Failed results add `error: {code, message, retryable}` and keep `text` empty. Producers may omit optional timing/model/language fields, but must not change their types. Consumers must ignore unknown fields.
 
-### AutoWhisper stdio request
+### AutoWhisper stdio protocol
+
+Model and device are process-startup configuration. A v1 process keeps that
+selection warm and never reloads it for an individual request. The provider
+must reject a per-call Fabric model that differs from the loaded model with a
+stable `model_mismatch` error; a configuration change drains the active request
+and replaces the process.
 
 ```json
 {
@@ -180,13 +190,74 @@ paths or internal classes. The AutoWhisper-owned implementation is expected to:
   "method": "transcribe_file",
   "params": {
     "path": "/absolute/audio.wav",
-    "language": "en",
-    "model": "small.en"
+    "language": "en"
   }
 }
 ```
 
-Responses echo `id` and contain either `result` (a `TranscriptionResult`) or `error: {code, message, retryable}`. The service processes one request at a time in v1. The parent continuously drains stderr into a bounded, redacted log sink so child logging cannot block protocol progress. The parent also owns process cancellation: close stdin, wait a bounded grace period, then terminate the child process tree.
+`health` returns readiness and process-selected state in the standard response
+envelope:
+
+```json
+{
+  "protocol": "autowhisper.local",
+  "version": 1,
+  "id": "health-1",
+  "result": {
+    "state": "ready",
+    "loaded_model": "small.en",
+    "device": "cpu"
+  }
+}
+```
+
+`capabilities` returns concrete negotiation and limit data:
+
+```json
+{
+  "protocol": "autowhisper.local",
+  "version": 1,
+  "id": "capabilities-1",
+  "result": {
+    "min_version": 1,
+    "max_version": 1,
+    "methods": ["health", "capabilities", "transcribe_file", "shutdown"],
+    "accepted_codecs": ["wav", "mp3", "flac"],
+    "max_audio_bytes": 52428800,
+    "max_audio_duration_ms": 1800000,
+    "max_line_bytes": 1048576,
+    "max_concurrency": 1
+  }
+}
+```
+
+Codec values and numeric limits are examples; the running service advertises
+its actual build/runtime limits. The parent must confirm that its requested
+version lies within the advertised range and that its requested codec and
+bounds are supported before sending work. A protocol or capability mismatch
+fails closed and never falls back to parsing arbitrary stdout.
+
+Every response repeats `protocol`, `version`, and `id`, then contains either
+`result` or outer `error: {code, message, retryable}`. A successful or
+engine-failure `transcribe_file` response carries a `TranscriptionResult`; its
+nested `request_id` must equal the outer `id`. Engine failures therefore use
+`result.status: "failed"`, while malformed requests, unsupported methods,
+version mismatches, and framing failures use the outer protocol error. A
+framing error whose request ID cannot be parsed uses `id: null`.
+All outer and result error codes/messages are stable, bounded, and sanitized;
+they never echo paths, command lines, raw process output, or transcript text.
+
+The service processes one request at a time in v1. Both peers read stdout/stdin
+incrementally into fixed-cap buffers. They reject and drain an over-limit frame
+through its newline before continuing; `std::getline` followed by a size check
+is not sufficient. An over-limit child response is a protocol failure and
+restarts the child. The parent continuously drains stderr into a bounded,
+redacted log sink so child logging cannot block protocol progress.
+
+For an idle graceful stop, the parent sends `shutdown`, awaits its response,
+closes stdin, and waits a bounded grace period. To cancel in-flight work, the
+parent closes stdin without trying to send another request, waits the grace
+period, then terminates the entire child process tree if necessary.
 
 ### Phone-audio result envelope
 
@@ -211,29 +282,38 @@ client needs to persist or hand off the result, it uses this versioned envelope:
 }
 ```
 
-When remote transcription is selected, the authenticated client uploads its bounded recording to the existing backend audio endpoint. The gateway never claims it recorded phone audio.
+This envelope is device-local state, not an upload request, gateway feature, or
+advertised transport. Existing Desktop recording may continue using its
+authenticated HTTP endpoint, but v1 does not claim mobile remote transcription.
+Before a phone client can select a remote path, a later provider-neutral
+transport contract must define discovery, result-version negotiation, accepted
+MIME types, byte and duration limits, stable client authentication,
+cancellation, and retry/idempotency behavior. The gateway never claims it
+recorded phone audio.
 
 ## Design Contracts
 
 ### Lifecycle Matrix
 
-| Transition                 | Owned state                                                    | What must happen                                                                                                     |
-| -------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Off → On                   | AutoWhisper child process, stdin/stdout reader, loaded runtime | Spawn once, verify `health`, load selected model, begin accepting requests                                           |
-| On → Off                   | Process, pipes, pending request, temp files                    | Reject/cancel pending work, close stdin, send/await shutdown when possible, terminate after grace, remove temp files |
-| On → On (config changed)   | Model/device/language/process options                          | Drain current request, stop old process, spawn and health-check a fresh process with new config                      |
-| On → On (config unchanged) | Same process and model                                         | Reuse the process and loaded model; do not reload                                                                    |
+| Transition                 | Owned state                                                    | What must happen                                                                                       |
+| -------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Off → On                   | AutoWhisper child process, stdin/stdout reader, loaded runtime | Spawn once, verify `health`, load selected model, begin accepting requests                             |
+| On → Off (idle)            | Process, pipes, temp files                                     | Send and await `shutdown`, close stdin, wait for exit, terminate after grace, remove temp files        |
+| On → Off (in flight)       | Process, pipes, pending request, temp files                    | Mark work cancelled, close stdin, wait for exit, terminate process tree after grace, remove temp files |
+| On → On (config changed)   | Model/device/language/process options                          | Drain current request, stop old process, spawn and health-check a fresh process with new config        |
+| On → On (config unchanged) | Same process and model                                         | Reuse the process and loaded model; do not reload                                                      |
 
 Recording controllers use the same four transitions: a changed device/locale/mode invalidates the current run ID, tears down the old tap/recorder, and starts a fresh run only after permission and state checks.
 
 ### Parameter Contracts
 
-| Method                               | Scoping parameter   | Collection/state           | Filter/guard                                                       |
-| ------------------------------------ | ------------------- | -------------------------- | ------------------------------------------------------------------ |
-| `handle_response(request_id)`        | `request_id`        | pending request map        | Resolve only the exact matching pending request                    |
-| `finish_capture(capture_id)`         | `capture_id`        | active capture             | Apply transcript only when IDs match                               |
-| `ask_fabric(conversation_id)`        | `conversation_id`   | conversation/session store | Submit only to the explicitly selected conversation                |
-| `commit_ime_text(editor_session_id)` | `editor_session_id` | active input connection    | Commit only if the connection still belongs to that editor session |
+| Method                               | Scoping parameter   | Collection/state           | Filter/guard                                                           |
+| ------------------------------------ | ------------------- | -------------------------- | ---------------------------------------------------------------------- |
+| `handle_response(request_id)`        | `request_id`        | pending request map        | Resolve only the exact matching pending request                        |
+| `accept_result(id, request_id)`      | both identifiers    | pending request map        | Accept only when outer `id`, nested `request_id`, and pending ID match |
+| `finish_capture(capture_id)`         | `capture_id`        | active capture             | Apply transcript only when IDs match                                   |
+| `ask_fabric(conversation_id)`        | `conversation_id`   | conversation/session store | Submit only to the explicitly selected conversation                    |
+| `commit_ime_text(editor_session_id)` | `editor_session_id` | active input connection    | Commit only if the connection still belongs to that editor session     |
 
 ### Return Value Contracts
 
@@ -246,14 +326,14 @@ Recording controllers use the same four transitions: a changed device/locale/mod
 
 ### Guard Parity
 
-| Side effect                     | Template                                                  | Guard to preserve                                                                      |
-| ------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Transcription upload            | `fabric_cli/web_server.py`                                | Authenticated API path plus data URL, MIME, non-empty, and max-byte validation         |
-| Plugin invocation               | `tools/transcription_tools.py`                            | Provider exists, reports available, and exceptions become failure envelopes            |
-| Mobile capability advertisement | `apps/shared/src/gateway-capabilities.ts`                 | Feature is true iff every required method exists; absent optional family remains false |
-| iOS recording completion        | `apps/mobile/ios/Fabric/Core/DeviceVoiceController.swift` | Callback run ID equals current run ID before transcript/state mutation                 |
-| Desktop window delivery         | existing Electron window send sites                       | Window exists and is not destroyed before send                                         |
-| Android IME commit              | active `InputConnection` template                         | Connection exists and capture/editor session IDs still match                           |
+| Side effect                 | Template                                                  | Guard to preserve                                                                          |
+| --------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Transcription upload        | `fabric_cli/web_server.py`                                | Authenticated API path plus data URL, MIME, non-empty, and max-byte validation             |
+| Plugin invocation           | `tools/transcription_tools.py`                            | Provider exists, reports available, and exceptions become failure envelopes                |
+| Future remote STT discovery | authenticated client capability contract                  | Advertise nothing until transport, auth, versions, limits, cancellation, and retries exist |
+| iOS recording completion    | `apps/mobile/ios/Fabric/Core/DeviceVoiceController.swift` | Callback run ID equals current run ID before transcript/state mutation                     |
+| Desktop window delivery     | existing Electron window send sites                       | Window exists and is not destroyed before send                                             |
+| Android IME commit          | active `InputConnection` template                         | Connection exists and capture/editor session IDs still match                               |
 
 ### Test Harness Requirements
 
@@ -270,13 +350,13 @@ Recording controllers use the same four transitions: a changed device/locale/mod
 
 ### Phase 1 — AutoWhisper reusable runtime and protocol
 
-- [ ] Add `src/runtime/transcription_result.{h,cpp}` and strict v1 JSON serialization.
-- [ ] Extract the proven miniaudio file decoder from `tools/bench/bench_main.cpp` into `src/runtime/audio_file.{h,cpp}`.
-- [ ] Add `AutoWhisperRuntime`, owning one loaded `WhisperInference` and returning structured results.
-- [ ] Add a pure `ProtocolHandler` plus `StdioServer`; use a fake transcriber in unit tests so protocol tests need no model.
-- [ ] Add `autowhisper transcribe` and `autowhisper serve --stdio`.
-- [ ] Build `autowhisper_runtime` as a reusable target and link the daemon/bench/CLI without compiling inference twice.
-- [ ] Verification: `cmake -B build -DCMAKE_BUILD_TYPE=Release -DAUTOWHISPER_ENABLE_TESTS=ON && cmake --build build -j && ctest --test-dir build --output-on-failure`.
+- Add `src/runtime/transcription_result.{h,cpp}` and strict v1 JSON serialization.
+- Extract the proven miniaudio file decoder from `tools/bench/bench_main.cpp` into `src/runtime/audio_file.{h,cpp}`.
+- Add `AutoWhisperRuntime`, owning one loaded `WhisperInference` and returning structured results.
+- Add a pure `ProtocolHandler` plus `StdioServer`; use a fake transcriber in unit tests so protocol tests need no model.
+- Add `autowhisper transcribe` and `autowhisper serve --stdio`.
+- Build `autowhisper_runtime` as a reusable target and link the daemon/bench/CLI without compiling inference twice.
+- Verification: `cmake -B build -DCMAKE_BUILD_TYPE=Release -DAUTOWHISPER_ENABLE_TESTS=ON && cmake --build build -j && ctest --test-dir build --output-on-failure`.
 
 ```cpp
 class Transcriber {
@@ -289,22 +369,31 @@ public:
 };
 
 int StdioServer::run(std::istream& input, std::ostream& output) {
-    for (std::string line; std::getline(input, line);) {
-        output << handler_.handle_line(line).dump() << '\n' << std::flush;
+    for (;;) {
+        // Incremental fixed-cap reader; it drains oversized frames without
+        // allowing the backing buffer to grow past kMaxProtocolLineBytes.
+        auto frame = read_bounded_json_line(input, kMaxProtocolLineBytes);
+        if (frame.eof()) return 0;
+        if (frame.oversized()) {
+            write_protocol_error(output, nullptr, "frame_too_large");
+            continue;
+        }
+        output << handler_.handle_line(frame.value()).dump() << '\n' << std::flush;
         if (handler_.shutdown_requested()) return 0;
     }
-    return 0;
 }
 ```
 
 ### Phase 2 — AutoWhisper-owned Fabric provider
 
-- [ ] Publish `integrations/fabric/autowhisper_fabric` as a standalone package with `fabric_agent.plugins` entry point.
-- [ ] Register `AutoWhisperTranscriptionProvider` through `ctx.register_transcription_provider(...)`.
-- [ ] Own one synchronized stdio client per Fabric process, restart it on config change or broken pipe, and clean up on process exit.
-- [ ] Normalize non-decodable input to a bounded 16-kHz mono temporary WAV using an explicitly discovered `ffmpeg`, then remove it in `finally`.
-- [ ] Add install/config/smoke documentation using `config.yaml`, never a non-secret `.env` toggle.
-- [ ] Verification: package unit tests with a fake AutoWhisper executable plus an end-to-end Fabric import/dispatch test in a temporary `FABRIC_HOME`.
+- Publish `integrations/fabric/autowhisper_fabric` as a standalone package with `fabric_agent.plugins` entry point.
+- Register `AutoWhisperTranscriptionProvider` through `ctx.register_transcription_provider(...)`.
+- Document that the existing command provider is sufficient for one-shot `autowhisper transcribe`; require the standalone Python provider only when warm-model stdio reuse or structured results are needed.
+- Activate the standalone plugin explicitly through `plugins.enabled` and select it through `stt.provider`; installation alone must not activate it.
+- Make registration idempotent and own one process-wide synchronized stdio client. Close the old client before config replacement, register `atexit` cleanup, restart after broken pipe, and ensure forced plugin rediscovery cannot leak or duplicate children.
+- Normalize non-decodable input to a bounded 16-kHz mono temporary WAV using an explicitly discovered `ffmpeg`, then remove it in `finally`.
+- Add install/config/smoke documentation using `config.yaml`, never a non-secret `.env` toggle.
+- Verification: package unit tests with a fake AutoWhisper executable plus an end-to-end Fabric import/dispatch test in a temporary `FABRIC_HOME`.
 
 ```python
 class AutoWhisperTranscriptionProvider(TranscriptionProvider):
@@ -315,23 +404,40 @@ class AutoWhisperTranscriptionProvider(TranscriptionProvider):
     def transcribe(self, file_path: str, *, model=None, language=None, **extra):
         try:
             result = self._client.transcribe_file(file_path, model=model, language=language)
+            if result["status"] in {"completed", "no_speech"}:
+                return {
+                    "success": True,
+                    "transcript": result.get("text", ""),
+                    "provider": self.name,
+                }
             return {
-                "success": result["status"] in {"completed", "no_speech"},
-                "transcript": result.get("text", ""),
+                "success": False,
+                "transcript": "",
                 "provider": self.name,
-                "transcription_result": result,
+                "error": "AutoWhisper transcription did not complete",
             }
-        except Exception as exc:
-            return {"success": False, "transcript": "", "provider": self.name, "error": str(exc)}
+        except Exception:
+            return {
+                "success": False,
+                "transcript": "",
+                "provider": self.name,
+                "error": "AutoWhisper transcription failed",
+            }
 ```
+
+Phase 2 returns only Fabric's existing compatibility envelope. Public errors
+are stable, bounded messages and never include command lines, raw
+stdout/stderr, transcript text, temporary paths, or decoder details. Detailed
+diagnostics remain in the local redacted log sink.
 
 ### Phase 3 — Fabric transcription and phone-audio contracts
 
-- [ ] Add canonical JSON Schemas and fixtures for `fabric.transcription` v1 and `fabric.phone_audio` v1.
-- [ ] Add parsers/types in shared TypeScript, Swift, and Kotlin plus backend validation tests.
-- [ ] Extend `/api/audio/transcribe` additively with `result`; preserve `ok`, `transcript`, and `provider` for old clients.
-- [ ] Keep phone audio out of `voice.*`; advertise only genuinely implemented upload/transcription semantics.
-- [ ] Verification: shared/mobile contract tests and targeted Python endpoint/provider tests.
+- Add canonical JSON Schemas and fixtures for `fabric.transcription` v1 and the device-local `fabric.phone_audio` v1 envelope.
+- Extend the generic provider/dispatcher contract additively with validated `result`; have every built-in synthesize at least a minimal provider-neutral result before any external provider propagates richer fields.
+- Add parsers/types in shared TypeScript, Swift, and Kotlin plus backend validation tests.
+- Extend `/api/audio/transcribe` additively with `result`; preserve `ok`, `transcript`, and `provider` for old clients. After this generic contract lands, the standalone AutoWhisper provider may attach its validated rich result without a provider-specific branch.
+- Keep phone audio out of `voice.*`; do not advertise mobile remote transcription until its separate authenticated transport contract is complete.
+- Verification: shared/mobile contract tests and targeted Python endpoint/provider tests.
 
 ```typescript
 export interface TranscriptionResultV1 {
@@ -353,12 +459,12 @@ export interface TranscriptionResultV1 {
 
 ### Phase 4 — Desktop Voice Notes
 
-- [ ] Reuse `useMicRecorder`; do not fork browser microphone lifecycle code.
-- [ ] Add a Voice Note route/sheet with record, transcript review/edit, discard, retry, generate, and explicit save/export actions.
-- [ ] Submit one explicit Fabric workflow containing the reviewed transcript and a stable Markdown output contract.
-- [ ] Keep generated Markdown in the conversation by default; save only to a user-selected destination through existing file capabilities rather than a hidden note database.
-- [ ] Save audio only when the user opts in; otherwise delete it after transcription/retry lifetime ends.
-- [ ] Verification: component/action tests, Desktop typecheck/lint/tests/build, macOS/Windows/Linux packaging verification.
+- Reuse `useMicRecorder`; do not fork browser microphone lifecycle code.
+- Add a Voice Note route/sheet with record, transcript review/edit, discard, retry, generate, and explicit save/export actions.
+- Submit one explicit Fabric workflow containing the reviewed transcript and a stable Markdown output contract.
+- Keep generated Markdown in the conversation by default; save only to a user-selected destination through existing file capabilities rather than a hidden note database.
+- Save audio only when the user opts in; otherwise delete it after transcription/retry lifetime ends.
+- Verification: component/action tests, Desktop typecheck/lint/tests/build, macOS/Windows/Linux packaging verification.
 
 ```markdown
 # Voice Note
@@ -386,30 +492,30 @@ export interface TranscriptionResultV1 {
 
 ### Phase 5 — System-wide Dictate and Ask Fabric
 
-- [ ] Preserve current AutoWhisper hotkey as Dictate default.
-- [ ] Add explicit mode configuration and a separate Ask Fabric hotkey/action.
-- [ ] Route Ask Fabric through an authenticated local Fabric endpoint/CLI invocation without adding a model tool.
-- [ ] Display unmistakable recording/processing mode feedback and require opt-in before background/tray availability.
-- [ ] Verification: mode-state unit tests plus macOS, Windows, and Linux manual hotkey/injection smoke tests.
+- Preserve current AutoWhisper hotkey as Dictate default.
+- Add explicit mode configuration and a separate Ask Fabric hotkey/action.
+- Route Ask Fabric to an explicitly configured conversation through a supported authenticated local Fabric endpoint/CLI invocation, without adding a model tool, inferring a “last active” session, or reusing the dashboard's ephemeral browser token.
+- Display unmistakable recording/processing mode feedback and require opt-in before background/tray availability.
+- Verification: mode-state unit tests plus macOS, Windows, and Linux manual hotkey/injection smoke tests.
 
 ### Phase 6 — Native in-app iOS and Android voice
 
-- [x] Preserve the native iOS dictation/read-aloud baseline merged in PR #100.
-- [ ] Evolve iOS output from a plain transcript to the shared v1 result without weakening its run-ID and audio-session guards.
-- [ ] Add Android foreground recording, permission/lifecycle handling, upload/transcription, transcript review, and the same four product modes.
-- [ ] Verification: Xcode unit/UI tests on a real macOS runner plus physical-device permission/route/interruption smoke tests; Android unit/lint/debug/release builds plus device/emulator interruption tests.
+- Preserve the native iOS dictation/read-aloud baseline merged in PR #100.
+- Evolve iOS output from a plain transcript to the shared v1 result without weakening its run-ID and audio-session guards.
+- Add Android foreground recording, permission/lifecycle handling, on-device transcription, transcript review, and the same four product modes; remote transcription waits for the separate transport contract.
+- Verification: Xcode unit/UI tests on a real macOS runner plus physical-device permission/route/interruption smoke tests; Android unit/lint/debug/release builds plus device/emulator interruption tests.
 
 ### Phase 7 — Android IME and iOS App Intents
 
-- [ ] Add an opt-in Android input method with separate Dictate and Ask Fabric controls, active-editor guards, and no transcript history by default.
-- [ ] Add iOS App Intents for Start Voice Note and Ask Fabric, expose App Shortcuts, and document Action button assignment.
-- [ ] Verification: Android IME instrumentation on at least two editor types; iOS Shortcuts/Action button manual tests with locked/unlocked and denied-permission paths.
+- Add an opt-in Android input method with separate Dictate and Ask Fabric controls, active-editor guards, and no transcript history by default.
+- Add iOS App Intents for Start Voice Note and Ask Fabric, expose App Shortcuts, and document Action button assignment.
+- Verification: Android IME instrumentation on at least two editor types; iOS Shortcuts/Action button manual tests with locked/unlocked and denied-permission paths.
 
 ### Phase 8 — Rollout and documentation
 
-- [ ] Document local-only defaults, model download, permissions, audio retention, provider selection, and failure recovery.
-- [ ] Ship each phase behind explicit user configuration until its platform verification is complete.
-- [ ] Record compatibility matrix and protocol version negotiation behavior.
+- Document local-only defaults, model download, permissions, audio retention, provider selection, and failure recovery.
+- Ship each phase behind explicit user configuration until its platform verification is complete.
+- Record compatibility matrix and protocol version negotiation behavior.
 
 ## UI/UX Changes
 
@@ -430,16 +536,16 @@ Old Fabric clients continue reading `transcript`. Old AutoWhisper behavior conti
 
 ## Test Plan
 
-- [ ] AutoWhisper unit: result JSON, malformed/unknown/oversized protocol messages, correlation IDs, shutdown/EOF, decoder failures, no-speech, engine exception.
-- [ ] AutoWhisper integration: two requests use one model load; one-shot and stdio outputs validate against fixtures.
-- [ ] Fabric plugin unit: discovery, availability, config changes, timeout, process death/restart, cleanup, unsupported format normalization.
-- [ ] Fabric backend: old and new response fields, upload bounds, provider-rich result propagation, temporary-file cleanup.
-- [ ] Shared contracts: the same valid/invalid JSON fixtures pass/fail in Python, TypeScript, Swift, and Kotlin.
-- [ ] Desktop: record/cancel/retry/review/edit/create note; no-speech and workflow error; window hidden/destroyed during completion.
-- [ ] iOS: permissions, interruptions, route changes, stale callback, finalization timeout, foreground/background transitions.
-- [ ] Android: permissions, rotation/process recreation, audio focus/route loss, stale callback, review and submit.
-- [ ] Android IME: connection replacement, editor rejection, cancellation, Dictate commits only text, Ask Fabric bounded insertion.
-- [ ] Security/privacy: no raw audio/transcript in logs, no retained temp file, no listener, no default background capture.
+- AutoWhisper unit: result JSON, health/capability negotiation, malformed/unknown/oversized protocol frames, correlation IDs, shutdown/EOF, decoder failures, no-speech, engine exception.
+- AutoWhisper integration: two requests use one model load; a per-request model mismatch fails without reload; one-shot and stdio outputs validate against fixtures.
+- Fabric plugin unit: discovery, idempotent forced rediscovery, availability, config changes, timeout, process death/restart, `atexit` cleanup, child-leak checks, unsupported format normalization.
+- Fabric backend: old and new response fields, upload bounds, provider-rich result propagation, temporary-file cleanup.
+- Shared contracts: the same valid/invalid JSON fixtures pass/fail in Python, TypeScript, Swift, and Kotlin; device-local phone audio does not advertise a remote gateway feature.
+- Desktop: record/cancel/retry/review/edit/create note; no-speech and workflow error; window hidden/destroyed during completion.
+- iOS: permissions, interruptions, route changes, stale callback, finalization timeout, foreground/background transitions.
+- Android: permissions, rotation/process recreation, audio focus/route loss, stale callback, review and submit.
+- Android IME: connection replacement, editor rejection, cancellation, Dictate commits only text, Ask Fabric bounded insertion.
+- Security/privacy: no raw audio/transcript in logs, no retained temp file, no listener, no default background capture.
 
 ## Out of Scope
 
@@ -453,23 +559,9 @@ Old Fabric clients continue reading `transcript`. Old AutoWhisper behavior conti
 
 - Whether Voice Notes should store source audio when the user explicitly opts in, and what retention setting owns deletion.
 - Whether Ask Fabric inserts the answer into the focused app, opens Fabric, or offers both as explicit output actions.
-- Which conversation Ask Fabric targets by default: last active, a pinned voice inbox, or a per-hotkey configured session.
 - Whether iOS on-device Speech remains the default phone engine while AutoWhisper-derived native runtimes mature.
 
 None of these questions blocks the runtime, provider, result contract, or in-app capture work.
-
-## Self-Review
-
-- [x] Every acceptance criterion has a corresponding implementation phase.
-- [x] Runtime Modes covers desktop, headless, tray, iOS, Android, IME, and App Intent execution.
-- [x] Lifecycle Matrix includes off/on, teardown, changed config, and unchanged config.
-- [x] Every method with a scoping identifier has an explicit filter/guard contract.
-- [x] Meaningful return values have caller obligations.
-- [x] High-consequence side effects reference existing guards or platform equivalents.
-- [x] Test assertions identify the harness state required to reach them and negative paths.
-- [x] No implementation step contains a placeholder.
-- [x] Out of Scope lists adjacent layers explicitly deferred by the approved roadmap.
-- [x] Key file references use stable paths rather than line-number snapshots.
 
 ## Change Governance
 

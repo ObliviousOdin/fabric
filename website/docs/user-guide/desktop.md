@@ -133,7 +133,8 @@ updates, and dock it again without restarting the task.
 Open **Voice Notes** from the sidebar or Command Center to turn a recording
 into a reviewed Markdown note:
 
-1. Enable and configure speech-to-text under **Settings → Voice**.
+1. Enable and configure speech-to-text under **Settings → Voice**. When it is
+   disabled, the Voice Notes setup button opens this panel directly.
 2. Choose **Start recording** and grant microphone access when the operating
    system asks. Fabric stops automatically at the configured recording limit,
    which is capped at ten minutes.

@@ -450,6 +450,46 @@ jobs:
 
         self.assertEqual(result, 1)
 
+    def test_history_gate_ignores_transient_pull_request_merge_refs(self) -> None:
+        self._init_git()
+        (self.root / "history-main.txt").write_text("public main\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
+        canonical_env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "PrimeOdin",
+            "GIT_AUTHOR_EMAIL": "11676741+ObliviousOdin@users.noreply.github.com",
+            "GIT_COMMITTER_NAME": "PrimeOdin",
+            "GIT_COMMITTER_EMAIL": "11676741+ObliviousOdin@users.noreply.github.com",
+        }
+        subprocess.run(
+            ["git", "-C", str(self.root), "commit", "-q", "-m", "Clean public history"],
+            check=True,
+            env=canonical_env,
+        )
+        base_ref = subprocess.run(
+            ["git", "-C", str(self.root), "branch", "--show-current"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "-C", str(self.root), "checkout", "-q", "-b", "pull-test"],
+            check=True,
+        )
+        transient_merge = self._commit_with_private_identity(
+            "Synthetic pull request merge",
+            "transient",
+        )
+        for ref in ("refs/pull/123/merge", "refs/remotes/pull/123/merge"):
+            subprocess.run(
+                ["git", "-C", str(self.root), "update-ref", ref, transient_merge],
+                check=True,
+            )
+        subprocess.run(["git", "-C", str(self.root), "checkout", "-q", base_ref], check=True)
+        subprocess.run(["git", "-C", str(self.root), "branch", "-D", "pull-test"], check=True)
+
+        self.assertEqual(self.audit.audit_git_history(self.root), [])
+
     def test_history_gate_does_not_apply_tracked_identity_rule_to_messages(self) -> None:
         self._init_git()
         subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)

@@ -28,26 +28,31 @@ If this document and those disagree on a *code* question, they win. On a
 
 Every agent, every task, no exceptions:
 
-1. **Never commit to `main`.** Work on a task branch. `main` is always green and
+1. **Bootstrap your git identity first.** Before your first commit, run
+   `bash scripts/setup-git-guardrails.sh`. Commits carry the canonical
+   repository identity (`PrimeOdin <11676741+ObliviousOdin@users.noreply.github.com>`)
+   — **never** an AI-tool identity (Claude, Codex, Copilot, …) as author,
+   committer, or co-author, and no tool-attribution footers (§3.3).
+2. **Never commit to `main`.** Work on a task branch. `main` is always green and
    always deployable.
-2. **One task → one branch → one PR.** Keep the branch short-lived and the diff
+3. **One task → one branch → one PR.** Keep the branch short-lived and the diff
    scoped to the task. Every line must trace to the request (feature PRs) or to a
    declared refactor.
-3. **Stay in your lane.** Edit only the [ownership zone](#2-ownership-zones--who-works-where)
+4. **Stay in your lane.** Edit only the [ownership zone](#2-ownership-zones--who-works-where)
    you were assigned. Touching shared contracts (§2.1) requires explicit
    coordination.
-4. **Rebase before you push, rebase before you merge.** A stale branch silently
+5. **Rebase before you push, rebase before you merge.** A stale branch silently
    reverts other agents' fixes when squashed (this has actually happened — see
    §5).
-5. **Green PR ≠ green `main`.** The most expensive builds (iOS, macOS/Windows
+6. **Green PR ≠ green `main`.** The most expensive builds (iOS, macOS/Windows
    packaging & smoke) are **cost-gated OFF on pull requests** and only run after
    merge. If you touched those surfaces, you own verifying them (§4.2).
-6. **Run the real CI gate locally before you push.** Use the exact commands in
+7. **Run the real CI gate locally before you push.** Use the exact commands in
    [§6](#6-pre-flight-per-zone-run-before-you-push). "Works on my machine" is not
    a status.
-7. **You do not merge your own work.** A separate reviewer/merger gate decides
+8. **You do not merge your own work.** A separate reviewer/merger gate decides
    that (§3). No agent self-approves or force-merges.
-8. **When intent is ambiguous, stop and ask a human.** Do not guess on design
+9. **When intent is ambiguous, stop and ask a human.** Do not guess on design
    intent, security boundaries, or anything irreversible (§8).
 
 If you can only remember one sentence: **stay in your assigned zone, keep `main`
@@ -163,6 +168,65 @@ If you are the merger agent: verify green CI, re-read the diff against the
 stated task, check `git diff HEAD~1..HEAD` after squashing for **unexpected
 deletions** (the stale-branch trap, §5), and only then merge. Never merge on a
 red or stale check.
+
+### 3.3 Commit identity & attribution (hard gate)
+
+Commits in this repository are attributed to the **repository identity**, not
+to the tool that produced them. This is enforced at three layers — local
+config, committed git hooks, and CI — so it holds even when one layer is
+bypassed.
+
+**The policy** (source of truth: `scripts/commit_identity_audit.py`):
+
+- Author and committer must be an allowlisted repository identity. Canonical
+  (and only allowed author email):
+  `PrimeOdin <11676741+ObliviousOdin@users.noreply.github.com>`. GitHub's
+  web-flow committer (squash merges, web edits) and dependabot are also
+  accepted where they naturally appear. Personal emails and private domains
+  stay out of the public tree — the public-release audit enforces that too.
+- **No AI-tool identity anywhere**: not as author, not as committer, not in
+  `Co-Authored-By:` / `Signed-off-by:` trailers. Claude, Codex, Copilot,
+  Gemini, Grok, Devin, Cursor, Aider, Windsurf, … are all rejected.
+- **No tool-attribution footers** in commit messages: no
+  `Generated with …` lines, no robot-emoji footers, no AI session links
+  (`claude.ai/…`, `chatgpt.com/…`, `Claude-Session:` …). Plain prose that
+  merely *mentions* a tool ("stop impersonating Claude Code …") is fine —
+  only structured attribution is banned.
+- **Agents: your harness may auto-append such trailers. Strip them.** In this
+  repo the harness convention loses to the repo policy; the hooks and CI will
+  reject the commit otherwise.
+
+**Why so strict about branch commits:** PRs land as squash merges, and GitHub
+**auto-appends `Co-authored-by:` trailers for every distinct author on the
+branch** into the squash message. One Claude-authored commit on your branch
+pollutes `main` even if every message you wrote was clean. Clean branch
+commits are the only reliable input; CI is the backstop.
+
+**The three layers:**
+
+1. **Bootstrap** (run once per session/clone):
+   `bash scripts/setup-git-guardrails.sh` — sets the canonical identity
+   (repo-local), enables the committed hooks (`core.hooksPath .githooks`), and
+   turns on `user.useConfigOnly`.
+2. **Hooks** (committed in `.githooks/`): `pre-commit` rejects a commit made
+   under a non-allowlisted identity; `commit-msg` rejects forbidden trailers
+   and footers before the commit exists.
+3. **CI** (`public-ci.yml`): audits every PR's full commit range
+   (`base..head`) and every push to `main`. `--no-verify` gets you past the
+   hooks, never past CI.
+
+**If you inherited a dirty commit** (wrong author or forbidden trailer):
+
+```bash
+# last commit only: fix the author and edit the trailers out of the message
+git commit --amend --reset-author
+# several dirty commits: collapse the branch into clean commits
+# (branches squash-merge anyway, so per-commit history is not preserved)
+git fetch origin main && git reset --soft origin/main && git commit
+# verify, then force-with-lease — allowed on your OWN task branch only
+python3 scripts/commit_identity_audit.py --range origin/main..HEAD
+git push --force-with-lease origin <your-task-branch>
+```
 
 ---
 
@@ -365,7 +429,9 @@ python3 ../../../tests/scripts/test_ios_project_generation.py
 
 ---
 
-## 7. Coordination & state (for parallel crews)
+## 7. Coordination, handoff & role rotation (for parallel crews)
+
+### 7.1 Decomposition & shared state
 
 - **Non-overlapping decomposition first.** The orchestrator splits work so no two
   workers hold the same zone (§2) or the same shared surface (§2.1) at once.
@@ -374,15 +440,89 @@ python3 ../../../tests/scripts/test_ios_project_generation.py
   agents rebase after.
 - **Conventional commits, one PR per logical change.** `type(scope): summary`,
   PR number in the squash subject (matches the existing history).
-- **Preserve authorship.** When building on another agent's or contributor's
-  work, cherry-pick / rebase-merge so credit survives in git history — don't
-  reimplement from scratch (`AGENTS.md` → *Contributor credit preserved*).
+- **Preserve authorship of external contributors.** When building on an outside
+  contributor's work, cherry-pick / rebase-merge so their credit survives —
+  don't reimplement from scratch (`AGENTS.md` → *Contributor credit
+  preserved*). Between this repo's own agents there is no per-tool credit:
+  everything carries the repository identity (§3.3).
 - **A durable multi-agent work queue already exists.** If you need shared task
   state across agents, use the built-in Kanban board (`fabric kanban`, see
   `AGENTS.md` → *Kanban*) rather than inventing an ad-hoc `MEMORY.md`. Delegation
   to subagents goes through `delegate_task` (`AGENTS.md` → *Delegation*).
 - **The `.codex-audits/` directory** holds saved UI/visual audits from agent runs;
   follow that convention if you produce audit artifacts.
+
+### 7.2 Same-surface handoff — the take-over ritual
+
+Sometimes two agents legitimately work the same surface in sequence (agent A
+went offline mid-task; a specialist takes over a stuck piece; a fresh session
+resumes an old branch). The rule is **single writer per branch**: exactly one
+agent owns a branch at any moment, and ownership transfers explicitly.
+
+Taking over an in-flight branch:
+
+1. **Announce it** — comment on the PR (or the Kanban card): "taking over from
+   here." From that comment on, you own the branch; the previous agent must not
+   push to it again.
+2. **Read the handoff state** — the PR description's `HANDOFF` block (§7.4),
+   the diff, and the last CI run. Do not trust "done" claims you can't see in
+   the diff or in green checks.
+3. **Sync and verify before adding work** — `git fetch origin && git rebase
+   origin/main`, run the §6 pre-flight for the zone, and
+   `python3 scripts/commit_identity_audit.py --range origin/main..HEAD`. If the
+   inherited commits are dirty (identity/trailers), clean them now (§3.3) —
+   dirt you push is dirt you own.
+4. **Update the `HANDOFF` block** after every push so the next agent (or the
+   human) can take over from *you* just as cheaply.
+
+Never have two agents pushing to one branch concurrently — if the work is big
+enough to want two writers, it is big enough to split into two branches with
+one integrating PR.
+
+### 7.3 Role handoffs: author → reviewer → merger → babysitter
+
+Separate the roles; an agent can hold at most one role per PR:
+
+- **Author** writes the change, runs the §6 pre-flight, opens the PR with a
+  filled `HANDOFF` block, and stays responsive to review.
+- **Reviewer** (different agent or human) verifies the premise against the
+  codebase (`AGENTS.md` → *Before you call it a bug*), checks the diff against
+  the stated task, hunts for change-detector tests and zone violations, and
+  leaves actionable review comments. The reviewer never pushes fixes to the
+  author's branch — findings go back to the author (or the reviewer formally
+  takes over via §7.2).
+- **Merger** is the only role that merges (§3.2): green CI + review approval +
+  fresh rebase, squash, then post-merge `git diff HEAD~1..HEAD` sanity check.
+- **CI babysitter** — after merge (or on a long-running PR), one agent watches
+  CI: the PR checks *and* the `main` run that executes the cost-gated builds
+  the PR skipped (§4.2). On failure it diagnoses, then either pushes the fix
+  (if it owns the branch) or files the failure back to the author with logs.
+  Watching means following through until merged/closed or explicitly relieved.
+
+A handoff to reviewer/merger/babysitter happens **in the PR thread** ("ready
+for review", "review passed, over to merger", "merged — babysitting the main
+run"), so the chain of custody is auditable later.
+
+### 7.4 The PR handoff block
+
+Every agent-opened PR carries this block in its description (extends the
+repository PR template — Summary / Verification / Documentation impact stay as
+they are), kept current on every push:
+
+```markdown
+## HANDOFF
+- **State:** in-progress | ready-for-review | review-passed | needs-fixes | blocked
+- **Done:** what is complete, at claim level a reviewer can verify from the diff
+- **Verified:** exactly which §6 pre-flight commands ran, and their results
+- **Not verified:** what was NOT run (e.g. cost-gated iOS build — §4.2) and why
+- **Remaining:** ordered list of what's left, smallest first
+- **Risks/land-mines:** anything the next agent would step on
+- **Zone(s) touched:** per §2, flag any shared-surface edits (§2.1)
+```
+
+The block is the contract between agents: the next agent trusts what's in
+`Verified`, re-checks anything in `Not verified`, and starts at the top of
+`Remaining`.
 
 ---
 
@@ -411,12 +551,20 @@ Taste-level "should this exist at all" calls (the *what we don't want* list in
 
 ```
 BEFORE YOU START   read CLAUDE.md/AGENTS.md/this file · confirm your zone (§2)
+                   bash scripts/setup-git-guardrails.sh   (identity + hooks, §3.3)
 BRANCH             git fetch origin main → worktree → feat|fix|chore/<area>-<slug>
 STAY IN LANE       edit only your zone · shared surfaces (§2.1) = coordinate
+COMMIT IDENTITY    PrimeOdin <11676741+ObliviousOdin@users.noreply.github.com>
+                   no AI author/committer/co-author · no Generated-with footers
+                   no session links · strip harness-added trailers (§3.3)
 BEFORE YOU PUSH    run the §6 block for your zone · run_tests.sh, not pytest
                    regenerate any generated files · update every lockfile you touched
+                   commit_identity_audit.py --range origin/main..HEAD
 REBASE             git rebase origin/main before push AND before merge (§5)
-PR                 CI green + reviewer OK ≠ done-by-you; you do NOT self-merge
+PR                 fill + maintain the HANDOFF block (§7.4)
+                   CI green + reviewer OK ≠ done-by-you; you do NOT self-merge
+HANDOFF            single writer per branch · take-over ritual (§7.2)
+                   one role per agent per PR: author/reviewer/merger/babysitter (§7.3)
 COST-GATE TRAP     iOS / macOS / Windows / desktop pkg don't run on PR (§4.2)
                    touched them? build locally or dispatch, and flag it
 NEVER              commit to main · force-push shared branches · invent FABRIC_* tokens

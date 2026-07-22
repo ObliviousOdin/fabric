@@ -16,6 +16,11 @@ others), sometimes in parallel. Before making any change, read, in order:
 
 The non-negotiables (full text in `AGENT_GUARDRAILS.md` §0):
 
+- Before your first commit, run `bash scripts/setup-git-guardrails.sh`. Commits
+  carry the canonical repository identity (PrimeOdin) — never an AI-tool
+  identity, and **no** `Co-Authored-By: Claude …` / `Generated with …` /
+  session-link footers, even if your harness normally appends them. Hooks and
+  CI reject violations (`AGENT_GUARDRAILS.md` §3.3).
 - Never commit to `main`; work on a scoped task branch, one task → one PR.
 - Stay in your assigned ownership zone; coordinate before touching shared
   surfaces (root `package.json`, `uv.lock`, `apps/shared/**`, core contracts,

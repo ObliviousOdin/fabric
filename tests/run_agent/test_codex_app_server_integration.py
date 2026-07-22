@@ -157,6 +157,8 @@ class TestRunConversationCodexPath:
         assert agent.context_compressor.last_prompt_tokens == 100
         assert agent.context_compressor.last_completion_tokens == 25
         assert agent.context_compressor.last_total_tokens == 130
+        assert agent.context_compressor.last_provider_prompt_tokens_at_calibration == 100
+        assert agent.context_compressor.last_rough_tokens_when_real_prompt_fit > 0
         assert agent.context_compressor.context_length == 200000
 
     def test_native_codex_compaction_updates_bookkeeping(self, monkeypatch):

@@ -68,6 +68,8 @@ def _make_compressor():
     c.last_real_prompt_tokens = 0
     c.last_compression_rough_tokens = 0
     c.last_rough_tokens_when_real_prompt_fit = 0
+    c.last_provider_prompt_tokens_at_calibration = 0
+    c.last_calibrated_context_pressure = 0
     c.awaiting_real_usage_after_compression = False
     c._previous_summary = None
     return c
@@ -90,6 +92,8 @@ def _simulate_cron_session_state(c):
     c.last_real_prompt_tokens = 50000
     c.last_compression_rough_tokens = 60000
     c.last_rough_tokens_when_real_prompt_fit = 55000
+    c.last_provider_prompt_tokens_at_calibration = 50000
+    c.last_calibrated_context_pressure = 57000
     c.awaiting_real_usage_after_compression = True
 
 
@@ -147,6 +151,13 @@ def test_on_session_end_clears_all_per_session_state():
     assert c.last_rough_tokens_when_real_prompt_fit == 0, (
         f"last_rough_tokens_when_real_prompt_fit must be 0, got {c.last_rough_tokens_when_real_prompt_fit}"
     )
+    assert c.last_provider_prompt_tokens_at_calibration == 0, (
+        "last_provider_prompt_tokens_at_calibration must be 0, got "
+        f"{c.last_provider_prompt_tokens_at_calibration}"
+    )
+    assert c.last_calibrated_context_pressure == 0, (
+        f"last_calibrated_context_pressure must be 0, got {c.last_calibrated_context_pressure}"
+    )
     assert c.awaiting_real_usage_after_compression is False, (
         f"awaiting_real_usage_after_compression must be False, got {c.awaiting_real_usage_after_compression}"
     )
@@ -180,6 +191,8 @@ def test_on_session_end_matches_on_session_reset_surface():
         "last_real_prompt_tokens",
         "last_compression_rough_tokens",
         "last_rough_tokens_when_real_prompt_fit",
+        "last_provider_prompt_tokens_at_calibration",
+        "last_calibrated_context_pressure",
         "awaiting_real_usage_after_compression",
     ]
 

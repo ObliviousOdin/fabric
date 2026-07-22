@@ -755,9 +755,10 @@ compression:
 # The summarization model/provider is configured under auxiliary:
 auxiliary:
   compression:
-    model: ""                                       # Empty = use main chat model. Override with e.g. "google/gemini-3-flash-preview" for cheaper/faster compression.
-    provider: "auto"                                # Provider: "auto", "openrouter", "nous", "codex", "main", etc.
+    model: ""                                       # Empty = known compatible same-provider fast compression model when threshold-safe, else main model. Override with e.g. "google/gemini-3-flash-preview".
+    provider: "auto"                                # Stays on the main provider by default; explicit provider overrides are supported.
     base_url: null                                  # Custom OpenAI-compatible endpoint (overrides provider)
+    timeout: 300                                    # Default seconds; configured finite positive values are honored exactly
 ```
 
 :::info Legacy config migration
@@ -780,7 +781,7 @@ compression:
   enabled: true
   threshold: 0.50
 ```
-Uses your main provider and main model. Override per-task (e.g. `auxiliary.compression.provider: openrouter` + `model: google/gemini-2.5-flash`) if you want compression on a cheaper model than your main chat model.
+Uses your main provider. When Fabric has a compression-specific fast model for that provider and its known context window can fit the live compression threshold, it selects that model while staying on the same backend (for example, OpenAI Codex can use `gpt-5.4-mini` instead of a reasoning-heavy main model). Generic cheap auxiliary defaults are not used for compression. If compatibility or threshold fit is unknown, Fabric keeps the main model. Override `auxiliary.compression.provider` and `model` to choose a different route explicitly.
 
 **Force a specific provider** (OAuth or API-key based):
 ```yaml
@@ -1031,7 +1032,7 @@ auxiliary:
 
   # Context compression timeout (separate from compression.* config)
   compression:
-    timeout: 120               # seconds — compression summarizes long conversations, needs more time
+    timeout: 300               # seconds — bounded default for long-context handoffs; explicit config is honored
     # fallback_chain:           # Optional — providers to try on rate-limit / connectivity failure
     #   - provider: nous
     #     model: deepseek/deepseek-chat
@@ -1080,7 +1081,7 @@ auxiliary:
 ```
 
 :::tip
-Each auxiliary task has a configurable `timeout` (in seconds). Defaults: vision 120s, web_extract 360s, approval 30s, compression 120s. Increase these if you use slow local models for auxiliary tasks. Vision also has a separate `download_timeout` (default 30s) for the HTTP image download — increase this for slow connections or self-hosted image servers.
+Each auxiliary task has a configurable `timeout` (in seconds). Defaults: vision 120s, web_extract 360s, approval 30s, compression 300s. Fabric honors finite positive configured timeouts exactly, so an explicitly configured fast compression route can use a shorter deadline. Vision also has a separate `download_timeout` (default 30s) for the HTTP image download — increase this for slow connections or self-hosted image servers.
 :::
 
 :::info

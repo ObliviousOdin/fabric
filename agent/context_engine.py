@@ -75,8 +75,10 @@ class ContextEngine(ABC):
         keys ``prompt_tokens``, ``completion_tokens``, and ``total_tokens``
         are always present. Newer hosts also include canonical buckets:
         ``input_tokens``, ``output_tokens``, ``cache_read_tokens``,
-        ``cache_write_tokens``, and ``reasoning_tokens``. Engines should
-        treat those fields as optional for compatibility with older hosts.
+        ``cache_write_tokens``, and ``reasoning_tokens``. Hosts may also add
+        ``rough_context_pressure`` to associate provider usage with the
+        preflight estimate for that successful request. Engines should treat
+        those fields as optional for compatibility with older hosts.
         """
 
     @abstractmethod
@@ -119,8 +121,8 @@ class ContextEngine(ABC):
         """Return True when preflight should trust recent real usage instead.
 
         Built-in compression uses this to avoid re-compacting from known-noisy
-        rough estimates after a compressed request has already fit. Third-party
-        engines can ignore it safely.
+        rough estimates after provider usage has calibrated a successful
+        request. Third-party engines can ignore it safely.
         """
         return False
 

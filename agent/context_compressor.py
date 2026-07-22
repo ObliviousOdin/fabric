@@ -742,6 +742,8 @@ class ContextCompressor(ContextEngine):
         self.last_real_prompt_tokens = 0
         self.last_compression_rough_tokens = 0
         self.last_rough_tokens_when_real_prompt_fit = 0
+        self.last_provider_prompt_tokens_at_calibration = 0
+        self.last_calibrated_context_pressure = 0
         self.awaiting_real_usage_after_compression = False
 
     def on_session_end(self, session_id: str, messages: List[Dict[str, Any]]) -> None:
@@ -778,6 +780,8 @@ class ContextCompressor(ContextEngine):
         self.last_real_prompt_tokens = 0
         self.last_compression_rough_tokens = 0
         self.last_rough_tokens_when_real_prompt_fit = 0
+        self.last_provider_prompt_tokens_at_calibration = 0
+        self.last_calibrated_context_pressure = 0
         self.awaiting_real_usage_after_compression = False
 
     def bind_session_state(self, session_db: Any = None, session_id: str = "") -> None:
@@ -941,7 +945,9 @@ class ContextCompressor(ContextEngine):
         self.last_total_tokens = 0
         self.last_real_prompt_tokens = 0
         self.last_rough_tokens_when_real_prompt_fit = 0
+        self.last_provider_prompt_tokens_at_calibration = 0
         self.last_compression_rough_tokens = 0
+        self.last_calibrated_context_pressure = 0
         self.awaiting_real_usage_after_compression = False
         self._ineffective_compression_count = 0
 
@@ -1187,6 +1193,8 @@ class ContextCompressor(ContextEngine):
         self.last_real_prompt_tokens = 0
         self.last_compression_rough_tokens = 0
         self.last_rough_tokens_when_real_prompt_fit = 0
+        self.last_provider_prompt_tokens_at_calibration = 0
+        self.last_calibrated_context_pressure = 0
         self.awaiting_real_usage_after_compression = False
 
         self.summary_model = summary_model_override or ""
@@ -1235,16 +1243,35 @@ class ContextCompressor(ContextEngine):
         self._last_aux_model_failure_model: Optional[str] = None
 
     def update_from_response(self, usage: Dict[str, Any]):
-        """Update tracked token usage from API response."""
+        """Update tracked token usage from API response.
+
+        ``rough_context_pressure`` is the estimate for the successful request
+        that produced this response. Keeping it beside the provider's real
+        prompt-token count lets preflight decisions use rough *growth* instead
+        of repeatedly charging stable replay/encrypted blobs at ``chars / 4``.
+        """
         self.last_prompt_tokens = usage.get("prompt_tokens", 0)
         self.last_completion_tokens = usage.get("completion_tokens", 0)
         self.last_total_tokens = usage.get("total_tokens", self.last_prompt_tokens + self.last_completion_tokens)
         if self.last_prompt_tokens > 0:
             self.last_real_prompt_tokens = self.last_prompt_tokens
-            if self.last_prompt_tokens < self.threshold_tokens:
-                if self.awaiting_real_usage_after_compression and self.last_compression_rough_tokens > 0:
-                    self.last_rough_tokens_when_real_prompt_fit = self.last_compression_rough_tokens
+            rough_context_pressure = usage.get("rough_context_pressure", 0)
+            try:
+                rough_context_pressure = int(rough_context_pressure or 0)
+            except (TypeError, ValueError):
+                rough_context_pressure = 0
+            if rough_context_pressure > 0:
+                # The real and rough values must remain an atomic pair from the
+                # same successful request. Mixing a newer provider count with
+                # an older rough snapshot can incorrectly suppress preflight.
+                self.last_provider_prompt_tokens_at_calibration = (
+                    self.last_prompt_tokens
+                )
+                self.last_rough_tokens_when_real_prompt_fit = (
+                    rough_context_pressure
+                )
             else:
+                self.last_provider_prompt_tokens_at_calibration = 0
                 self.last_rough_tokens_when_real_prompt_fit = 0
         self.awaiting_real_usage_after_compression = False
 
@@ -1252,43 +1279,43 @@ class ContextCompressor(ContextEngine):
         """Return True when a high rough preflight estimate is known-noisy.
 
         ``estimate_request_tokens_rough(..., tools=...)`` intentionally
-        overestimates schema-heavy requests so Fabric compresses before a
-        provider rejects the payload. After a successful compressed API call,
-        though, provider ``prompt_tokens`` are a better signal than repeating
-        compaction from the same rough schema overhead. Defer only while the
-        rough estimate has grown modestly since a request the provider proved
-        fit under the threshold.
+        overestimates schema-heavy and opaque replay payloads. Once a provider
+        has accepted a request, use its real prompt occupancy as the baseline
+        and add only rough growth since that successful request. Stable replay
+        blobs then stop looking like new context, while a genuinely large newly
+        appended tool result still trips preflight before the next API request.
         """
         if rough_tokens < self.threshold_tokens:
+            self.last_calibrated_context_pressure = rough_tokens
             return False
         # Immediately after a compaction the post-compression path sets
         # ``awaiting_real_usage_after_compression`` and parks
         # ``last_prompt_tokens = -1``, but ``last_real_prompt_tokens`` still
         # holds the STALE pre-compression value (above threshold — that's why
-        # compaction fired).  Without this guard that stale value defeats the
-        # ``last_real_prompt_tokens >= threshold_tokens`` check below, so
-        # preflight fires a SECOND compaction before the provider has reported
-        # real token usage for the now-shorter conversation.  Defer for exactly
-        # one turn; update_from_response() clears the flag when real usage
-        # arrives.  (#36718)
+        # compaction fired). Defer for exactly one turn; update_from_response()
+        # clears the flag when real usage arrives. (#36718)
         if self.awaiting_real_usage_after_compression:
+            self.last_calibrated_context_pressure = 0
             return True
-        if self.last_real_prompt_tokens <= 0:
+        calibration_prompt_tokens = (
+            self.last_provider_prompt_tokens_at_calibration
+        )
+        if calibration_prompt_tokens <= 0:
+            self.last_calibrated_context_pressure = 0
             return False
-        if self.last_real_prompt_tokens >= self.threshold_tokens:
+        if calibration_prompt_tokens >= self.threshold_tokens:
+            self.last_calibrated_context_pressure = calibration_prompt_tokens
             return False
 
-        baseline = self.last_rough_tokens_when_real_prompt_fit or self.last_compression_rough_tokens
+        baseline = self.last_rough_tokens_when_real_prompt_fit
         if baseline <= 0:
+            self.last_calibrated_context_pressure = 0
             return False
 
-        growth = max(0, rough_tokens - baseline)
-        tolerated_growth = max(4096, int(self.threshold_tokens * 0.05))
-        if growth > tolerated_growth:
-            return False
-
-        self.last_rough_tokens_when_real_prompt_fit = max(baseline, rough_tokens)
-        return True
+        rough_growth = max(0, rough_tokens - baseline)
+        calibrated_pressure = calibration_prompt_tokens + rough_growth
+        self.last_calibrated_context_pressure = calibrated_pressure
+        return calibrated_pressure < self.threshold_tokens
 
     def should_compress(self, prompt_tokens: int = None) -> bool:
         """Check if context exceeds the compression threshold.
@@ -1509,6 +1536,84 @@ class ContextCompressor(ContextEngine):
         content_tokens = estimate_messages_tokens_rough(turns_to_summarize)
         budget = int(content_tokens * _SUMMARY_RATIO)
         return max(_MIN_SUMMARY_TOKENS, min(budget, self.max_summary_tokens))
+
+    @staticmethod
+    def _cap_summary_output(summary: str, summary_budget: int) -> str:
+        """Bound persisted summary bytes without capping model reasoning.
+
+        Provider-side ``max_tokens`` is deliberately unsafe for compression:
+        reasoning models can spend the cap before emitting a complete handoff.
+        Bound the completed response instead. On overflow, retain head/tail
+        context plus the load-bearing historical task and ``Critical Context``
+        sections rather than blindly slicing a prefix.
+        """
+        max_bytes = max(1, int(summary_budget or 1)) * 4
+        encoded = summary.encode("utf-8")
+        if len(encoded) <= max_bytes:
+            return summary
+
+        marker = "\n\n[Summary truncated to compression output budget.]"
+        marker_bytes = len(marker.encode("utf-8"))
+        if max_bytes <= marker_bytes:
+            return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+        def _clip_fragment(text: str, byte_budget: int) -> str:
+            raw = text.encode("utf-8")
+            if len(raw) <= byte_budget:
+                return text
+            gap = "\n[…summary section clipped…]\n"
+            gap_bytes = len(gap.encode("utf-8"))
+            if byte_budget <= gap_bytes:
+                return raw[:byte_budget].decode("utf-8", errors="ignore")
+            remaining = byte_budget - gap_bytes
+            head_budget = (remaining * 2) // 3
+            tail_budget = remaining - head_budget
+            head = raw[:head_budget].decode("utf-8", errors="ignore")
+            tail = raw[-tail_budget:].decode("utf-8", errors="ignore")
+            return head.rstrip() + gap + tail.lstrip()
+
+        section_matches = list(re.finditer(r"(?m)^##\s+[^\n]+", summary))
+        mandatory_sections: List[str] = []
+        for index, match in enumerate(section_matches):
+            heading = match.group(0).strip().lower()
+            if heading not in {
+                HISTORICAL_TASK_HEADING.lower(),
+                "## critical context",
+            }:
+                continue
+            end = (
+                section_matches[index + 1].start()
+                if index + 1 < len(section_matches)
+                else len(summary)
+            )
+            mandatory_sections.append(summary[match.start():end].strip())
+
+        separators = "\n\n[…other summary sections omitted…]\n\n"
+        part_count = 1 + len(mandatory_sections)
+        separator_bytes = len(separators.encode("utf-8")) * (part_count - 1)
+        available = max(1, max_bytes - marker_bytes - separator_bytes)
+        if mandatory_sections:
+            general_budget = max(1, available // 4)
+            mandatory_budget = max(1, (available - general_budget) // len(mandatory_sections))
+            parts = [_clip_fragment(summary, general_budget)]
+            parts.extend(
+                _clip_fragment(section, mandatory_budget)
+                for section in mandatory_sections
+            )
+        else:
+            parts = [_clip_fragment(summary, available)]
+
+        bounded = separators.join(parts).rstrip() + marker
+        bounded_raw = bounded.encode("utf-8")
+        if len(bounded_raw) > max_bytes:
+            # Budget arithmetic above is conservative; this is a final UTF-8
+            # safety net for unusual multibyte boundaries.
+            body_budget = max_bytes - marker_bytes
+            bounded = (
+                bounded_raw[:body_budget].decode("utf-8", errors="ignore").rstrip()
+                + marker
+            )
+        return bounded
 
     # Truncation limits for the summarizer input.  These bound how much of
     # each message the summary model sees — the budget is the *summary*
@@ -1980,7 +2085,7 @@ PREVIOUS SUMMARY:
 NEW TURNS TO INCORPORATE:
 {content_to_summarize}
 
-Update the summary using this exact structure. PRESERVE all existing information that is still relevant. ADD new completed actions to the numbered list (continue numbering). Move items from "In Progress" to "Completed Actions" when done. Move answered questions to "Resolved Questions". Update "Active State" to reflect current state. Remove information only if it is clearly obsolete. CRITICAL: Update "## Active Task" to reflect the user's most recent unfulfilled input — this includes any question, decision request, or discussion turn that the assistant has not yet answered. Only write "None" if the last exchange was fully resolved.
+Update the summary using this exact structure. PRESERVE all existing information that is still relevant. ADD new completed actions to the numbered list (continue numbering). Move items from "In Progress" to "Completed Actions" when done. Move answered questions to "Resolved Questions". Update "Active State" to reflect current state. Remove information only if it is clearly obsolete. CRITICAL: Update "{HISTORICAL_TASK_HEADING}" to reflect the user's most recent unfulfilled input — this includes any question, decision request, or discussion turn that the assistant has not yet answered. Only write "None" if the last exchange was fully resolved.
 
 {_template_sections}"""
         else:
@@ -2013,17 +2118,17 @@ This compaction should PRIORITISE preserving all information related to the focu
                     "base_url": self.base_url,
                     "api_key": self.api_key,
                     "api_mode": self.api_mode,
+                    # Automatic fast-model routing is only safe when its
+                    # context window can fit this session's actual compression
+                    # threshold. Keep this runtime-only value beside the exact
+                    # provider/model route used for the summary request.
+                    "compression_threshold_tokens": self.threshold_tokens,
                 },
                 "messages": [{"role": "user", "content": prompt}],
-                # NO max_tokens: the output cap must never truncate a summary.
-                # ``summary_budget`` is prompt-level guidance only ("Target ~N
-                # tokens" above). Most OpenAI-compatible wires already omit the
-                # param (see _build_call_kwargs), but the Anthropic Messages
-                # wire and NVIDIA NIM forward it — a hard cap there cut
-                # summaries mid-section (thinking models burn the cap on
-                # reasoning first), producing truncated/thinking-only
-                # summaries and compaction loops. Omitting lets the adapter
-                # fall back to the model's native output ceiling.
+                # NO provider-side max_tokens: thinking models can spend the
+                # cap on reasoning before emitting a complete handoff. The
+                # completed text is bounded after generation by
+                # _cap_summary_output(), while the task timeout bounds latency.
                 # timeout resolved from auxiliary.compression.timeout config by call_llm
             }
             if self.summary_model:
@@ -2076,6 +2181,16 @@ This compaction should PRIORITISE preserving all information related to the focu
             # Redact the summary output as well — the summarizer LLM may
             # ignore prompt instructions and echo back secrets verbatim.
             summary = redact_sensitive_text(content.strip())
+            bounded_summary = self._cap_summary_output(summary, summary_budget)
+            if bounded_summary != summary:
+                logger.warning(
+                    "Context compression summary exceeded output policy: "
+                    "summary_bytes=%s max_summary_bytes=%s; retained output "
+                    "was truncated after generation",
+                    f"{len(summary.encode('utf-8')):,}",
+                    f"{summary_budget * 4:,}",
+                )
+            summary = bounded_summary
             # Store for iterative updates on next compaction
             self._previous_summary = summary
             self._clear_compression_failure_cooldown()

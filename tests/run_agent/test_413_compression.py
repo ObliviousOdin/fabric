@@ -648,6 +648,7 @@ class TestPreflightCompression:
         agent.context_compressor.threshold_tokens = 100_000
         agent.context_compressor.last_prompt_tokens = 58_000
         agent.context_compressor.last_real_prompt_tokens = 58_000
+        agent.context_compressor.last_provider_prompt_tokens_at_calibration = 58_000
         agent.context_compressor.last_rough_tokens_when_real_prompt_fit = 113_000
 
         big_history = []
@@ -677,6 +678,8 @@ class TestPreflightCompression:
         mock_compress.assert_not_called()
         assert result["completed"] is True
         assert result["final_response"] == "Used real fit"
+        assert agent.context_compressor.last_provider_prompt_tokens_at_calibration == 59_000
+        assert agent.context_compressor.last_rough_tokens_when_real_prompt_fit == 114_000
         assert not any(
             ev == "lifecycle" and "Preflight compression" in msg
             for ev, msg in status_messages
@@ -689,6 +692,7 @@ class TestPreflightCompression:
         agent.context_compressor.threshold_tokens = 100_000
         agent.context_compressor.last_prompt_tokens = 58_000
         agent.context_compressor.last_real_prompt_tokens = 58_000
+        agent.context_compressor.last_provider_prompt_tokens_at_calibration = 58_000
         agent.context_compressor.last_rough_tokens_when_real_prompt_fit = 113_000
 
         big_history = []
@@ -714,7 +718,7 @@ class TestPreflightCompression:
 
         def _rough_estimate(*_args, **_kwargs):
             _rough_calls["n"] += 1
-            return 125_000 if _rough_calls["n"] == 1 else 40_000
+            return 156_000 if _rough_calls["n"] == 1 else 40_000
 
         with (
             patch("agent.turn_context.estimate_request_tokens_rough", side_effect=_rough_estimate),

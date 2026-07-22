@@ -491,11 +491,13 @@ def build_turn_context(
 
         if _preflight_deferred:
             logger.info(
-                "Skipping preflight compression: rough estimate ~%s >= %s, "
-                "but last real provider prompt was %s after compression",
+                "Skipping preflight compression: rough_context_pressure=~%s "
+                ">= threshold_tokens=%s, calibrated_context_pressure=%s "
+                "from provider_prompt_tokens=%s",
                 f"{_preflight_tokens:,}",
                 f"{_compressor.threshold_tokens:,}",
-                f"{_compressor.last_real_prompt_tokens:,}",
+                f"{getattr(_compressor, 'last_calibrated_context_pressure', 0):,}",
+                f"{getattr(_compressor, 'last_provider_prompt_tokens_at_calibration', 0):,}",
             )
         elif _compression_cooldown:
             logger.info(
@@ -512,9 +514,13 @@ def build_turn_context(
             )
         elif _compressor.should_compress(_preflight_tokens):
             logger.info(
-                "Preflight compression: ~%s tokens >= %s threshold (model %s, ctx %s)",
+                "Preflight compression firing: rough_context_pressure=~%s "
+                ">= threshold_tokens=%s (calibrated_context_pressure=%s, "
+                "provider_prompt_tokens=%s, model %s, ctx %s)",
                 f"{_preflight_tokens:,}",
                 f"{_compressor.threshold_tokens:,}",
+                f"{getattr(_compressor, 'last_calibrated_context_pressure', 0):,}",
+                f"{getattr(_compressor, 'last_provider_prompt_tokens_at_calibration', 0):,}",
                 agent.model,
                 f"{_compressor.context_length:,}",
             )

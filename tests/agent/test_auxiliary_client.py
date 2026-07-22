@@ -332,6 +332,18 @@ class TestBuildCallKwargsMaxTokens:
         assert kwargs["max_tokens"] == 1234
         assert "max_completion_tokens" not in kwargs
 
+    def test_omits_reasoning_unsafe_cap_on_anthropic_when_unspecified(self):
+        from agent.auxiliary_client import _build_call_kwargs
+
+        kwargs = _build_call_kwargs(
+            provider="anthropic",
+            model="claude-opus-4-8",
+            messages=[{"role": "user", "content": "summarize"}],
+            base_url="https://api.anthropic.com",
+        )
+
+        assert "max_tokens" not in kwargs
+
     def test_keeps_max_tokens_for_nvidia_nim(self):
         from agent.auxiliary_client import _build_call_kwargs
 
@@ -343,6 +355,18 @@ class TestBuildCallKwargsMaxTokens:
             base_url="https://integrate.api.nvidia.com/v1",
         )
         assert kwargs["max_tokens"] == 4096
+
+    def test_supplies_provider_default_max_tokens_for_nvidia_nim(self):
+        from agent.auxiliary_client import _build_call_kwargs
+
+        kwargs = _build_call_kwargs(
+            provider="nvidia",
+            model="minimaxai/minimax-m3",
+            messages=[{"role": "user", "content": "summarize"}],
+            base_url="https://integrate.api.nvidia.com/v1",
+        )
+
+        assert kwargs["max_tokens"] == 16384
 
 
 class TestNousExtraBody:
@@ -2427,6 +2451,10 @@ class TestAuxiliaryFallbackLayering:
             )
 
         assert result.choices[0].message.content == "part one\npart two"
+        assert (
+            primary_client.chat.completions.create.call_args.kwargs["max_tokens"]
+            == 16384
+        )
         mock_chain.assert_not_called()
 
     def test_invalid_empty_choices_response_triggers_fallback(self, monkeypatch):

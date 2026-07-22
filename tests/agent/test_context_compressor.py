@@ -54,12 +54,40 @@ class TestUpdateFromResponse:
             "prompt_tokens": 5000,
             "completion_tokens": 1000,
             "total_tokens": 6000,
+            "rough_context_pressure": 90_000,
         })
         assert compressor.last_prompt_tokens == 5000
         assert compressor.last_completion_tokens == 1000
         assert compressor.last_real_prompt_tokens == 5000
+        assert compressor.last_provider_prompt_tokens_at_calibration == 5000
         assert compressor.last_rough_tokens_when_real_prompt_fit == 90_000
         assert compressor.awaiting_real_usage_after_compression is False
+
+    def test_records_rough_pressure_for_every_successful_request(self, compressor):
+        compressor.update_from_response({
+            "prompt_tokens": 50_000,
+            "completion_tokens": 1_000,
+            "total_tokens": 51_000,
+            "rough_context_pressure": 93_000,
+        })
+
+        assert compressor.last_real_prompt_tokens == 50_000
+        assert compressor.last_rough_tokens_when_real_prompt_fit == 93_000
+        assert compressor.last_provider_prompt_tokens_at_calibration == 50_000
+
+    def test_missing_rough_snapshot_invalidates_atomic_calibration_pair(
+        self, compressor
+    ):
+        compressor.update_from_response({
+            "prompt_tokens": 50_000,
+            "rough_context_pressure": 93_000,
+        })
+        compressor.update_from_response({"prompt_tokens": 20_000})
+
+        assert compressor.last_real_prompt_tokens == 20_000
+        assert compressor.last_provider_prompt_tokens_at_calibration == 0
+        assert compressor.last_rough_tokens_when_real_prompt_fit == 0
+        assert compressor.should_defer_preflight_to_real_usage(100_000) is False
 
     def test_missing_fields_default_zero(self, compressor):
         compressor.update_from_response({})
@@ -70,17 +98,28 @@ class TestPreflightDeferral:
     def test_defers_when_recent_real_usage_fit_and_rough_growth_is_small(self, compressor):
         compressor.threshold_tokens = 85_000
         compressor.last_real_prompt_tokens = 50_000
+        compressor.last_provider_prompt_tokens_at_calibration = 50_000
         compressor.last_rough_tokens_when_real_prompt_fit = 90_000
 
         assert compressor.should_defer_preflight_to_real_usage(93_000) is True
-        assert compressor.last_rough_tokens_when_real_prompt_fit == 93_000
+        assert compressor.last_calibrated_context_pressure == 53_000
 
-    def test_does_not_defer_when_rough_growth_is_large(self, compressor):
+    def test_does_not_defer_when_rough_growth_reaches_threshold(self, compressor):
         compressor.threshold_tokens = 85_000
         compressor.last_real_prompt_tokens = 50_000
+        compressor.last_provider_prompt_tokens_at_calibration = 50_000
         compressor.last_rough_tokens_when_real_prompt_fit = 90_000
 
-        assert compressor.should_defer_preflight_to_real_usage(100_000) is False
+        assert compressor.should_defer_preflight_to_real_usage(126_000) is False
+        assert compressor.last_calibrated_context_pressure == 86_000
+
+    def test_equal_to_threshold_does_not_defer(self, compressor):
+        compressor.threshold_tokens = 85_000
+        compressor.last_provider_prompt_tokens_at_calibration = 50_000
+        compressor.last_rough_tokens_when_real_prompt_fit = 90_000
+
+        assert compressor.should_defer_preflight_to_real_usage(125_000) is False
+        assert compressor.last_calibrated_context_pressure == 85_000
 
     def test_does_not_defer_without_recent_real_usage(self, compressor):
         compressor.threshold_tokens = 85_000
@@ -106,6 +145,7 @@ class TestPreflightDeferral:
         growth deferral logic governs again (no permanent deferral)."""
         compressor.threshold_tokens = 85_000
         compressor.last_real_prompt_tokens = 120_000
+        compressor.last_provider_prompt_tokens_at_calibration = 120_000
         compressor.awaiting_real_usage_after_compression = False
         # Stale-high real prompt with the flag cleared => the >= threshold
         # short-circuit applies => no deferral.
@@ -741,6 +781,7 @@ class TestNonStringContent:
             "base_url": "https://chatgpt.com/backend-api/codex",
             "api_key": "codex-token",
             "api_mode": "codex_responses",
+            "compression_threshold_tokens": c.threshold_tokens,
         }
 
 
@@ -2833,6 +2874,7 @@ class TestUpdateModelResetsCalibration:
         # Simulate a large-model session that proved a prompt fit.
         comp.last_prompt_tokens = 120_000
         comp.last_real_prompt_tokens = 120_000
+        comp.last_provider_prompt_tokens_at_calibration = 120_000
         comp.last_rough_tokens_when_real_prompt_fit = 130_000
         comp.last_compression_rough_tokens = 130_000
         comp.awaiting_real_usage_after_compression = True
@@ -2842,6 +2884,7 @@ class TestUpdateModelResetsCalibration:
 
         assert comp.last_prompt_tokens == 0
         assert comp.last_real_prompt_tokens == 0
+        assert comp.last_provider_prompt_tokens_at_calibration == 0
         assert comp.last_rough_tokens_when_real_prompt_fit == 0
         assert comp.last_compression_rough_tokens == 0
         assert comp.awaiting_real_usage_after_compression is False
@@ -2852,6 +2895,7 @@ class TestUpdateModelResetsCalibration:
         preflight on the new smaller model."""
         comp = self._comp()
         comp.last_real_prompt_tokens = 50_000
+        comp.last_provider_prompt_tokens_at_calibration = 50_000
         comp.last_rough_tokens_when_real_prompt_fit = 90_000
         # Before switch, a modest rough growth would defer.
         comp.threshold_tokens = 85_000

@@ -44,6 +44,7 @@ import contextlib
 import copy
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -830,6 +831,25 @@ _API_KEY_PROVIDER_AUX_MODELS_FALLBACK: Dict[str, str] = {
 # Legacy alias — callers that haven't been updated to _get_aux_model_for_provider()
 # can still use this dict directly. Kept in sync with _FALLBACK above.
 _API_KEY_PROVIDER_AUX_MODELS: Dict[str, str] = _API_KEY_PROVIDER_AUX_MODELS_FALLBACK
+
+# Compression is latency-sensitive and can run in the foreground on a very
+# large prompt. Prefer a same-provider fast model when one is known, without
+# silently sending the conversation to a different provider. OAuth providers
+# do not all advertise ``ProviderProfile.default_aux_model`` because their live
+# catalogues drift, so keep the small fallback explicit and task-scoped.
+_COMPRESSION_FAST_MODEL_FALLBACK: Dict[str, str] = {
+    "openai-codex": "gpt-5.4-mini",
+}
+
+
+def _get_default_compression_model(provider_id: str) -> str:
+    """Return a same-provider fast model for automatic compression."""
+    normalized = _normalize_aux_provider(provider_id)
+    return (
+        _get_aux_model_for_provider(normalized)
+        or _COMPRESSION_FAST_MODEL_FALLBACK.get(normalized, "")
+    )
+
 
 # Vision-specific model overrides for direct providers.
 # When the user's main provider has a dedicated vision/multimodal model that
@@ -4977,12 +4997,12 @@ def _resolve_auto(
 
     Priority:
       1. User's main provider + main model, regardless of provider type.
-         This means auxiliary tasks (compression, vision, web extraction,
-         session search, etc.) use the same model the user configured for
-         chat.  Users on OpenRouter/Nous get their chosen chat model; users
-         on DeepSeek/ZAI/Alibaba get theirs; etc.  Running aux tasks on the
-         user's picked model keeps behavior predictable — no surprise
-         switches to a cheap fallback model for side tasks.
+         Compression prefers that same provider's declared fast auxiliary
+         model when available; explicit ``auxiliary.compression`` config still
+         wins. Other auxiliary tasks (vision, web extraction, session search,
+         etc.) use the same model the user configured for chat. Running aux
+         tasks on the user's picked provider keeps routing predictable — no
+         surprise cross-provider switch for side tasks.
       2. OpenRouter → Nous → custom → Codex → API-key providers (fallback
          chain, only used when the main provider has no working client).
     """
@@ -5040,11 +5060,10 @@ def _resolve_auto(
 
     # ── Step 1: main provider + main model → use them directly ──
     #
-    # This is the primary aux backend for every user.  "auto" means
-    # "use my main chat model for side tasks as well" — including users
-    # on aggregators (OpenRouter, Nous) who previously got routed to a
-    # cheap provider-side default.  Explicit per-task overrides set via
-    # config.yaml (auxiliary.<task>.provider) still win over this.
+    # This is the primary aux backend for every user. ``auto`` stays on the
+    # main provider. Most tasks also keep the main model; compression may use
+    # that provider's declared fast model to avoid blocking foreground turns.
+    # Explicit per-task overrides set via config.yaml still win.
     main_provider = str(runtime_provider or _read_main_provider() or "")
     main_model = str(runtime_model or _read_main_model() or "")
 
@@ -5077,6 +5096,18 @@ def _resolve_auto(
                 runtime_api_mode = ""
         except Exception:
             logger.debug("MoA aux resolution to aggregator failed", exc_info=True)
+
+    if task == "compression" and main_provider and main_model:
+        fast_compression_model = _get_default_compression_model(main_provider)
+        if fast_compression_model and fast_compression_model != main_model:
+            logger.info(
+                "Auxiliary compression auto-route: using same-provider fast "
+                "model %s instead of main model %s (%s)",
+                fast_compression_model,
+                main_model,
+                main_provider,
+            )
+            main_model = fast_compression_model
 
     if (main_provider and main_model
             and main_provider not in {"auto", ""}):
@@ -6270,18 +6301,14 @@ def get_text_auxiliary_client(
     (e.g. auxiliary.compression.model, auxiliary.web_extract.model).
     """
     provider, model, base_url, api_key, api_mode = _resolve_task_provider_model(task or None)
-    from agent.egress_policy import EgressMode
-
-    policy, _ = _load_auxiliary_egress_context()
     kwargs = {
         "model": model,
         "explicit_base_url": base_url,
         "explicit_api_key": api_key,
         "api_mode": api_mode,
         "main_runtime": main_runtime,
+        "task": task or None,
     }
-    if policy.mode is EgressMode.LOCAL_AI:
-        kwargs["task"] = task or None
     return resolve_provider_client(provider, **kwargs)
 
 
@@ -6293,9 +6320,6 @@ def get_async_text_auxiliary_client(task: str = "", *, main_runtime: Optional[Di
     Returns (None, None) when no provider is available.
     """
     provider, model, base_url, api_key, api_mode = _resolve_task_provider_model(task or None)
-    from agent.egress_policy import EgressMode
-
-    policy, _ = _load_auxiliary_egress_context()
     kwargs = {
         "model": model,
         "async_mode": True,
@@ -6303,9 +6327,8 @@ def get_async_text_auxiliary_client(task: str = "", *, main_runtime: Optional[Di
         "explicit_api_key": api_key,
         "api_mode": api_mode,
         "main_runtime": main_runtime,
+        "task": task or None,
     }
-    if policy.mode is EgressMode.LOCAL_AI:
-        kwargs["task"] = task or None
     return resolve_provider_client(provider, **kwargs)
 
 
@@ -7321,17 +7344,6 @@ def _resolve_task_provider_model(
 
 _DEFAULT_AUX_TIMEOUT = 30.0
 
-# Compression summarises large conversation histories; a reasoning auxiliary
-# model (e.g. Codex / GPT-5.5) can legitimately take longer than the default
-# ``auxiliary.compression.timeout`` (120 s), causing the stream to time out and
-# the compressor to fall back to the deterministic context marker (#54915).
-# This is a bounded *floor* applied only to config-derived compression timeouts
-# — it does not affect other auxiliary tasks and does not override an explicit
-# per-call ``timeout=``.  A floor is harmless for fast compression models
-# (they finish before the deadline) and is a minimum, so a higher config value
-# is kept unchanged.
-_COMPRESSION_TIMEOUT_FLOOR_SECONDS = 300.0
-
 
 def _get_auxiliary_task_config(task: str) -> Dict[str, Any]:
     """Return the config dict for auxiliary.<task>, or {} when unavailable.
@@ -7393,26 +7405,29 @@ def _get_task_timeout(task: str, default: float = _DEFAULT_AUX_TIMEOUT) -> float
     raw = task_config.get("timeout")
     if raw is not None:
         try:
-            return float(raw)
+            value = float(raw)
+            if math.isfinite(value) and value > 0:
+                return value
         except (ValueError, TypeError):
             pass
     return default
 
 
 def _effective_aux_timeout(task: str, timeout: Optional[float]) -> float:
-    """Resolve the effective timeout for an auxiliary LLM call.
+    """Resolve a finite positive timeout for an auxiliary LLM call.
 
-    Uses the caller-provided ``timeout`` when given; otherwise reads
-    ``auxiliary.{task}.timeout`` from config via :func:`_get_task_timeout`.
-    For the ``compression`` task only, applies a bounded floor so a reasoning
-    model summarising a large context is not cut off by the default timeout
-    (#54915).  The floor is intentionally skipped when the caller passes an
-    explicit ``timeout=`` — explicit per-call deadlines are always honoured —
-    and it is a minimum (``max``), so a config value already above it is kept.
+    Explicit call-level values win. Otherwise the task config is used exactly;
+    invalid, non-finite, zero, and negative values fall back safely to the
+    configured task default rather than silently changing a valid deadline.
     """
-    effective = timeout if timeout is not None else _get_task_timeout(task)
-    if timeout is None and task == "compression":
-        effective = max(effective, _COMPRESSION_TIMEOUT_FLOOR_SECONDS)
+    if timeout is None:
+        return _get_task_timeout(task)
+    try:
+        effective = float(timeout)
+    except (ValueError, TypeError):
+        return _get_task_timeout(task)
+    if not math.isfinite(effective) or effective <= 0:
+        return _get_task_timeout(task)
     return effective
 
 
@@ -7809,25 +7824,15 @@ def call_llm(
             )
         resolved_provider = effective_provider or resolved_provider
     else:
-        if local_policy_active:
-            client, final_model = _get_cached_client(
-                resolved_provider,
-                resolved_model,
-                base_url=resolved_base_url,
-                api_key=resolved_api_key,
-                api_mode=resolved_api_mode,
-                main_runtime=main_runtime,
-                task=task,
-            )
-        else:
-            client, final_model = _get_cached_client(
-                resolved_provider,
-                resolved_model,
-                base_url=resolved_base_url,
-                api_key=resolved_api_key,
-                api_mode=resolved_api_mode,
-                main_runtime=main_runtime,
-            )
+        client, final_model = _get_cached_client(
+            resolved_provider,
+            resolved_model or "",
+            base_url=resolved_base_url or "",
+            api_key=resolved_api_key or "",
+            api_mode=resolved_api_mode or "",
+            main_runtime=main_runtime,
+            task=task,
+        )
         if client is None:
             # When the user explicitly chose a non-OpenRouter provider but no
             # credentials were found, honor the task fallback_chain before
@@ -8524,26 +8529,16 @@ async def async_call_llm(
             )
         resolved_provider = effective_provider or resolved_provider
     else:
-        if local_policy_active:
-            client, final_model = _get_cached_client(
-                resolved_provider,
-                resolved_model,
-                async_mode=True,
-                base_url=resolved_base_url,
-                api_key=resolved_api_key,
-                api_mode=resolved_api_mode,
-                main_runtime=main_runtime,
-                task=task,
-            )
-        else:
-            client, final_model = _get_cached_client(
-                resolved_provider,
-                resolved_model,
-                async_mode=True,
-                base_url=resolved_base_url,
-                api_key=resolved_api_key,
-                api_mode=resolved_api_mode,
-            )
+        client, final_model = _get_cached_client(
+            resolved_provider,
+            resolved_model or "",
+            async_mode=True,
+            base_url=resolved_base_url or "",
+            api_key=resolved_api_key or "",
+            api_mode=resolved_api_mode or "",
+            main_runtime=main_runtime,
+            task=task,
+        )
         if client is None:
             _explicit = (resolved_provider or "").strip().lower()
             if _explicit and _explicit not in {"auto", "openrouter", "custom"}:

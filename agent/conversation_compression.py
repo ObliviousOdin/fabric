@@ -972,7 +972,8 @@ def compress_context(
             pass
 
         logger.info(
-            "context compression done: session=%s messages=%d->%d rough_tokens=~%s awaiting_real_usage=true",
+            "context compression done: session=%s messages=%d->%d "
+            "rough_context_pressure_after=~%s awaiting_real_usage=true",
             agent.session_id or "none", _pre_msg_count, len(compressed),
             f"{_compressed_est:,}",
         )

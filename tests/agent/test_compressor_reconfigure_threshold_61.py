@@ -109,10 +109,12 @@ class TestReconfigureThreshold:
         provider-usage calibration captured under the same model."""
         c = _make(272_000, 0.75)
         c.last_real_prompt_tokens = 137_466
+        c.last_provider_prompt_tokens_at_calibration = 137_466
         c.last_rough_tokens_when_real_prompt_fit = 204_307
         c.awaiting_real_usage_after_compression = True
         c.reconfigure_threshold(0.85)
         assert c.last_real_prompt_tokens == 137_466
+        assert c.last_provider_prompt_tokens_at_calibration == 137_466
         assert c.last_rough_tokens_when_real_prompt_fit == 204_307
         assert c.awaiting_real_usage_after_compression is True
 

@@ -95,7 +95,12 @@ def _coerce_usage_int(value: Any) -> int:
     return 0
 
 
-def _record_codex_app_server_usage(agent, turn) -> dict[str, Any]:
+def _record_codex_app_server_usage(
+    agent,
+    turn,
+    *,
+    rough_context_pressure: int = 0,
+) -> dict[str, Any]:
     """Translate Codex app-server token usage into Fabric accounting.
 
     Codex app-server reports usage via thread/tokenUsage/updated as:
@@ -158,6 +163,8 @@ def _record_codex_app_server_usage(agent, turn) -> dict[str, Any]:
         "cache_write_tokens": canonical_usage.cache_write_tokens,
         "reasoning_tokens": canonical_usage.reasoning_tokens,
     }
+    if rough_context_pressure > 0:
+        usage_dict["rough_context_pressure"] = rough_context_pressure
 
     compressor = getattr(agent, "context_compressor", None)
     if compressor is not None:
@@ -426,6 +433,17 @@ def run_codex_app_server_turn(
     # standard run_conversation() flow (line ~11823) before the early
     # return reaches us. Do NOT append again — that would duplicate.
 
+    rough_context_pressure = 0
+    try:
+        from agent.model_metadata import estimate_request_tokens_rough
+
+        rough_context_pressure = estimate_request_tokens_rough(messages)
+    except Exception:
+        logger.debug(
+            "codex app-server rough context estimate failed",
+            exc_info=True,
+        )
+
     try:
         turn = agent._codex_session.run_turn(user_input=user_message)
     except Exception as exc:
@@ -504,7 +522,11 @@ def run_codex_app_server_turn(
         getattr(agent, "_iters_since_skill", 0) + turn.tool_iterations
     )
     _record_codex_app_server_compaction(agent, turn)
-    usage_result = _record_codex_app_server_usage(agent, turn)
+    usage_result = _record_codex_app_server_usage(
+        agent,
+        turn,
+        rough_context_pressure=rough_context_pressure,
+    )
     api_calls = 1
 
     # Now check the skill nudge AFTER iters were incremented — same

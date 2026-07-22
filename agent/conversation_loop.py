@@ -1011,10 +1011,13 @@ def run_conversation(
         ):
             compression_attempts += 1
             logger.info(
-                "Pre-API compression: ~%s request tokens >= %s threshold "
-                "(context=%s, attempt=%s/3)",
+                "Pre-API compression firing: rough_context_pressure=~%s "
+                ">= threshold_tokens=%s (calibrated_context_pressure=%s, "
+                "provider_prompt_tokens=%s, context=%s, attempt=%s/3)",
                 f"{request_pressure_tokens:,}",
                 f"{int(getattr(_compressor, 'threshold_tokens', 0) or 0):,}",
+                f"{int(getattr(_compressor, 'last_calibrated_context_pressure', 0) or 0):,}",
+                f"{int(getattr(_compressor, 'last_provider_prompt_tokens_at_calibration', 0) or 0):,}",
                 f"{int(getattr(_compressor, 'context_length', 0) or 0):,}"
                 if getattr(_compressor, "context_length", 0) else "unknown",
                 compression_attempts,
@@ -1091,6 +1094,7 @@ def run_conversation(
         finish_reason = "stop"
         response = None  # Guard against UnboundLocalError if all retries fail
         api_kwargs = None  # Guard against UnboundLocalError in except handler
+        successful_attempt_rough_context_pressure = 0
         api_request_id = f"{turn_id}:api:{api_call_count}"
         agent._current_api_request_id = api_request_id
 
@@ -1247,6 +1251,31 @@ def run_conversation(
                         )
                 except Exception:
                     pass
+
+                # Calibrate against the exact payload for this transport
+                # attempt, after provider shaping and request middleware. A
+                # retry/failover may change provider, reasoning replay, or tool
+                # schemas, so the earlier outer-loop estimate is not safe to
+                # pair with this attempt's provider usage.
+                try:
+                    _attempt_messages = api_kwargs.get("messages")
+                    if not isinstance(_attempt_messages, list):
+                        _attempt_messages = api_kwargs.get("input")
+                    if isinstance(_attempt_messages, list):
+                        successful_attempt_rough_context_pressure = (
+                            estimate_request_tokens_rough(
+                                _attempt_messages,
+                                tools=api_kwargs.get("tools") or None,
+                            )
+                        )
+                    else:
+                        successful_attempt_rough_context_pressure = 0
+                except Exception:
+                    successful_attempt_rough_context_pressure = 0
+                    logger.debug(
+                        "Successful-attempt rough context estimate failed",
+                        exc_info=True,
+                    )
 
                 # Always prefer the streaming path — even without stream
                 # consumers.  Streaming gives us fine-grained health
@@ -2086,6 +2115,11 @@ def run_conversation(
                         "cache_read_tokens": canonical_usage.cache_read_tokens,
                         "cache_write_tokens": canonical_usage.cache_write_tokens,
                         "reasoning_tokens": canonical_usage.reasoning_tokens,
+                        # Associate real provider occupancy with the rough
+                        # pressure snapshot for this exact successful attempt.
+                        "rough_context_pressure": (
+                            successful_attempt_rough_context_pressure
+                        ),
                     }
                     agent.context_compressor.update_from_response(usage_dict)
 
@@ -2115,7 +2149,9 @@ def run_conversation(
                     if canonical_usage.cache_read_tokens and prompt_tokens:
                         _cache_pct = f" cache={canonical_usage.cache_read_tokens}/{prompt_tokens} ({100*canonical_usage.cache_read_tokens/prompt_tokens:.0f}%)"
                     logger.info(
-                        "API call #%d: model=%s provider=%s in=%d out=%d total=%d latency=%.1fs%s",
+                        "API call #%d: model=%s provider=%s "
+                        "provider_prompt_tokens=%d provider_completion_tokens=%d "
+                        "provider_total_tokens=%d latency=%.1fs%s",
                         agent.session_api_calls, agent.model, agent.provider or "unknown",
                         prompt_tokens, completion_tokens, total_tokens,
                         api_duration, _cache_pct,

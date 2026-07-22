@@ -311,8 +311,18 @@ enum AssistantTurnReducer {
             if case .tool = content { return false }
             return nil
         }), case .text(let text) = parts[index].content {
-            parts[index].content = .text(text + delta)
-            return
+            let crossesReasoning = parts[(index + 1)...].contains { part in
+                if case .reasoning = part.content { return true }
+                return false
+            }
+            // The child-session mirror terminates its one-line goal header
+            // with a newline before reasoning begins. Keep that complete line
+            // in source order, while still coalescing ordinary mid-sentence
+            // text/reasoning fragments like the desktop transcript does.
+            if !crossesReasoning || !text.hasSuffix("\n") {
+                parts[index].content = .text(text + delta)
+                return
+            }
         }
         parts.append(AssistantTurnPart(id: nextID(prefix: "text", parts: parts), content: .text(delta)))
     }

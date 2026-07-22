@@ -47,6 +47,74 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertEqual(text, "Ready to ship.")
     }
 
+    func testMirroredSubagentHeaderKeepsAnswerAfterInterveningReasoning() throws {
+        var message = TranscriptMessage(role: .assistant, text: "", streaming: true)
+        let events = [
+            GatewayEvent(
+                type: "message.delta",
+                sessionId: "child-runtime",
+                payload: ["text": "Audit the release.\n"]
+            ),
+            GatewayEvent(
+                type: "reasoning.delta",
+                sessionId: "child-runtime",
+                payload: ["text": "Checking the hosted gates."]
+            ),
+            GatewayEvent(
+                type: "message.delta",
+                sessionId: "child-runtime",
+                payload: ["text": "The hosted gates "]
+            ),
+            GatewayEvent(
+                type: "message.delta",
+                sessionId: "child-runtime",
+                payload: ["text": "passed."]
+            ),
+        ]
+
+        for event in events {
+            message = AssistantTurnReducer.reducing(
+                message,
+                event: try XCTUnwrap(AssistantTurnReducer.event(from: event))
+            )
+        }
+
+        XCTAssertEqual(
+            message.text,
+            "Audit the release.\nThe hosted gates passed."
+        )
+        XCTAssertEqual(message.assistantParts.count, 3)
+        guard case .text(let header) = message.assistantParts[0].content,
+              case .reasoning(let reasoning) = message.assistantParts[1].content,
+              case .text(let answer) = message.assistantParts[2].content else {
+            return XCTFail("Expected the child header, reasoning, and joined answer in order")
+        }
+        XCTAssertEqual(header, "Audit the release.\n")
+        XCTAssertEqual(reasoning.text, "Checking the hosted gates.")
+        XCTAssertEqual(answer, "The hosted gates passed.")
+    }
+
+    func testMidSentenceTextStillCoalescesAcrossReasoningWithinOneSegment() {
+        var message = TranscriptMessage(role: .assistant, text: "", streaming: true)
+        message = AssistantTurnReducer.reducing(message, event: .textDelta("Let me "))
+        message = AssistantTurnReducer.reducing(
+            message,
+            event: .reasoningDelta("Checking the file.")
+        )
+        message = AssistantTurnReducer.reducing(
+            message,
+            event: .textDelta("verify the result.")
+        )
+
+        XCTAssertEqual(message.assistantParts.count, 2)
+        guard case .text(let text) = message.assistantParts[0].content,
+              case .reasoning(let reasoning) = message.assistantParts[1].content else {
+            return XCTFail("Expected one text segment and its reasoning disclosure")
+        }
+        XCTAssertEqual(text, "Let me verify the result.")
+        XCTAssertEqual(reasoning.text, "Checking the file.")
+    }
+
     func testFailedToolIgnoresRawArgumentsAndResultBodies() {
         let event = GatewayEvent(
             type: "tool.complete",

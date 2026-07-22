@@ -519,6 +519,10 @@ export function DesktopController() {
     navigate(`${SETTINGS_ROUTE}?tab=providers`)
   }, [navigate])
 
+  const openVoiceSettings = useCallback(() => {
+    navigate(`${SETTINGS_ROUTE}?tab=config:voice`)
+  }, [navigate])
+
   const modelMenuContent = useMemo(
     () =>
       gatewayState === 'open' ? (
@@ -1423,7 +1427,7 @@ export function DesktopController() {
               <Suspense fallback={null}>
                 <VoiceNotesView
                   maxRecordingSeconds={voiceMaxRecordingSeconds}
-                  onConfigureSpeechToText={openProviderSettings}
+                  onConfigureSpeechToText={openVoiceSettings}
                   onCreateNote={startVoiceNoteChat}
                   onTranscribeAudio={transcribeVoiceAudio}
                   sttEnabled={sttEnabled}

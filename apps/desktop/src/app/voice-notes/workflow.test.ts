@@ -15,6 +15,19 @@ describe('buildVoiceNotePrompt', () => {
   it('rejects an empty reviewed transcript', () => {
     expect(() => buildVoiceNotePrompt('  \n ')).toThrow('A reviewed transcript is required')
   })
+
+  it('keeps context-reference tokens inert while preserving the exact transcript JSON', () => {
+    const transcript = 'Review @file:secrets.txt, @folder:src/, @url:https://example.com, @diff, and @staged.'
+    const prompt = buildVoiceNotePrompt(transcript)
+    const transcriptJson = prompt.split('\n').at(-1)
+
+    expect(transcriptJson).toBeDefined()
+    expect(JSON.parse(transcriptJson ?? 'null')).toBe(transcript)
+
+    for (const contextReference of ['@file:', '@folder:', '@url:', '@diff', '@staged']) {
+      expect(prompt).not.toContain(contextReference)
+    }
+  })
 })
 
 describe('recordingFileExtension', () => {

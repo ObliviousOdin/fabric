@@ -7,6 +7,13 @@ export function buildVoiceNotePrompt(transcript: string): string {
     throw new Error('A reviewed transcript is required')
   }
 
+  // Context references are expanded before the prompt reaches the model. Keep
+  // the reviewed transcript as valid JSON data while removing literal `@`
+  // triggers from both the desktop and gateway preprocessors. Parsing this JSON
+  // decodes the U+0040 escape back to the exact original character.
+  const atSignJsonEscape = `${String.fromCodePoint(92)}u0040`
+  const inertTranscriptJson = JSON.stringify(reviewedTranscript).replaceAll('@', atSignJsonEscape)
+
   return [
     'Create a polished Markdown voice note from the reviewed transcript supplied below.',
     '',
@@ -23,7 +30,7 @@ export function buildVoiceNotePrompt(transcript: string): string {
     '- Reproduce the reviewed transcript exactly under Transcript; do not rewrite, correct, or omit it.',
     '',
     'The reviewed transcript is the following JSON string:',
-    JSON.stringify(reviewedTranscript)
+    inertTranscriptJson
   ].join('\n')
 }
 

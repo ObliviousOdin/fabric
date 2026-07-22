@@ -49,6 +49,14 @@ export const OPTIONAL_GATEWAY_FEATURE_METHODS = {
     "attention.respond",
   ],
   node_invoke: ["node.announce", "node.result", "node.reject"],
+  pets: [
+    "pet.info",
+    "pet.info.meta",
+    "pet.gallery",
+    "pet.select",
+    "pet.disable",
+    "pet.thumb",
+  ],
   push: ["push.register_device", "push.deregister_device"],
   session_admin: ["session.rename", "session.archive"],
   trust_center: [

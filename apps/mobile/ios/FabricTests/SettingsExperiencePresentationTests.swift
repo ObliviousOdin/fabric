@@ -122,11 +122,11 @@ final class SettingsExperiencePresentationTests: XCTestCase {
         XCTAssertEqual(summary.serverReleaseDate, "2026-07-20")
         XCTAssertEqual(summary.contractVersion, "1")
         XCTAssertEqual(summary.baselineStatus, "Verified")
-        XCTAssertEqual(summary.advertisedFeatureCount, 3)
-        XCTAssertEqual(summary.publishedMethodCount, 5)
+        XCTAssertEqual(summary.advertisedFeatureCount, 4)
+        XCTAssertEqual(summary.publishedMethodCount, 11)
         XCTAssertEqual(
             summary.advertisedFeatures,
-            ["Background work", "Conversations", "Live View"]
+            ["Background work", "Conversations", "Live View", "Pets"]
         )
     }
 
@@ -241,6 +241,80 @@ final class SettingsExperiencePresentationTests: XCTestCase {
         XCTAssertTrue(SettingsLocalDataAlert.resetFailed.message.contains("may still be present"))
     }
 
+    func testPetPresentationCoversEveryAvailabilityStateHonestly() {
+        let unsupported = SettingsPetPresentation.make(supportsPets: false, state: .unsupported)
+        XCTAssertEqual(unsupported.title, "Pets")
+        XCTAssertEqual(unsupported.systemImage, "pawprint.fill")
+        XCTAssertTrue(unsupported.detail.contains("doesn't advertise pets yet"))
+        XCTAssertEqual(unsupported.tone, .neutral)
+        XCTAssertFalse(unsupported.showsControls)
+
+        // Supported but not yet refreshed must read as loading, never as a
+        // false "gateway lacks pets" claim.
+        let checking = SettingsPetPresentation.make(supportsPets: true, state: .unsupported)
+        XCTAssertEqual(checking.tone, .info)
+        XCTAssertFalse(checking.showsControls)
+        XCTAssertFalse(checking.detail.contains("doesn't advertise"))
+
+        let loading = SettingsPetPresentation.make(supportsPets: true, state: .loading)
+        XCTAssertEqual(loading.tone, .info)
+        XCTAssertFalse(loading.showsControls)
+
+        let disabled = SettingsPetPresentation.make(supportsPets: true, state: .disabled)
+        XCTAssertTrue(disabled.detail.contains("animated companion"))
+        XCTAssertEqual(disabled.tone, .neutral)
+        XCTAssertTrue(disabled.showsControls)
+
+        let active = SettingsPetPresentation.make(
+            supportsPets: true,
+            state: .active(PetDisplay(sheet: petSheet))
+        )
+        XCTAssertEqual(active.detail, "Bandit")
+        XCTAssertTrue(active.showsControls)
+
+        let unavailable = SettingsPetPresentation.make(
+            supportsPets: true,
+            state: .unavailable("Pets are advertised but unreachable right now.")
+        )
+        XCTAssertEqual(unavailable.detail, "Pets are advertised but unreachable right now.")
+        XCTAssertEqual(unavailable.tone, .warning)
+        XCTAssertFalse(unavailable.showsControls)
+    }
+
+    func testVoicePresentationIsInformationalAndNamesTheGatewayHostTruth() {
+        let voice = SettingsVoicePresentation.make()
+
+        XCTAssertEqual(voice.title, "Voice")
+        XCTAssertEqual(voice.systemImage, "waveform")
+        XCTAssertEqual(voice.tone, .info)
+        XCTAssertTrue(voice.detail.contains("gateway host"))
+        XCTAssertTrue(voice.detail.contains("doesn't advertise yet"))
+    }
+
+    func testLocalDataAlertReusesTheThrownErrorCopyForForgetFailures() {
+        XCTAssertEqual(
+            SettingsLocalDataAlert.forgetGatewayFailed.message,
+            AppLocalDataError.forgetGatewayUnavailable.localizedDescription
+        )
+    }
+
+    private var petSheet: PetSpriteSheet {
+        PetSpriteSheet(
+            slug: "bandit",
+            displayName: "Bandit",
+            mime: "image/webp",
+            spritesheetRevision: "1721600000:2048",
+            spritesheetBase64: "AA==",
+            frameW: 192,
+            frameH: 208,
+            framesPerState: 4,
+            framesByState: ["idle": 4],
+            framesByRow: ["idle": 4],
+            loopMs: 800,
+            stateRows: ["idle"]
+        )
+    }
+
     private var clientBuild: SettingsClientBuildInfo {
         SettingsClientBuildInfo(
             version: "0.2.0",
@@ -271,8 +345,15 @@ final class SettingsExperiencePresentationTests: XCTestCase {
                 "baseline_chat": true,
                 "files": false,
                 "live_view": true,
+                "pets": true,
             ],
             methods: [
+                "pet.disable",
+                "pet.gallery",
+                "pet.info",
+                "pet.info.meta",
+                "pet.select",
+                "pet.thumb",
                 "prompt.background",
                 "prompt.submit",
                 "session.create",

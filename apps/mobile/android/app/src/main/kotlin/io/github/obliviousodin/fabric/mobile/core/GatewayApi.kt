@@ -340,6 +340,14 @@ val OPTIONAL_GATEWAY_FEATURE_METHODS = mapOf(
     "device_node" to setOf("node.enroll"),
     "durable_work" to DURABLE_WORK_GATEWAY_METHODS,
     "node_invoke" to setOf("node.announce", "node.result", "node.reject"),
+    "pets" to setOf(
+        "pet.info",
+        "pet.info.meta",
+        "pet.gallery",
+        "pet.select",
+        "pet.disable",
+        "pet.thumb",
+    ),
     "push" to setOf("push.register_device", "push.deregister_device"),
     "session_admin" to setOf("session.rename", "session.archive"),
     "trust_center" to setOf(

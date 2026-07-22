@@ -152,6 +152,68 @@ struct FabricWorkSessionIdentity: Equatable {
     }
 }
 
+/// Cumulative token/context usage for one live session, decoded from the
+/// gateway's `usage` payload (`_get_usage` in `tui_gateway/server.py`).
+/// The context fields are present only when the context engine reports a real
+/// current-window reading — a missing gauge stays missing and is never
+/// fabricated from cumulative totals.
+struct SessionUsage: Equatable {
+    var model: String?
+    var input: Int?
+    var output: Int?
+    var reasoning: Int?
+    var totalTokens: Int?
+    var calls: Int?
+    var contextUsed: Int?
+    var contextMax: Int?
+    var contextPercent: Int?
+    var compressions: Int?
+    var activeSubagents: Int?
+
+    /// Reads the snake_case wire keys; nil when the payload carries none of
+    /// them. `prompt`/`completion` are deliberately not surfaced (redundant
+    /// with input/output for this UI).
+    static func from(payload: [String: Any]) -> SessionUsage? {
+        var usage = SessionUsage()
+        usage.model = (payload["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        usage.input = integer(payload["input"])
+        usage.output = integer(payload["output"])
+        usage.reasoning = integer(payload["reasoning"])
+        usage.totalTokens = integer(payload["total"])
+        usage.calls = integer(payload["calls"])
+        usage.contextUsed = integer(payload["context_used"])
+        usage.contextMax = integer(payload["context_max"])
+        usage.contextPercent = integer(payload["context_percent"])
+        usage.compressions = integer(payload["compressions"])
+        usage.activeSubagents = integer(payload["active_subagents"])
+        guard usage != SessionUsage() else { return nil }
+        return usage
+    }
+
+    /// Desktop-parity overlay (`{...current, ...payload.usage}`): a key from
+    /// the newer payload wins only when it is present there.
+    func merging(_ newer: SessionUsage) -> SessionUsage {
+        var merged = self
+        merged.model = newer.model ?? model
+        merged.input = newer.input ?? input
+        merged.output = newer.output ?? output
+        merged.reasoning = newer.reasoning ?? reasoning
+        merged.totalTokens = newer.totalTokens ?? totalTokens
+        merged.calls = newer.calls ?? calls
+        merged.contextUsed = newer.contextUsed ?? contextUsed
+        merged.contextMax = newer.contextMax ?? contextMax
+        merged.contextPercent = newer.contextPercent ?? contextPercent
+        merged.compressions = newer.compressions ?? compressions
+        merged.activeSubagents = newer.activeSubagents ?? activeSubagents
+        return merged
+    }
+
+    private static func integer(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        return (value as? NSNumber)?.intValue
+    }
+}
+
 /// Result of `session.create` / `session.resume`.
 struct LiveSession {
     let sessionId: String
@@ -164,6 +226,9 @@ struct LiveSession {
     /// Validated from the server's `session.info.work_profile_id`. It is not
     /// inferred from `profile_name`, a local path, or the durable session key.
     let workIdentity: FabricWorkSessionIdentity?
+    /// Seed usage from `info.usage`; absent for lazy resumes, in which case
+    /// usage arrives with the first `session.info` event instead.
+    let usage: SessionUsage?
 
     init(
         sessionId: String,
@@ -173,7 +238,8 @@ struct LiveSession {
         inflight: SessionInflight? = nil,
         historyVersion: Int? = nil,
         pendingInteractions: [GatewayEvent] = [],
-        workIdentity: FabricWorkSessionIdentity? = nil
+        workIdentity: FabricWorkSessionIdentity? = nil,
+        usage: SessionUsage? = nil
     ) {
         self.sessionId = sessionId
         self.storedSessionId = storedSessionId
@@ -183,6 +249,7 @@ struct LiveSession {
         self.historyVersion = historyVersion
         self.pendingInteractions = pendingInteractions
         self.workIdentity = workIdentity
+        self.usage = usage
     }
 
     init(resumePayload: [String: Any], storedSessionId: String) {
@@ -197,8 +264,9 @@ struct LiveSession {
         running = resumePayload["running"] as? Bool ?? false
         inflight = (resumePayload["inflight"] as? [String: Any]).flatMap(SessionInflight.init(payload:))
         historyVersion = (resumePayload["history_version"] as? NSNumber)?.intValue
-        workIdentity = (resumePayload["info"] as? [String: Any])
-            .flatMap(FabricWorkSessionIdentity.from(sessionInfo:))
+        let info = resumePayload["info"] as? [String: Any]
+        workIdentity = info.flatMap(FabricWorkSessionIdentity.from(sessionInfo:))
+        usage = (info?["usage"] as? [String: Any]).flatMap(SessionUsage.from(payload:))
         pendingInteractions = (resumePayload["pending_interactions"] as? [[String: Any]] ?? [])
             .compactMap { interaction in
                 guard let type = interaction["type"] as? String else { return nil }
@@ -238,6 +306,95 @@ struct ActiveSession: Identifiable, Hashable, Codable {
         lastActive = (payload["last_active"] as? NSNumber)?.doubleValue ?? 0
         current = payload["current"] as? Bool ?? false
     }
+}
+
+/// Active-pet spritesheet payload from `pet.info` (`_pet_sprite_payload` in
+/// `tui_gateway/server.py`). Rows are states in the canonical `stateRows`
+/// taxonomy; `framesByRow` carries the real per-row frame count because
+/// ragged rows are padded with transparent frames — renderers must never
+/// animate `framesPerState` blindly.
+struct PetSpriteSheet: Equatable {
+    let slug: String
+    let displayName: String
+    let mime: String
+    let spritesheetRevision: String
+    let spritesheetBase64: String
+    let frameW: Int
+    let frameH: Int
+    let framesPerState: Int
+    let framesByState: [String: Int]
+    let framesByRow: [String: Int]
+    let loopMs: Int
+    let stateRows: [String]
+
+    /// nil unless the payload is enabled and its geometry is sane (> 0).
+    static func from(payload: [String: Any]) -> PetSpriteSheet? {
+        guard payload["enabled"] as? Bool == true,
+              let slug = payload["slug"] as? String, !slug.isEmpty,
+              let spritesheetBase64 = payload["spritesheetBase64"] as? String,
+              !spritesheetBase64.isEmpty,
+              let frameW = integer(payload["frameW"]), frameW > 0,
+              let frameH = integer(payload["frameH"]), frameH > 0,
+              let framesPerState = integer(payload["framesPerState"]), framesPerState > 0,
+              let loopMs = integer(payload["loopMs"]), loopMs > 0,
+              let stateRows = payload["stateRows"] as? [String], !stateRows.isEmpty
+        else { return nil }
+        return PetSpriteSheet(
+            slug: slug,
+            displayName: payload["displayName"] as? String ?? slug,
+            mime: payload["mime"] as? String ?? "image/webp",
+            spritesheetRevision: payload["spritesheetRevision"] as? String ?? "",
+            spritesheetBase64: spritesheetBase64,
+            frameW: frameW,
+            frameH: frameH,
+            framesPerState: framesPerState,
+            framesByState: frameCounts(payload["framesByState"]),
+            framesByRow: frameCounts(payload["framesByRow"]),
+            loopMs: loopMs,
+            stateRows: stateRows
+        )
+    }
+
+    private static func integer(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        return (value as? NSNumber)?.intValue
+    }
+
+    private static func frameCounts(_ value: Any?) -> [String: Int] {
+        guard let raw = value as? [String: Any] else { return [:] }
+        return raw.reduce(into: [:]) { counts, entry in
+            if let count = integer(entry.value) { counts[entry.key] = count }
+        }
+    }
+}
+
+/// One adoptable pet from `pet.gallery` (petdex manifest merged with local
+/// install state).
+struct PetGalleryEntry: Equatable, Identifiable {
+    let slug: String
+    let displayName: String
+    let installed: Bool
+    let curated: Bool
+    let generated: Bool
+    let bundled: Bool
+    let spritesheetUrl: String
+    var id: String { slug }
+}
+
+/// Result of `pet.gallery`: current config (enabled + active slug) plus rows.
+struct PetGalleryState: Equatable {
+    let enabled: Bool
+    let active: String
+    let pets: [PetGalleryEntry]
+}
+
+/// Cheap active-pet metadata from `pet.info.meta`, used to skip refetching an
+/// unchanged spritesheet.
+struct PetInfoMeta: Equatable {
+    let enabled: Bool
+    let slug: String?
+    let displayName: String?
+    let spritesheetRevision: String?
 }
 
 /// One slash command from `commands.catalog` (name includes the leading `/`).
@@ -372,6 +529,7 @@ let optionalGatewayFeatureMethods: [String: Set<String>] = [
     "device_node": ["node.enroll"],
     "durable_work": durableWorkGatewayMethods,
     "node_invoke": ["node.announce", "node.result", "node.reject"],
+    "pets": ["pet.info", "pet.info.meta", "pet.gallery", "pet.select", "pet.disable", "pet.thumb"],
     "push": ["push.register_device", "push.deregister_device"],
     "session_admin": ["session.rename", "session.archive"],
     "trust_center": ["trust.audit.list", "grant.list", "grant.create", "grant.revoke"],
@@ -1835,11 +1993,12 @@ struct GatewayAPI {
         var params: [String: Any] = ["cols": 96, "source": "mobile"]
         if let profile, !profile.isEmpty { params["profile"] = profile }
         let result = try await client.requestObject("session.create", params: params)
+        let info = result["info"] as? [String: Any]
         return LiveSession(
             sessionId: result["session_id"] as? String ?? "",
             storedSessionId: result["stored_session_id"] as? String,
-            workIdentity: (result["info"] as? [String: Any])
-                .flatMap(FabricWorkSessionIdentity.from(sessionInfo:))
+            workIdentity: info.flatMap(FabricWorkSessionIdentity.from(sessionInfo:)),
+            usage: (info?["usage"] as? [String: Any]).flatMap(SessionUsage.from(payload:))
         )
     }
 
@@ -2095,6 +2254,85 @@ struct GatewayAPI {
             params: ["session_id": sessionId, "process_id": processId]
         )
         return try Self.requireProcessKillReceipt(result)
+    }
+
+    // MARK: - Pets (cosmetic companion)
+    // Display + adopt only; generation, management, and the global scale knob
+    // remain desktop/host surfaces.
+
+    /// The active pet's spritesheet, or nil when pets are disabled — the
+    /// server fails open and answers `{enabled: false}` on any problem.
+    func petInfo() async throws -> PetSpriteSheet? {
+        let result = try await client.requestObject("pet.info")
+        return PetSpriteSheet.from(payload: result)
+    }
+
+    /// Cheap active-pet metadata used to avoid refetching an unchanged sheet.
+    func petInfoMeta() async throws -> PetInfoMeta {
+        let result = try await client.requestObject("pet.info.meta")
+        return PetInfoMeta(
+            enabled: result["enabled"] as? Bool == true,
+            slug: result["slug"] as? String,
+            displayName: result["displayName"] as? String,
+            spritesheetRevision: result["spritesheetRevision"] as? String
+        )
+    }
+
+    /// Adoptable pets merged with local install state. `localOnly` skips the
+    /// remote manifest fetch so installed pets render instantly.
+    func petGallery(localOnly: Bool) async throws -> PetGalleryState {
+        let result = try await client.requestObject(
+            "pet.gallery",
+            params: ["localOnly": localOnly]
+        )
+        let rows = result["pets"] as? [[String: Any]] ?? []
+        return PetGalleryState(
+            enabled: result["enabled"] as? Bool == true,
+            active: result["active"] as? String ?? "",
+            pets: rows.compactMap { row in
+                guard let slug = row["slug"] as? String, !slug.isEmpty else { return nil }
+                return PetGalleryEntry(
+                    slug: slug,
+                    displayName: row["displayName"] as? String ?? slug,
+                    installed: row["installed"] as? Bool ?? false,
+                    curated: row["curated"] as? Bool ?? false,
+                    generated: row["generated"] as? Bool ?? false,
+                    bundled: row["bundled"] as? Bool ?? false,
+                    spritesheetUrl: row["spritesheetUrl"] as? String ?? ""
+                )
+            }
+        )
+    }
+
+    /// Install (if needed) and activate one pet. The caller re-pulls
+    /// `pet.info` to render the adopted sheet.
+    func petSelect(slug: String) async throws -> (slug: String, displayName: String) {
+        let result = try await client.requestObject("pet.select", params: ["slug": slug])
+        guard result["ok"] as? Bool == true,
+              let selected = result["slug"] as? String,
+              let displayName = result["displayName"] as? String
+        else {
+            throw GatewayClientError.rpc(message: "The pet couldn't be adopted on this gateway.")
+        }
+        return (slug: selected, displayName: displayName)
+    }
+
+    /// Turn the companion off server-side (`display.pet.enabled = false`).
+    func petDisable() async throws {
+        let result = try await client.requestObject("pet.disable")
+        guard result["ok"] as? Bool == true else {
+            throw GatewayClientError.rpc(message: "The pet couldn't be disabled on this gateway.")
+        }
+    }
+
+    /// Small idle-frame preview as a PNG data URI, or nil when unavailable —
+    /// `pet.thumb` fails open with `{ok: false}`.
+    func petThumb(slug: String, url: String?) async throws -> String? {
+        var params: [String: Any] = ["slug": slug]
+        if let url, !url.isEmpty { params["url"] = url }
+        let result = try await client.requestObject("pet.thumb", params: params)
+        guard result["ok"] as? Bool == true else { return nil }
+        return result["dataUri"] as? String
     }
 
     // MARK: - Computer use (live view)

@@ -16,6 +16,83 @@ struct SettingsStatusPresentation: Equatable {
     let tone: SettingsExperienceTone
 }
 
+/// Copy, tone, and controls visibility for the Personalization pet row. Pure
+/// so every availability state is testable without an AppModel or a socket.
+struct SettingsPetPresentation: Equatable {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let tone: SettingsExperienceTone
+    let showsControls: Bool
+
+    static func make(supportsPets: Bool, state: PetExperienceState) -> SettingsPetPresentation {
+        switch state {
+        case .unsupported where supportsPets, .loading:
+            // A supported gateway briefly reports .unsupported between
+            // connect and the first refresh; present that gap as loading so
+            // the row never wrongly claims the gateway lacks pets.
+            return SettingsPetPresentation(
+                title: "Pets",
+                detail: "Checking the pet companion on this gateway…",
+                systemImage: "pawprint.fill",
+                tone: .info,
+                showsControls: false
+            )
+        case .unsupported:
+            return SettingsPetPresentation(
+                title: "Pets",
+                detail: "This gateway doesn't advertise pets yet. Update the gateway host to enable them.",
+                systemImage: "pawprint.fill",
+                tone: .neutral,
+                showsControls: false
+            )
+        case .disabled:
+            return SettingsPetPresentation(
+                title: "Pets",
+                detail: "Show an animated companion that reacts to what the agent is doing.",
+                systemImage: "pawprint.fill",
+                tone: .neutral,
+                showsControls: true
+            )
+        case .active(let display):
+            return SettingsPetPresentation(
+                title: "Pets",
+                detail: display.sheet.displayName,
+                systemImage: "pawprint.fill",
+                tone: .success,
+                showsControls: true
+            )
+        case .unavailable(let message):
+            return SettingsPetPresentation(
+                title: "Pets",
+                detail: message,
+                systemImage: "pawprint.fill",
+                tone: .warning,
+                showsControls: false
+            )
+        }
+    }
+}
+
+/// Informational-only voice row. Voice runs on the gateway host; there is no
+/// phone-audio contract to negotiate yet, so the row deliberately offers no
+/// picker or toggle.
+struct SettingsVoicePresentation: Equatable {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let tone: SettingsExperienceTone
+
+    static func make() -> SettingsVoicePresentation {
+        SettingsVoicePresentation(
+            title: "Voice",
+            detail: "Voice runs on the gateway host today. Choosing a voice from this iPhone needs a phone-audio contract that this gateway doesn't advertise yet.",
+            systemImage: "waveform",
+            tone: .info
+        )
+    }
+}
+
 enum SettingsClientDisconnectPosture: Equatable {
     case workContinues
     case workMayStop
@@ -46,7 +123,9 @@ enum SettingsLocalDataAlert: String, Identifiable, Equatable {
         case .cacheClearFailed:
             return "Fabric couldn't remove the stored presentation snapshots. Saved servers, credentials, and gateway data were not changed. Try again."
         case .forgetGatewayFailed:
-            return "Fabric couldn't remove the saved credential, so this server is still saved on this iPhone. Unlock the device and try again."
+            // Single source of truth: this alert surfaces exactly the thrown
+            // error's user-facing copy instead of duplicating the string.
+            return AppLocalDataError.forgetGatewayUnavailable.localizedDescription
         case .resetFailed:
             return "Fabric couldn't verify a complete reset. Saved server access may still be present on this iPhone. Unlock the device and try again."
         }
@@ -283,6 +362,7 @@ struct SettingsGatewayContractPresentation: Equatable {
             "handoff": "Handoff",
             "live_view": "Live View",
             "node_invoke": "Node actions",
+            "pets": "Pets",
             "push": "Push notifications",
             "scoped_grants": "Scoped grants",
             "session_admin": "Session management",

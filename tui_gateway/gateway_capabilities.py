@@ -43,9 +43,27 @@ FEATURE_METHODS: dict[str, frozenset[str]] = {
 }
 
 
+# Optional feature families are additive-optional (durable_work precedent in
+# apps/mobile/contracts/gateway-feature-registry-v1.json): an omitted key means
+# the family is unavailable, and the advertised boolean must always equal
+# "required methods ⊆ advertised methods". Pets exposes display+adopt only;
+# generation, management, and scale stay desktop/host surfaces.
+OPTIONAL_FEATURE_METHODS: dict[str, frozenset[str]] = {
+    "pets": frozenset({
+        "pet.info",
+        "pet.info.meta",
+        "pet.gallery",
+        "pet.select",
+        "pet.disable",
+        "pet.thumb",
+    }),
+}
+
+
 MOBILE_METHODS: tuple[str, ...] = tuple(
     sorted(
         set().union(*FEATURE_METHODS.values())
+        | set().union(*OPTIONAL_FEATURE_METHODS.values())
         | {
             "approval.respond",
             "clarify.respond",
@@ -95,7 +113,9 @@ def build_gateway_capabilities(
         },
         "features": {
             feature: required.issubset(registered)
-            for feature, required in FEATURE_METHODS.items()
+            for feature, required in (
+                FEATURE_METHODS | OPTIONAL_FEATURE_METHODS
+            ).items()
         },
         "methods": advertised,
     }

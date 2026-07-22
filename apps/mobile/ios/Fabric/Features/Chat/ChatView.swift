@@ -188,6 +188,7 @@ struct InitialPromptDispatch: Equatable {
 
 private struct ChatContentView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(AppModel.self) private var appModel
 
     @Bindable var model: ChatViewModel
     @Binding var draft: String
@@ -199,6 +200,7 @@ private struct ChatContentView: View {
     @State private var showCommandCatalog = false
     @State private var showProcesses = false
     @State private var showLiveView = false
+    @State private var showUsageDetail = false
     @State private var promptAnswer = ""
     @State private var liveViewModel: LiveViewModel
     @State private var showPhotoPicker = false
@@ -327,6 +329,20 @@ private struct ChatContentView: View {
         }
         .sheet(isPresented: $showLiveView) {
             LiveViewSheet(model: liveViewModel)
+        }
+        .sheet(isPresented: $showUsageDetail) {
+            if let usage = model.usage {
+                SessionUsageDetailSheet(usage: usage)
+            }
+        }
+        .toolbar {
+            if let usage = model.usage {
+                ToolbarItem(placement: .topBarTrailing) {
+                    SessionUsageChip(usage: usage) {
+                        showUsageDetail = true
+                    }
+                }
+            }
         }
         .onChange(of: liveViewCaptureCapability, initial: true) { _, capability in
             liveViewModel.setCaptureCapability(capability)
@@ -463,6 +479,24 @@ private struct ChatContentView: View {
 
     private var transcript: some View {
         TranscriptView(messages: model.messages)
+            // Decorative companion pinned inside the transcript region so it
+            // can never cover the composer or a blocking approval/prompt.
+            .overlay(alignment: .bottomTrailing) {
+                if case .active(let pet) = appModel.petState {
+                    PetSpriteView(sheet: pet.sheet, state: model.petState, height: 64)
+                        .padding(.trailing, 12)
+                        .padding(.bottom, 6)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            .animation(.easeOut(duration: 0.3), value: petIsActive)
+    }
+
+    private var petIsActive: Bool {
+        if case .active = appModel.petState { return true }
+        return false
     }
 
     /// At accessibility sizes the approval/question, remote actions, and
@@ -2625,6 +2659,127 @@ private struct UserAttachmentGallery: View {
     }
 }
 
+/// Compact token counts: 999 → "999", 12_400 → "12.4k", 1_900_000 → "1.9m"
+/// (one decimal, trailing ".0" trimmed).
+private enum TokenCountFormat {
+    static func compact(_ count: Int) -> String {
+        if count < 1_000 { return "\(count)" }
+        if count < 1_000_000 { return scaled(count, divisor: 1_000, suffix: "k") }
+        return scaled(count, divisor: 1_000_000, suffix: "m")
+    }
+
+    private static func scaled(_ count: Int, divisor: Int, suffix: String) -> String {
+        let value = (Double(count) / Double(divisor) * 10).rounded() / 10
+        if value == value.rounded() {
+            return "\(Int(value))\(suffix)"
+        }
+        return String(format: "%.1f", value) + suffix
+    }
+}
+
+/// Compact usage indicator for the chat top bar. The context gauge appears
+/// only when the gateway reports a real current-window reading; cumulative
+/// totals are never converted into a percent.
+private struct SessionUsageChip: View {
+    let usage: SessionUsage
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(compactText, systemImage: "chart.bar.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(FabricTheme.textMuted)
+                .lineLimit(1)
+                .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .accessibilityLabel("Session token usage")
+        .accessibilityValue(compactText)
+        .accessibilityHint("Shows token and context details for this conversation")
+        .accessibilityIdentifier("chat-usage-chip")
+    }
+
+    private var compactText: String {
+        if let percent = usage.contextPercent {
+            return "\(percent)% context"
+        }
+        return "\(TokenCountFormat.compact(usage.totalTokens ?? 0)) tok"
+    }
+}
+
+/// "Session usage" detail behind the top-bar chip. Rows appear only for
+/// reported values; the context section requires both a used and a max
+/// reading, so a missing gauge is presented as missing, never as 0%.
+private struct SessionUsageDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let usage: SessionUsage
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    row("Input", usage.input.map(TokenCountFormat.compact))
+                    row("Output", usage.output.map(TokenCountFormat.compact))
+                    row("Reasoning", usage.reasoning.map(TokenCountFormat.compact))
+                    row("Total", usage.totalTokens.map(TokenCountFormat.compact))
+                    row("API calls", usage.calls.map { "\($0)" })
+                    row("Compressions", usage.compressions.map { "\($0)" })
+                    row("Active subagents", usage.activeSubagents.map { "\($0)" })
+                    row("Model", usage.model)
+                }
+                if let used = usage.contextUsed, let maximum = usage.contextMax, maximum > 0 {
+                    Section("Context") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("\(TokenCountFormat.compact(used)) used")
+                                    .foregroundStyle(FabricTheme.text)
+                                Spacer()
+                                Text("of \(TokenCountFormat.compact(maximum))")
+                                    .foregroundStyle(FabricTheme.textMuted)
+                            }
+                            .font(.subheadline)
+                            ProgressView(value: Double(min(used, maximum)), total: Double(maximum))
+                                .tint(FabricTheme.action)
+                        }
+                        .padding(.vertical, 4)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("Context window")
+                        .accessibilityValue("\(used) of \(maximum) tokens used")
+                    }
+                }
+            }
+            .navigationTitle("Session usage")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .frame(minHeight: FabricTheme.minTarget)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    @ViewBuilder
+    private func row(_ title: String, _ value: String?) -> some View {
+        if let value {
+            HStack {
+                Text(title)
+                    .foregroundStyle(FabricTheme.text)
+                Spacer()
+                Text(value)
+                    .foregroundStyle(FabricTheme.textMuted)
+                    .monospacedDigit()
+            }
+            .font(.subheadline)
+            .frame(minHeight: FabricTheme.minTarget)
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
+
 private struct TranscriptAttachmentView: View {
     let attachment: TranscriptAttachmentPreview
     @State private var previewURL: URL?
@@ -2805,5 +2960,101 @@ private struct BoundedImageView: UIViewRepresentable {
             ?? 0.1
         // Browsers normalize near-zero GIF delays the same way.
         return delay < 0.02 ? 0.1 : delay
+    }
+}
+
+/// Animated spritesheet companion shared by Chat and Settings. The base64
+/// atlas is decoded once per pet revision; a TimelineView steps frames along
+/// the row for the mapped state. Every geometry access is bounds-checked so a
+/// malformed sheet renders the idle row or nothing — never a crash.
+struct PetSpriteView: View {
+    let sheet: PetSpriteSheet
+    let state: PetState
+    var height: CGFloat = 72
+
+    private static let atlasCache = NSCache<NSString, UIImage>()
+
+    var body: some View {
+        if let atlas = Self.atlasImage(for: sheet)?.cgImage,
+           let row = resolvedRow(atlasWidth: atlas.width, atlasHeight: atlas.height) {
+            TimelineView(.animation(minimumInterval: row.stepSeconds)) { context in
+                let column = Self.frameColumn(for: context.date, row: row)
+                if let frame = atlas.cropping(to: CGRect(
+                    x: CGFloat(column * sheet.frameW),
+                    y: CGFloat(row.index * sheet.frameH),
+                    width: CGFloat(sheet.frameW),
+                    height: CGFloat(sheet.frameH)
+                )) {
+                    // Sprite art faces left; stationary display needs no
+                    // mirroring.
+                    Image(decorative: frame, scale: 1)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: height)
+                }
+            }
+            .frame(height: height)
+        }
+    }
+
+    private struct SpriteRow {
+        let index: Int
+        let frames: Int
+        let stepMilliseconds: Int
+
+        var stepSeconds: Double { Double(stepMilliseconds) / 1_000 }
+    }
+
+    private func resolvedRow(atlasWidth: Int, atlasHeight: Int) -> SpriteRow? {
+        guard sheet.frameW > 0, sheet.frameH > 0, sheet.loopMs > 0 else { return nil }
+        let name = resolvedRowName
+        guard let index = sheet.stateRows.firstIndex(of: name) else { return nil }
+        let frames = sheet.framesByRow[name] ?? 0
+        guard frames > 0,
+              (index + 1) * sheet.frameH <= atlasHeight,
+              frames * sheet.frameW <= atlasWidth
+        else { return nil }
+        return SpriteRow(
+            index: index,
+            frames: frames,
+            stepMilliseconds: max(1, sheet.loopMs / frames)
+        )
+    }
+
+    /// UI state → canonical row name, falling back to `idle` when the mapped
+    /// row is missing from `stateRows` or has no real frames. Rows can be
+    /// ragged, so the animated count comes from `framesByRow`, never from
+    /// `framesPerState`.
+    private var resolvedRowName: String {
+        let candidate: String
+        switch state {
+        case .wave: candidate = "waving"
+        case .jump: candidate = "jumping"
+        case .run: candidate = "running"
+        case .idle: candidate = "idle"
+        case .failed: candidate = "failed"
+        case .review: candidate = "review"
+        case .waiting: candidate = "waiting"
+        }
+        guard sheet.stateRows.contains(candidate),
+              (sheet.framesByRow[candidate] ?? 0) > 0
+        else { return "idle" }
+        return candidate
+    }
+
+    private static func frameColumn(for date: Date, row: SpriteRow) -> Int {
+        let elapsedMilliseconds = Int(date.timeIntervalSinceReferenceDate * 1_000)
+        return (elapsedMilliseconds / row.stepMilliseconds) % row.frames
+    }
+
+    private static func atlasImage(for sheet: PetSpriteSheet) -> UIImage? {
+        let key = "\(sheet.slug)#\(sheet.spritesheetRevision)" as NSString
+        if let cached = atlasCache.object(forKey: key) { return cached }
+        guard let data = Data(base64Encoded: sheet.spritesheetBase64),
+              let image = UIImage(data: data)
+        else { return nil }
+        atlasCache.setObject(image, forKey: key)
+        return image
     }
 }

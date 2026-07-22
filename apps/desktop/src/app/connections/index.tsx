@@ -27,7 +27,7 @@ import {
   updateMessagingPlatform
 } from '@/fabric'
 import { type Translations, useI18n } from '@/i18n'
-import { ChevronRight, Globe, KeyRound, MessageCircle, Wrench } from '@/lib/icons'
+import { ChevronRight, Globe, KeyRound, MessageCircle, RefreshCw, Wrench } from '@/lib/icons'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
 import { notify, notifyError } from '@/store/notifications'
@@ -232,17 +232,23 @@ const SECTION_META: Record<Category, { descKey: SectionDescKey; icon: typeof Glo
 
 function Section({
   category,
+  error,
   items,
+  onRetry,
   title
 }: {
   category: Category
+  error?: boolean
   items: ConnectionItem[]
+  onRetry: () => void
   title: string
 }) {
   const { t } = useI18n()
   const c = t.connections
 
-  if (items.length === 0) {
+  // Hide a section only when it is genuinely empty. A load FAILURE is not
+  // emptiness — surface it with a retry so the family doesn't silently vanish.
+  if (items.length === 0 && !error) {
     return null
   }
 
@@ -254,18 +260,30 @@ function Section({
       <div className="mb-2 flex items-center gap-2">
         <Icon className="size-4 text-muted-foreground" />
         <h3 className="text-[0.9375rem] font-semibold tracking-tight">{title}</h3>
-        <span className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
-          {items.length}
-        </span>
+        {items.length > 0 && (
+          <span className="text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
+            {items.length}
+          </span>
+        )}
       </div>
       <p className="mb-3 text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) text-(--ui-text-tertiary)">
         {c[meta.descKey]}
       </p>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {items.map(item => (
-          <ConnectionCard item={item} key={item.id} />
-        ))}
-      </div>
+      {error && items.length === 0 ? (
+        <div className="flex items-center gap-3 rounded-xl border border-dashed border-(--ui-stroke-tertiary) px-3 py-4 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
+          <span className="flex-1">{c.sectionFailed}</span>
+          <Button onClick={onRetry} size="sm" variant="text">
+            <RefreshCw className="size-3.5" />
+            {c.retry}
+          </Button>
+        </div>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {items.map(item => (
+            <ConnectionCard item={item} key={item.id} />
+          ))}
+        </div>
+      )}
     </section>
   )
 }
@@ -278,6 +296,13 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
   const [platforms, setPlatforms] = useState<MessagingPlatformInfo[] | null>(null)
   const [tools, setTools] = useState<McpCatalogEntry[] | null>(null)
   const [providers, setProviders] = useState<OAuthProvider[] | null>(null)
+
+  const [errors, setErrors] = useState<{ accounts: boolean; messaging: boolean; tools: boolean }>({
+    accounts: false,
+    messaging: false,
+    tools: false
+  })
+
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<Tab>('all')
@@ -316,6 +341,15 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
     } else if (initial) {
       setProviders([])
     }
+
+    // Track per-source failure so a section can show a retry instead of
+    // vanishing. A success always clears; only the first load flips a failure
+    // on (a silent refresh keeps the last-good data rather than erroring).
+    setErrors(current => ({
+      accounts: oauth.status === 'fulfilled' ? false : initial ? true : current.accounts,
+      messaging: messaging.status === 'fulfilled' ? false : initial ? true : current.messaging,
+      tools: catalog.status === 'fulfilled' ? false : initial ? true : current.tools
+    }))
 
     if (initial) {
       setLoading(false)
@@ -372,7 +406,10 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
         description: platform.description,
         id: `messaging:${platform.id}`,
         name: platform.name,
-        render: (
+        // A platform with no credentials can't connect, so the enable toggle
+        // would be misleading — lead with "Set up" instead. Once configured,
+        // the inline toggle is the one-tap action, with a quiet link to edit.
+        render: platform.configured ? (
           <>
             <Switch
               aria-label={platform.enabled ? c.disableAria(platform.name) : c.enableAria(platform.name)}
@@ -381,8 +418,12 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
               onCheckedChange={value => void toggleMessaging(platform, value)}
               size="xs"
             />
-            <LinkAction label={c.setUp} onClick={() => navigate(`${MESSAGING_ROUTE}?platform=${platform.id}`)} />
+            <LinkAction label={c.configure} onClick={() => navigate(`${MESSAGING_ROUTE}?platform=${platform.id}`)} />
           </>
+        ) : (
+          <Button className="shrink-0" onClick={() => navigate(`${MESSAGING_ROUTE}?platform=${platform.id}`)} size="sm">
+            {c.setUp}
+          </Button>
         ),
         search: `${platform.name} ${platform.id} ${platform.description}`.toLowerCase(),
         statusLabel: status.label,
@@ -488,6 +529,11 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
 
   const total = messagingItems.length + toolItems.length + accountItems.length + networkItems.length
   const matchCount = visibleCategories.reduce((sum, category) => sum + filter(byCategory[category]).length, 0)
+  // A visible section that failed to load must keep rendering (to show its
+  // retry), so the generic empty/no-results state only applies when nothing
+  // errored — or when a search genuinely matched nothing.
+  const anyVisibleError = visibleCategories.some(category => category !== 'network' && errors[category])
+  const showEmptyState = matchCount === 0 && (Boolean(query) || !anyVisibleError)
 
   const tabs: PageShellTab[] = TABS.map(id => ({
     id,
@@ -522,7 +568,7 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
         <PageLoader label={c.loading} />
       ) : (
         <div className="h-full min-h-0 overflow-y-auto px-4 py-4">
-          {matchCount === 0 ? (
+          {showEmptyState ? (
             <div className="grid min-h-40 place-items-center text-center text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
               {query ? c.noResults(query) : c.empty}
             </div>
@@ -530,8 +576,10 @@ export function ConnectionsView({ setStatusbarItemGroup: _setStatusbarItemGroup,
             visibleCategories.map(category => (
               <Section
                 category={category}
+                error={category === 'network' ? false : errors[category]}
                 items={filter(byCategory[category])}
                 key={category}
+                onRetry={() => void refresh()}
                 title={sectionTitle[category]}
               />
             ))

@@ -1473,6 +1473,8 @@ export const en: Translations = {
     loading: 'Loading connections…',
     empty: 'No connections yet.',
     noResults: query => `No connections match “${query}”.`,
+    sectionFailed: 'Couldn’t load this section.',
+    retry: 'Retry',
     hintSlack: 'slack',
     hintGithub: 'github',
     hintTailscale: 'tailscale',

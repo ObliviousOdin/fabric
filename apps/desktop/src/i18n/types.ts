@@ -1209,6 +1209,8 @@ export interface Translations {
     loading: string
     empty: string
     noResults: (query: string) => string
+    sectionFailed: string
+    retry: string
     hintSlack: string
     hintGithub: string
     hintTailscale: string

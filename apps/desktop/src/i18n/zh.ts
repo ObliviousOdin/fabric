@@ -1651,6 +1651,8 @@ export const zh: Translations = {
     loading: '正在加载连接…',
     empty: '暂无连接。',
     noResults: query => `没有匹配“${query}”的连接。`,
+    sectionFailed: '无法加载此部分。',
+    retry: '重试',
     hintSlack: 'slack',
     hintGithub: 'github',
     hintTailscale: 'tailscale',

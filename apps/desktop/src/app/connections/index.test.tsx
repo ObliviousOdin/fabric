@@ -142,4 +142,26 @@ describe('ConnectionsView', () => {
     // Messaging still renders even though the tool catalog failed.
     expect(await screen.findByText('Slack')).toBeTruthy()
   })
+
+  it('leads an unconfigured platform with Set up, not a misleading toggle', async () => {
+    getMessagingPlatforms.mockResolvedValue({ platforms: [platform({ configured: false, state: 'not_configured' })] })
+    // Keep the tool catalog empty so the only "Set up" affordance is the
+    // messaging card's (an uninstalled tool would also render one).
+    getMcpCatalog.mockResolvedValue({ diagnostics: [], entries: [] })
+
+    await renderConnections()
+
+    expect(await screen.findByRole('button', { name: 'Set up' })).toBeTruthy()
+    expect(screen.queryByRole('switch', { name: 'Enable Slack' })).toBeNull()
+  })
+
+  it('shows a retry affordance for a failed section instead of hiding it', async () => {
+    getMcpCatalog.mockRejectedValue(new Error('offline'))
+
+    await renderConnections()
+
+    // The Tools heading and a retry control survive a catalog failure.
+    expect(await screen.findByText('Slack')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+  })
 })

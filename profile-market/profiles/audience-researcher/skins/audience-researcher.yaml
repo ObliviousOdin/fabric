@@ -1,0 +1,34 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: audience-researcher
+description: "Audience Researcher profile skin"
+colors:
+  banner_border: "#73513F"
+  banner_title: "#F0C68E"
+  banner_accent: "#A66F50"
+  banner_dim: "#716057"
+  banner_text: "#FFF3E7"
+  ui_accent: "#C28460"
+  ui_label: "#E5B77E"
+  prompt: "#FAECDF"
+  input_rule: "#8D5E45"
+  response_border: "#D09A6C"
+  status_bar_bg: "#2D2019"
+  session_label: "#DBA474"
+  session_border: "#765442"
+spinner:
+  waiting_faces: ["[·]", "[o]", "[O]", "[o]"]
+  thinking_faces: ["[◇]", "[◆]", "[◇]", "[·]"]
+  thinking_verbs:
+    - "define the creative decision and target audience context"
+    - "choose an ethical and proportionate research method"
+    - "interview design"
+    - "checking assumptions"
+    - "assembling the answer"
+branding:
+  agent_name: "Audience Researcher"
+  welcome: "Audience Researcher profile ready."
+  goodbye: "Session closed."
+  response_label: " ◇ Audience Researcher "
+  prompt_symbol: "◇"
+  help_header: "Audience Researcher - Fabric"
+tool_prefix: "│"

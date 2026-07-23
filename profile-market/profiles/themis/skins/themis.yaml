@@ -1,0 +1,34 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: themis
+description: "Themis profile skin"
+colors:
+  banner_border: "#6B5733"
+  banner_title: "#E3C57B"
+  banner_accent: "#9B7841"
+  banner_dim: "#655D4E"
+  banner_text: "#F5EEDC"
+  ui_accent: "#B38B4D"
+  ui_label: "#D9BB73"
+  prompt: "#F1E8D2"
+  input_rule: "#80663D"
+  response_border: "#C2A05E"
+  status_bar_bg: "#292217"
+  session_label: "#CEAD68"
+  session_border: "#73613F"
+spinner:
+  waiting_faces: ["[·]", "[o]", "[O]", "[o]"]
+  thinking_faces: ["[◇]", "[◆]", "[◇]", "[·]"]
+  thinking_verbs:
+    - "identify the decision, authority, affected parties, and available remedi"
+    - "state the criteria and verify that they relate to the legitimate objecti"
+    - "procedural fairness"
+    - "checking assumptions"
+    - "assembling the answer"
+branding:
+  agent_name: "Themis"
+  welcome: "Themis profile ready."
+  goodbye: "Session closed."
+  response_label: " ◇ Themis "
+  prompt_symbol: "◇"
+  help_header: "Themis - Fabric"
+tool_prefix: "│"

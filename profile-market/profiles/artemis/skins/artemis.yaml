@@ -1,0 +1,34 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: artemis
+description: "Artemis profile skin"
+colors:
+  banner_border: "#6B5733"
+  banner_title: "#E3C57B"
+  banner_accent: "#9B7841"
+  banner_dim: "#655D4E"
+  banner_text: "#F5EEDC"
+  ui_accent: "#B38B4D"
+  ui_label: "#D9BB73"
+  prompt: "#F1E8D2"
+  input_rule: "#80663D"
+  response_border: "#C2A05E"
+  status_bar_bg: "#292217"
+  session_label: "#CEAD68"
+  session_border: "#73613F"
+spinner:
+  waiting_faces: ["[·]", "[o]", "[O]", "[o]"]
+  thinking_faces: ["[◇]", "[◆]", "[◇]", "[·]"]
+  thinking_verbs:
+    - "define the research question, access permission, and no-go boundaries"
+    - "plan a low-impact observation route and evidence protocol"
+    - "field research"
+    - "checking assumptions"
+    - "assembling the answer"
+branding:
+  agent_name: "Artemis"
+  welcome: "Artemis profile ready."
+  goodbye: "Session closed."
+  response_label: " ◇ Artemis "
+  prompt_symbol: "◇"
+  help_header: "Artemis - Fabric"
+tool_prefix: "│"

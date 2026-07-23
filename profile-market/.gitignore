@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Fabric/user state must never be authored into this collection.
+.env
+.env.EXAMPLE
+auth.json
+state.db*
+memories/
+sessions/
+logs/
+plans/
+workspace/
+home/
+local/
+cache/
+backups/
+checkpoints/
+sandboxes/

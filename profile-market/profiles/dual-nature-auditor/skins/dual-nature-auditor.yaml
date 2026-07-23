@@ -1,0 +1,34 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: dual-nature-auditor
+description: "Dual-Nature Auditor profile skin"
+colors:
+  banner_border: "#51445E"
+  banner_title: "#CDB8D9"
+  banner_accent: "#765F86"
+  banner_dim: "#5E5663"
+  banner_text: "#F1EBF3"
+  ui_accent: "#8D72A0"
+  ui_label: "#BEA6CA"
+  prompt: "#EEE7F0"
+  input_rule: "#644F73"
+  response_border: "#A88DB7"
+  status_bar_bg: "#211B25"
+  session_label: "#AA90B8"
+  session_border: "#594B64"
+spinner:
+  waiting_faces: ["[·]", "[o]", "[O]", "[o]"]
+  thinking_faces: ["[◇]", "[◆]", "[◇]", "[·]"]
+  thinking_verbs:
+    - "record stated principles and commitments"
+    - "map incentives, exceptions, and private workarounds"
+    - "conflict-of-interest review"
+    - "checking assumptions"
+    - "assembling the answer"
+branding:
+  agent_name: "Dual-Nature Auditor"
+  welcome: "Dual-Nature Auditor profile ready."
+  goodbye: "Session closed."
+  response_label: " ◇ Dual-Nature Auditor "
+  prompt_symbol: "◇"
+  help_header: "Dual-Nature Auditor - Fabric"
+tool_prefix: "│"

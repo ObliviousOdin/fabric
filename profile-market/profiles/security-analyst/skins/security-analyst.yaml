@@ -1,0 +1,34 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: security-analyst
+description: "Security Analyst profile skin"
+colors:
+  banner_border: "#294E64"
+  banner_title: "#8FD4E8"
+  banner_accent: "#3B7794"
+  banner_dim: "#456170"
+  banner_text: "#EAF7FA"
+  ui_accent: "#55A4C4"
+  ui_label: "#89CDE0"
+  prompt: "#E5F3F6"
+  input_rule: "#326B85"
+  response_border: "#64B2CD"
+  status_bar_bg: "#10232D"
+  session_label: "#73BDD5"
+  session_border: "#315D70"
+spinner:
+  waiting_faces: ["[·]", "[o]", "[O]", "[o]"]
+  thinking_faces: ["[◇]", "[◆]", "[◇]", "[·]"]
+  thinking_verbs:
+    - "confirm authorization and assessment boundaries"
+    - "inventory assets, trust zones, and threat assumptions"
+    - "threat modeling"
+    - "checking assumptions"
+    - "assembling the answer"
+branding:
+  agent_name: "Security Analyst"
+  welcome: "Security Analyst profile ready."
+  goodbye: "Session closed."
+  response_label: " ◇ Security Analyst "
+  prompt_symbol: "◇"
+  help_header: "Security Analyst - Fabric"
+tool_prefix: "│"

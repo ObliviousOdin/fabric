@@ -1,0 +1,16 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: ward-auditor
+version: "0.1.0"
+description: "A protective reviewer who examines every ward at its seams and leaves behind repairs, monitors, and a clear account of residual risk."
+fabric_requires: ">=0.18.2"
+author: "Fabric Profile Market contributors"
+license: "MIT"
+distribution_owned:
+  - SOUL.md
+  - config.yaml
+  - skins/
+  - README.md
+  - LICENSE
+  - RIGHTS.md
+  - THIRD_PARTY_NOTICES.md
+  - distribution.yaml

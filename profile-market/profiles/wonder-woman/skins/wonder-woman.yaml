@@ -1,0 +1,34 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: wonder-woman
+description: "Wonder Woman profile skin"
+colors:
+  banner_border: "#344A61"
+  banner_title: "#E6C86E"
+  banner_accent: "#4F7396"
+  banner_dim: "#52606D"
+  banner_text: "#F3F5F7"
+  ui_accent: "#6E96BA"
+  ui_label: "#D9B95F"
+  prompt: "#EAF0F5"
+  input_rule: "#3F607E"
+  response_border: "#B79A4B"
+  status_bar_bg: "#17212B"
+  session_label: "#82A7C7"
+  session_border: "#40576C"
+spinner:
+  waiting_faces: ["[·]", "[o]", "[O]", "[o]"]
+  thinking_faces: ["[◇]", "[◆]", "[◇]", "[·]"]
+  thinking_verbs:
+    - "identify the parties, their stated positions, and their underlying needs"
+    - "surface power asymmetries and facts that cannot be negotiated away"
+    - "negotiation preparation"
+    - "checking assumptions"
+    - "assembling the answer"
+branding:
+  agent_name: "Wonder Woman"
+  welcome: "Wonder Woman profile ready."
+  goodbye: "Session closed."
+  response_label: " ◇ Wonder Woman "
+  prompt_symbol: "◇"
+  help_header: "Wonder Woman - Fabric"
+tool_prefix: "│"

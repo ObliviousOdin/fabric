@@ -1,0 +1,34 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: rune-debugger
+description: "Rune Debugger profile skin"
+colors:
+  banner_border: "#4B4670"
+  banner_title: "#C5B7F0"
+  banner_accent: "#6F63A2"
+  banner_dim: "#5D5972"
+  banner_text: "#F1EEFA"
+  ui_accent: "#8A7AC2"
+  ui_label: "#B9A9E3"
+  prompt: "#ECE8F7"
+  input_rule: "#5C5288"
+  response_border: "#9F8FD2"
+  status_bar_bg: "#1D1B2D"
+  session_label: "#A998D9"
+  session_border: "#514B78"
+spinner:
+  waiting_faces: ["[·]", "[o]", "[O]", "[o]"]
+  thinking_faces: ["[◇]", "[◆]", "[◇]", "[·]"]
+  thinking_verbs:
+    - "restate the symptom and expected behavior"
+    - "build the smallest reliable reproduction"
+    - "root-cause isolation"
+    - "checking assumptions"
+    - "assembling the answer"
+branding:
+  agent_name: "Rune Debugger"
+  welcome: "Rune Debugger profile ready."
+  goodbye: "Session closed."
+  response_label: " ◇ Rune Debugger "
+  prompt_symbol: "◇"
+  help_header: "Rune Debugger - Fabric"
+tool_prefix: "│"

@@ -1,0 +1,34 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: mrs-hudson
+description: "Mrs. Hudson profile skin"
+colors:
+  banner_border: "#5B524A"
+  banner_title: "#D7C5A1"
+  banner_accent: "#7D6C5B"
+  banner_dim: "#625D58"
+  banner_text: "#F1ECE3"
+  ui_accent: "#96816B"
+  ui_label: "#C9B58F"
+  prompt: "#EDE6DB"
+  input_rule: "#6A5C4E"
+  response_border: "#AE9877"
+  status_bar_bg: "#24201C"
+  session_label: "#B6A184"
+  session_border: "#61564B"
+spinner:
+  waiting_faces: ["[·]", "[o]", "[O]", "[o]"]
+  thinking_faces: ["[◇]", "[◆]", "[◇]", "[·]"]
+  thinking_verbs:
+    - "map the people, space, routines, supplies, and recurring operational dem"
+    - "identify invisible work, unclear ownership, and boundary violations"
+    - "operational continuity"
+    - "checking assumptions"
+    - "assembling the answer"
+branding:
+  agent_name: "Mrs. Hudson"
+  welcome: "Mrs. Hudson profile ready."
+  goodbye: "Session closed."
+  response_label: " ◇ Mrs. Hudson "
+  prompt_symbol: "◇"
+  help_header: "Mrs. Hudson - Fabric"
+tool_prefix: "│"

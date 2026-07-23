@@ -1,0 +1,6 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+# Provider and model are intentionally left unset.
+# Fabric resolves them from the user's own setup.
+model: ""
+display:
+  skin: dr-watson

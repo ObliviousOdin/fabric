@@ -1,0 +1,233 @@
+{
+  "pack": {
+    "name": "fabric-profile-market",
+    "version": "0.1.0",
+    "description": "Installable behavioral profiles for Fabric, organized into fan-inspired, public-domain, and original themed collections.",
+    "fabric_requires": ">=0.18.2",
+    "author": "Fabric Profile Market contributors",
+    "license": "MIT",
+    "rights_notice": "The licenses covering this collection's code and original prose do not grant rights in third-party names or fictional properties. Those remain the property of their respective rights holders. No affiliation, sponsorship, or endorsement is claimed."
+  },
+  "categories": [
+    {
+      "slug": "dc-universe",
+      "display_name": "DC Universe",
+      "description": "Unofficial behavioral adaptations of DC characters, focused on distinct working methods rather than impersonation or roleplay.",
+      "kind": "fan-inspired",
+      "rights_notice": "Unofficial fan-made profiles. DC and its character names are properties of their respective rights holders. No logos, artwork, dialogue, story text, or claims of affiliation are included.",
+      "skin": {
+        "banner_border": "#344A61",
+        "banner_title": "#E6C86E",
+        "banner_accent": "#4F7396",
+        "banner_dim": "#52606D",
+        "banner_text": "#F3F5F7",
+        "ui_accent": "#6E96BA",
+        "ui_label": "#D9B95F",
+        "prompt": "#EAF0F5",
+        "input_rule": "#3F607E",
+        "response_border": "#B79A4B",
+        "status_bar_bg": "#17212B",
+        "session_label": "#82A7C7",
+        "session_border": "#40576C"
+      }
+    },
+    {
+      "slug": "marvel-universe",
+      "display_name": "Marvel Universe",
+      "description": "Unofficial behavioral adaptations of Marvel characters, translated into practical collaboration, research, and problem-solving styles.",
+      "kind": "fan-inspired",
+      "rights_notice": "Unofficial fan-made profiles. Marvel and its character names are properties of their respective rights holders. No logos, artwork, dialogue, story text, or claims of affiliation are included.",
+      "skin": {
+        "banner_border": "#6A3942",
+        "banner_title": "#E7C76B",
+        "banner_accent": "#A9535E",
+        "banner_dim": "#67565A",
+        "banner_text": "#F7F1EC",
+        "ui_accent": "#C46872",
+        "ui_label": "#E3C067",
+        "prompt": "#F4ECE7",
+        "input_rule": "#82444D",
+        "response_border": "#C6A64E",
+        "status_bar_bg": "#28191C",
+        "session_label": "#D47D84",
+        "session_border": "#70464C"
+      }
+    },
+    {
+      "slug": "mythic-council",
+      "display_name": "Mythic Council",
+      "description": "Public-domain mythic archetypes recast as strategists, builders, messengers, scouts, arbiters, and journey planners.",
+      "kind": "public-domain",
+      "rights_notice": "Based on ancient mythic material in the public domain. All profile prose, organization, and visual styling in this collection are original.",
+      "skin": {
+        "banner_border": "#6B5733",
+        "banner_title": "#E3C57B",
+        "banner_accent": "#9B7841",
+        "banner_dim": "#655D4E",
+        "banner_text": "#F5EEDC",
+        "ui_accent": "#B38B4D",
+        "ui_label": "#D9BB73",
+        "prompt": "#F1E8D2",
+        "input_rule": "#80663D",
+        "response_border": "#C2A05E",
+        "status_bar_bg": "#292217",
+        "session_label": "#CEAD68",
+        "session_border": "#73613F"
+      }
+    },
+    {
+      "slug": "round-table",
+      "display_name": "Round Table",
+      "description": "Public-domain Arthurian roles adapted for facilitation, foresight, diplomacy, execution, research, and constructive dissent.",
+      "kind": "public-domain",
+      "rights_notice": "Based on public-domain Arthurian traditions. No text or visual material from modern adaptations is used; all profile prose and styling are original.",
+      "skin": {
+        "banner_border": "#485D52",
+        "banner_title": "#D7C892",
+        "banner_accent": "#6D8878",
+        "banner_dim": "#59645E",
+        "banner_text": "#F0F2EA",
+        "ui_accent": "#83A08E",
+        "ui_label": "#C7B77E",
+        "prompt": "#EAF0E9",
+        "input_rule": "#587163",
+        "response_border": "#B6A66F",
+        "status_bar_bg": "#1C2721",
+        "session_label": "#94AE9D",
+        "session_border": "#4F685A"
+      }
+    },
+    {
+      "slug": "baker-street-bureau",
+      "display_name": "Baker Street Bureau",
+      "description": "Public-domain Holmes-era investigative profiles for hypotheses, observation, chronology, sources, ciphers, and argument synthesis.",
+      "kind": "public-domain",
+      "rights_notice": "Inspired only by public-domain Sherlock Holmes material and general Victorian investigative traditions. Later adaptations, likenesses, dialogue, and visual designs are excluded.",
+      "skin": {
+        "banner_border": "#5B524A",
+        "banner_title": "#D7C5A1",
+        "banner_accent": "#7D6C5B",
+        "banner_dim": "#625D58",
+        "banner_text": "#F1ECE3",
+        "ui_accent": "#96816B",
+        "ui_label": "#C9B58F",
+        "prompt": "#EDE6DB",
+        "input_rule": "#6A5C4E",
+        "response_border": "#AE9877",
+        "status_bar_bg": "#24201C",
+        "session_label": "#B6A184",
+        "session_border": "#61564B"
+      }
+    },
+    {
+      "slug": "gothic-cabinet",
+      "display_name": "Gothic Cabinet",
+      "description": "Public-domain Gothic archetypes applied to responsible innovation, coercion analysis, integrity, reputation, history, and incident response.",
+      "kind": "public-domain",
+      "rights_notice": "Based on public-domain Gothic literature. Modern film imagery, character designs, dialogue, and adaptation-specific material are not used.",
+      "skin": {
+        "banner_border": "#51445E",
+        "banner_title": "#CDB8D9",
+        "banner_accent": "#765F86",
+        "banner_dim": "#5E5663",
+        "banner_text": "#F1EBF3",
+        "ui_accent": "#8D72A0",
+        "ui_label": "#BEA6CA",
+        "prompt": "#EEE7F0",
+        "input_rule": "#644F73",
+        "response_border": "#A88DB7",
+        "status_bar_bg": "#211B25",
+        "session_label": "#AA90B8",
+        "session_border": "#594B64"
+      }
+    },
+    {
+      "slug": "galactic-expedition",
+      "display_name": "Galactic Expedition",
+      "description": "Original space-expedition specialists for command, science, engineering, care, security, and first-contact communication.",
+      "kind": "original",
+      "rights_notice": "This category and its profiles are original genre archetypes. They are not based on or affiliated with any specific science-fiction franchise.",
+      "skin": {
+        "banner_border": "#294E64",
+        "banner_title": "#8FD4E8",
+        "banner_accent": "#3B7794",
+        "banner_dim": "#456170",
+        "banner_text": "#EAF7FA",
+        "ui_accent": "#55A4C4",
+        "ui_label": "#89CDE0",
+        "prompt": "#E5F3F6",
+        "input_rule": "#326B85",
+        "response_border": "#64B2CD",
+        "status_bar_bg": "#10232D",
+        "session_label": "#73BDD5",
+        "session_border": "#315D70"
+      }
+    },
+    {
+      "slug": "arcane-academy",
+      "display_name": "Arcane Academy",
+      "description": "Original magical-academic archetypes mapped to architecture, debugging, research, security, experimentation, and delegation.",
+      "kind": "original",
+      "rights_notice": "This category and its profiles are original genre archetypes. They do not reproduce any specific fantasy setting, character, school, terminology, or visual identity.",
+      "skin": {
+        "banner_border": "#4B4670",
+        "banner_title": "#C5B7F0",
+        "banner_accent": "#6F63A2",
+        "banner_dim": "#5D5972",
+        "banner_text": "#F1EEFA",
+        "ui_accent": "#8A7AC2",
+        "ui_label": "#B9A9E3",
+        "prompt": "#ECE8F7",
+        "input_rule": "#5C5288",
+        "response_border": "#9F8FD2",
+        "status_bar_bg": "#1D1B2D",
+        "session_label": "#A998D9",
+        "session_border": "#514B78"
+      }
+    },
+    {
+      "slug": "neon-circuit",
+      "display_name": "Neon Circuit",
+      "description": "Original cyberpunk specialists for defensive security, integrations, intelligence, institutional audit, data stewardship, and care technology.",
+      "kind": "original",
+      "rights_notice": "This category and its profiles are original genre archetypes. No setting, character, terminology, artwork, or story material from a specific cyberpunk property is used.",
+      "skin": {
+        "banner_border": "#1F6B66",
+        "banner_title": "#70E0C8",
+        "banner_accent": "#2E9B8E",
+        "banner_dim": "#3E6965",
+        "banner_text": "#E7FAF6",
+        "ui_accent": "#42BFAE",
+        "ui_label": "#6CD6C3",
+        "prompt": "#DFF7F1",
+        "input_rule": "#258176",
+        "response_border": "#4DCBB8",
+        "status_bar_bg": "#0E2927",
+        "session_label": "#58CFBC",
+        "session_border": "#286F68"
+      }
+    },
+    {
+      "slug": "creator-studio",
+      "display_name": "Creator Studio",
+      "description": "Original production roles for creative direction, story structure, visual systems, delivery, continuity, and audience evidence.",
+      "kind": "original",
+      "rights_notice": "This category and its profiles are original professional archetypes. Generated work must continue to respect third-party copyrights, trademarks, privacy, and publicity rights.",
+      "skin": {
+        "banner_border": "#73513F",
+        "banner_title": "#F0C68E",
+        "banner_accent": "#A66F50",
+        "banner_dim": "#716057",
+        "banner_text": "#FFF3E7",
+        "ui_accent": "#C28460",
+        "ui_label": "#E5B77E",
+        "prompt": "#FAECDF",
+        "input_rule": "#8D5E45",
+        "response_border": "#D09A6C",
+        "status_bar_bg": "#2D2019",
+        "session_label": "#DBA474",
+        "session_border": "#765442"
+      }
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: corporate-auditor
+description: "Corporate Auditor profile skin"
+colors:
+  banner_border: "#1F6B66"
+  banner_title: "#70E0C8"
+  banner_accent: "#2E9B8E"
+  banner_dim: "#3E6965"
+  banner_text: "#E7FAF6"
+  ui_accent: "#42BFAE"
+  ui_label: "#6CD6C3"
+  prompt: "#DFF7F1"
+  input_rule: "#258176"
+  response_border: "#4DCBB8"
+  status_bar_bg: "#0E2927"
+  session_label: "#58CFBC"
+  session_border: "#286F68"
+spinner:
+  waiting_faces: ["[·]", "[o]", "[O]", "[o]"]
+  thinking_faces: ["[◇]", "[◆]", "[◇]", "[·]"]
+  thinking_verbs:
+    - "confirm authorized review scope and decision owner"
+    - "map claims, obligations, data flows, and subcontractors"
+    - "vendor due diligence"
+    - "checking assumptions"
+    - "assembling the answer"
+branding:
+  agent_name: "Corporate Auditor"
+  welcome: "Corporate Auditor profile ready."
+  goodbye: "Session closed."
+  response_label: " ◇ Corporate Auditor "
+  prompt_symbol: "◇"
+  help_header: "Corporate Auditor - Fabric"
+tool_prefix: "│"

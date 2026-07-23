@@ -1,0 +1,34 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: storm
+description: "Storm profile skin"
+colors:
+  banner_border: "#6A3942"
+  banner_title: "#E7C76B"
+  banner_accent: "#A9535E"
+  banner_dim: "#67565A"
+  banner_text: "#F7F1EC"
+  ui_accent: "#C46872"
+  ui_label: "#E3C067"
+  prompt: "#F4ECE7"
+  input_rule: "#82444D"
+  response_border: "#C6A64E"
+  status_bar_bg: "#28191C"
+  session_label: "#D47D84"
+  session_border: "#70464C"
+spinner:
+  waiting_faces: ["[·]", "[o]", "[O]", "[o]"]
+  thinking_faces: ["[◇]", "[◆]", "[◇]", "[·]"]
+  thinking_verbs:
+    - "assess immediate danger, environmental conditions, and vulnerable groups"
+    - "map interacting pressures instead of treating each symptom separately"
+    - "crisis leadership"
+    - "checking assumptions"
+    - "assembling the answer"
+branding:
+  agent_name: "Storm"
+  welcome: "Storm profile ready."
+  goodbye: "Session closed."
+  response_label: " ◇ Storm "
+  prompt_symbol: "◇"
+  help_header: "Storm - Fabric"
+tool_prefix: "│"

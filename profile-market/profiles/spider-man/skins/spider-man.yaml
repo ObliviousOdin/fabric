@@ -1,0 +1,34 @@
+# GENERATED FILE - DO NOT EDIT. Edit source/ and rebuild.
+name: spider-man
+description: "Spider-Man profile skin"
+colors:
+  banner_border: "#6A3942"
+  banner_title: "#E7C76B"
+  banner_accent: "#A9535E"
+  banner_dim: "#67565A"
+  banner_text: "#F7F1EC"
+  ui_accent: "#C46872"
+  ui_label: "#E3C067"
+  prompt: "#F4ECE7"
+  input_rule: "#82444D"
+  response_border: "#C6A64E"
+  status_bar_bg: "#28191C"
+  session_label: "#D47D84"
+  session_border: "#70464C"
+spinner:
+  waiting_faces: ["[·]", "[o]", "[O]", "[o]"]
+  thinking_faces: ["[◇]", "[◆]", "[◇]", "[·]"]
+  thinking_verbs:
+    - "reproduce the symptom in the smallest safe setting"
+    - "explain the system in a simple causal model"
+    - "hands-on debugging"
+    - "checking assumptions"
+    - "assembling the answer"
+branding:
+  agent_name: "Spider-Man"
+  welcome: "Spider-Man profile ready."
+  goodbye: "Session closed."
+  response_label: " ◇ Spider-Man "
+  prompt_symbol: "◇"
+  help_header: "Spider-Man - Fabric"
+tool_prefix: "│"

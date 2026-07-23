@@ -95,6 +95,7 @@ enum ConnectedAppTab: String {
     case home
     case sessions
     case work
+    case artifacts
     case social
     case settings
 }
@@ -172,6 +173,17 @@ private struct ConnectedAppShellView: View {
                         Label(ConnectedAppTab.work.tabTitle, systemImage: ConnectedAppTab.work.tabSystemImage)
                     }
                     .accessibilityIdentifier(ConnectedAppTab.work.tabAccessibilityIdentifier)
+                }
+
+                if visibleTabs.contains(.artifacts) {
+                    NavigationStack {
+                        ArtifactsBrowserView()
+                    }
+                    .tag(ConnectedAppTab.artifacts.rawValue)
+                    .tabItem {
+                        Label(ConnectedAppTab.artifacts.tabTitle, systemImage: ConnectedAppTab.artifacts.tabSystemImage)
+                    }
+                    .accessibilityIdentifier(ConnectedAppTab.artifacts.tabAccessibilityIdentifier)
                 }
 
                 if visibleTabs.contains(.social) {

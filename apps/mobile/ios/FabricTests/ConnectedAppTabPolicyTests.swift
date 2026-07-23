@@ -136,18 +136,28 @@ final class ConnectedAppTabPolicyTests: XCTestCase {
 
     // MARK: - Availability resolution
 
-    func testAvailabilityAlwaysExposesStructuralAndSocialTabs() {
-        // Without a durable-work contract the always-on tab set is exactly
-        // Home, Sessions, Social, and Settings — Work is absent.
+    func testAvailabilityAlwaysExposesStructuralTabs() {
+        // Without a durable-work contract the always-on tab set is Home,
+        // Sessions, Artifacts, Social, and Settings — only Work is absent.
         for negotiation: GatewayCapabilityNegotiation? in [
             nil, .negotiating, .legacy, .invalid(reason: "x")
         ] {
             let availability = ConnectedAppTabAvailability.resolve(negotiation: negotiation)
             XCTAssertEqual(
                 availability.availableTabs,
-                [.home, .sessions, .social, .settings]
+                [.home, .sessions, .artifacts, .social, .settings]
             )
+            XCTAssertFalse(availability.isAvailable(.work))
         }
+    }
+
+    func testArtifactsTabIsAlwaysAvailableAndHideable() {
+        let availability = ConnectedAppTabAvailability.resolve(negotiation: .legacy)
+        XCTAssertTrue(availability.isAvailable(.artifacts))
+        XCTAssertTrue(ConnectedAppTab.artifacts.isHideable)
+        XCTAssertFalse(
+            ConnectedAppTabPolicy.visibleTabs(hidden: ["artifacts"], availability: availability).contains(.artifacts)
+        )
     }
 
     // MARK: - Work tab availability (capability-gated)
@@ -185,7 +195,7 @@ final class ConnectedAppTabPolicyTests: XCTestCase {
         XCTAssertTrue(with.isAvailable(.work))
         XCTAssertEqual(
             ConnectedAppTabPolicy.visibleTabs(hidden: [], availability: with),
-            [.home, .sessions, .work, .social, .settings]
+            [.home, .sessions, .work, .artifacts, .social, .settings]
         )
     }
 

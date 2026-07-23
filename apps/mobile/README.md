@@ -234,7 +234,13 @@ The v1 vertical slice on both platforms:
    The overflow menu also opens a **live screen view** — a read-only
    picture-in-picture of the gateway host's screen for watching a
    `computer_use` turn, polling `computer.screenshot`.
-4. **Settings** — server identity/status, the pet companion, read-aloud
+4. **Artifacts** — a browser for the images, files, and links an agent
+   produced, derived client-side from `session.list` + `session.transcript`
+   (no server artifact index exists yet). Genuinely external images preview
+   inline; workspace files and links show as rows with copy-path / open
+   actions. Authenticated inline preview of workspace-file bytes and a
+   server-indexed `artifact.list`/`artifact.fetch` path are follow-ups.
+5. **Settings** — server identity/status, the pet companion, read-aloud
    voice, iOS permission inventory, and a **Pages** control that hides
    optional tabs (e.g. Social) from the tab bar. Hidden pages are a
    device-local preference (`fabric.mobile.hidden-tabs.v1`); Home and

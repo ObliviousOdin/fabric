@@ -19,7 +19,7 @@ import Foundation
 extension ConnectedAppTab: CaseIterable {
     /// Canonical left-to-right display order for the tab bar.
     static var allCases: [ConnectedAppTab] {
-        [.home, .sessions, .work, .social, .settings]
+        [.home, .sessions, .work, .artifacts, .social, .settings]
     }
 
     /// Human-facing tab-bar label. Centralized here so the shell and the
@@ -29,6 +29,7 @@ extension ConnectedAppTab: CaseIterable {
         case .home: return "Home"
         case .sessions: return "Sessions"
         case .work: return "Work"
+        case .artifacts: return "Artifacts"
         case .social: return "Social"
         case .settings: return "Settings"
         }
@@ -40,6 +41,7 @@ extension ConnectedAppTab: CaseIterable {
         case .home: return "sparkles"
         case .sessions: return "bubble.left.and.bubble.right"
         case .work: return "checklist"
+        case .artifacts: return "photo.on.rectangle"
         case .social: return "megaphone"
         case .settings: return "gearshape"
         }
@@ -52,7 +54,7 @@ extension ConnectedAppTab: CaseIterable {
     var isHideable: Bool {
         switch self {
         case .home, .sessions, .settings: return false
-        case .work, .social: return true
+        case .work, .artifacts, .social: return true
         }
     }
 }
@@ -110,7 +112,7 @@ struct ConnectedAppTabAvailability: Equatable {
         // capability family, so they are always available. Work appears only
         // when the gateway advertises the complete `durable_work` contract
         // (FMB-002), matching the fail-closed rule the content surfaces use.
-        var tabs: Set<ConnectedAppTab> = [.home, .sessions, .social, .settings]
+        var tabs: Set<ConnectedAppTab> = [.home, .sessions, .artifacts, .social, .settings]
         if negotiation?.supportsDurableWork == true {
             tabs.insert(.work)
         }

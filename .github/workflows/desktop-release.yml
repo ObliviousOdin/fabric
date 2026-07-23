@@ -88,15 +88,15 @@ jobs:
         include:
           - label: macOS arm64
             runner: macos-15
-            npm_script: dist:mac
+            builder_args: --mac
             platform: mac
           - label: Windows x64
             runner: windows-2025
-            npm_script: dist:win
+            builder_args: --win
             platform: win
           - label: Linux x64
             runner: ubuntu-24.04
-            npm_script: dist:linux
+            builder_args: --linux AppImage deb rpm
             platform: linux
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -116,18 +116,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Signing secrets are scoped to THIS step only (never job-level). electron-
-      # builder never publishes from here (electron-builder runs with the publish
-      # mode set to never). WP-B fills in the afterPack payload signing, the
-      # require-notarization fail-loud switch, and the release channel stamp. The
-      # release matrix deliberately does NOT set CSC_IDENTITY_AUTO_DISCOVERY to
-      # "false" (that stays in the verification workflow) so signing stays enabled.
-      - name: Package and sign
+      # §3.2: build the renderer and main bundle FIRST, with NO signing env. The
+      # Developer ID cert / notarization key / Azure credentials must never be
+      # visible to tsc, Vite, or the bundler — only to electron-builder's sign
+      # phase below. The channel stamp is a build-time concern (write-build-stamp
+      # .mjs runs inside `npm run build`), so it lives here, not with the secrets.
+      - name: Build renderer and main
         env:
           # Release channel stamp (§3.8) — consumed by write-build-stamp.mjs in
           # WP-B so a packaged install self-updates its backend but never runs the
           # GUI rebuild/swap path.
           FABRIC_RELEASE_CHANNEL: release
+        run: npm run --prefix apps/desktop build
+
+      # Signing secrets are scoped to THIS step only (never job-level), and only
+      # electron-builder — not the renderer build above — can see them. electron-
+      # builder never publishes from here (electron-builder runs with the publish
+      # mode set to never). WP-B fills in the afterPack payload signing and the
+      # require-notarization fail-loud switch. The release matrix deliberately does
+      # NOT set CSC_IDENTITY_AUTO_DISCOVERY to "false" (that stays in the
+      # verification workflow) so signing stays enabled.
+      - name: Package and sign
+        env:
           # macOS Developer ID + notarization (dedicated minimal-role key).
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -138,7 +148,7 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        run: npm run --prefix apps/desktop ${{ matrix.npm_script }} -- --publish never
+        run: npm run --prefix apps/desktop builder -- ${{ matrix.builder_args }} --publish never
 
       - name: Assert macOS signatures and notarization
         if: runner.os == 'macOS'
@@ -152,9 +162,15 @@ jobs:
           # Offline Gatekeeper needs a stapled ticket on the .app (the .zip carries
           # the stapled .app inside; never stapler-validate a zip).
           stapler validate "$app"
+          # The dmg is signed by electron-builder but NOT stapled here: notarize.mjs
+          # (afterSign) staples only the .app, and the dmg is built afterward. WP-B
+          # adopts the §3.2 extra pass (notarize-artifact.mjs <dmg>) and only then
+          # may `stapler validate` the dmg. Until then assert the dmg's signature
+          # only — its embedded .app is stapled, so the installed app validates
+          # offline; the dmg does a one-time online Gatekeeper check on first mount
+          # (the standard first-open dialog, expected — see §3.4).
           for dmg in apps/desktop/release/Fabric-*-mac-arm64.dmg; do
             codesign --verify --strict --verbose=2 "$dmg"
-            stapler validate "$dmg"
           done
 
       - name: Assert Windows Authenticode signatures

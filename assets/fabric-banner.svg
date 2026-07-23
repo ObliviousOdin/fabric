@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fabric brand banner. Derived from the canonical wordmark in
+     apps/design-system/src/brand/fabric/. Colors come from the Woven
+     Operations design contract (web/DESIGN.md). Motion is restrained and
+     honors prefers-reduced-motion. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="300" viewBox="0 0 880 300" fill="none" role="img" aria-labelledby="fbb-title fbb-desc">
+  <title id="fbb-title">Fabric</title>
+  <desc id="fbb-desc">The Fabric wordmark on a dark woven canvas. A single active thread weaves through the letters, and the bracket underline draws itself beneath the name.</desc>
+  <style>
+    .fbb-symbol  { animation: fbb-fade 900ms ease-out both; }
+    .fbb-letters { animation: fbb-fade 900ms ease-out 150ms both; }
+    .fbb-bracket { stroke-dasharray: 630; animation: fbb-draw 1100ms ease-out 350ms both; }
+    .fbb-tagline { animation: fbb-fade 900ms ease-out 500ms both; }
+    .fbb-thread  { stroke-dasharray: 26 14; animation: fbb-run 8s linear infinite; }
+    .fbb-dot     { animation: fbb-breathe 3.6s ease-in-out infinite; }
+    @keyframes fbb-fade    { from { opacity: 0; } }
+    @keyframes fbb-draw    { from { stroke-dashoffset: 630; } }
+    @keyframes fbb-run     { to   { stroke-dashoffset: -160; } }
+    @keyframes fbb-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+    @media (prefers-reduced-motion: reduce) {
+      .fbb-symbol, .fbb-letters, .fbb-bracket, .fbb-tagline, .fbb-thread, .fbb-dot { animation: none; }
+    }
+  </style>
+  <defs>
+    <linearGradient id="fbb-mark-gradient" x1="20" y1="64" x2="108" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C66E1" />
+      <stop offset="0.42" stop-color="#8D7AEE" />
+      <stop offset="1" stop-color="#AAA0FF" />
+    </linearGradient>
+    <linearGradient id="fbb-thread-gradient" x1="0" y1="150" x2="880" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4628CC" />
+      <stop offset="0.5" stop-color="#9481E6" />
+      <stop offset="1" stop-color="#4628CC" />
+    </linearGradient>
+    <pattern id="fbb-weave" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M 0 43.5 H 44 M 43.5 0 V 44" stroke="#9481E6" stroke-opacity="0.06" stroke-width="1" />
+    </pattern>
+    <clipPath id="fbb-tile">
+      <rect x="0" y="0" width="880" height="300" rx="24" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#fbb-tile)">
+    <rect x="0" y="0" width="880" height="300" fill="#0E0C11" />
+    <rect x="0" y="0" width="880" height="300" fill="url(#fbb-weave)" />
+    <!-- The active thread: the one live lineage weaving through the name. -->
+    <path class="fbb-thread"
+      d="M -20 150 C 40 150 70 136 130 136 S 220 164 280 164 S 370 136 430 136 S 520 164 580 164 S 670 136 730 136 S 820 164 900 164"
+      stroke="url(#fbb-thread-gradient)" stroke-width="2.5" stroke-linecap="round" opacity="0.45" />
+  </g>
+  <rect x="0.5" y="0.5" width="879" height="299" rx="23.5" stroke="#28252A" />
+
+  <!-- Canonical Fabric wordmark (dark-surface variant), centered. -->
+  <g transform="translate(210 40) scale(0.72)">
+    <g class="fbb-symbol" transform="scale(1.55)" fill="url(#fbb-mark-gradient)">
+      <path d="M 108 18 H 57.97 C 50.05 20.47 42.12 24.91 35.68 31 C 30.5 35.9 25.8 43.1 21.49 53.55 C 21.35 53.15 21.5 52.35 21.82 51.41 C 23.63 41.7 29.91 30.84 39.48 22.94 V 18.33 H 20 V 110 H 39.32 V 87.95 C 32.88 89.76 26.11 93.71 21.82 97.33 C 21.58 97.2 21.56 97 21.65 96.83 C 30.73 84.65 44.93 77.41 61.28 77.41 H 69.53 L 82.41 57.66 H 53.85 C 38.66 65.73 27.43 77.25 21.65 90.91 C 21.4 90.75 21.4 90.5 21.49 90.25 C 23.63 79.22 29.58 69.51 39.48 61.12 V 52.23 C 32.71 53.88 26.27 56.84 21.49 60.63 C 21.25 60.5 21.2 60.2 21.32 59.97 C 26.44 53.38 32.05 50.59 34.86 49.11 L 103.71 21.62 C 103.87 22.11 101.07 24.75 95.29 29.03 C 88.35 32.65 84 34.4 80.92 35.45 C 85.05 38.41 88.52 42.69 89.51 46.64 L 108 18.49 Z" />
+      <path class="fbb-dot" d="M 83.02 46.64 C 83.02 49.34 80.83 51.53 78.12 51.53 C 75.42 51.53 73.23 49.34 73.23 46.64 C 73.23 43.94 75.42 41.75 78.12 41.75 C 80.83 41.75 83.02 43.94 83.02 46.64 Z" />
+    </g>
+    <g class="fbb-letters" transform="translate(90 0) scale(0.87 1)" fill="#F5F5F5">
+      <path fill-rule="evenodd" d="M 150 64 C 114 64 91 87 91 122 C 91 157 113 180 148 180 C 165 180 179 174 189 163 V 177 H 217 V 67 H 189 V 80 C 179 69 166 64 150 64 Z M 153 89 C 174 89 188 102 188 122 C 188 143 174 156 153 156 C 133 156 120 143 120 122 C 120 102 133 89 153 89 Z" />
+      <path fill-rule="evenodd" d="M 230 18 H 259 V 79 C 269 69 283 64 300 64 C 334 64 356 87 356 122 C 356 157 334 180 300 180 C 282 180 268 174 258 162 V 177 H 230 Z M 299 89 C 320 89 327 102 327 122 C 327 143 319 156 299 156 C 279 156 259 143 259 122 C 259 102 279 89 299 89 Z" />
+      <path d="M 369 67 H 397 V 85 C 405 71 418 64 436 64 H 445 V 92 H 433 C 409 92 398 105 398 131 V 177 H 369 Z" />
+      <path d="M 459 67 H 488 V 177 H 459 Z M 473.5 18 C 484 18 491 25 491 35.5 C 491 46 484 53 473.5 53 C 463 53 456 46 456 35.5 C 456 25 463 18 473.5 18 Z" />
+      <path d="M 618 106 C 613 79 593 64 563 64 C 527 64 504 87 504 122 C 504 157 527 180 563 180 C 593 180 613 163 619 135 H 590 C 586 149 577 156 563 156 C 544 156 533 143 533 122 C 533 101 544 88 563 88 C 577 88 586 95 589 106 Z" />
+    </g>
+    <path class="fbb-bracket" d="M 31 189 V 205 H 629 V 189" stroke="#A9AEB8" stroke-width="3" />
+  </g>
+
+  <text class="fbb-tagline" x="440" y="252" text-anchor="middle" fill="#ADA9B1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="17" font-weight="500">Built for the operators who move the physical world.</text>
+</svg>

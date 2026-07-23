@@ -101,6 +101,11 @@ test('Electron Builder metadata is derived consistently for macOS, Windows, and 
   assert.equal(config.mac.extendInfo.CFBundleDisplayName, 'Fabric')
   assert.equal(config.mac.extendInfo.CFBundleName, 'Fabric')
   assert.equal(config.mac.extendInfo.CFBundleExecutable, 'Fabric')
+  assert.equal(
+    config.mac.notarize,
+    false,
+    'Fabric owns notarization in afterSign so inline .p8 secrets are materialized safely'
+  )
   assert.equal(config.dmg.title, 'Install Fabric')
 
   assert.equal(config.win.icon, 'assets/icon.ico')

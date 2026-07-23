@@ -34,12 +34,22 @@ struct SessionTranscriptMessage: Equatable {
     /// Server-reported tool name for `role == .tool` rows; `text` then holds
     /// the compact call context (`_tool_ctx` in `tui_gateway/server.py`).
     let toolName: String?
+    /// Opaque generated-image id available only on a live resumed session.
+    /// This is never a path or URL; it is safe to exchange for bounded bytes.
+    let imageArtifactID: String?
 
-    init(role: Role, text: String, reasoning: String? = nil, toolName: String? = nil) {
+    init(
+        role: Role,
+        text: String,
+        reasoning: String? = nil,
+        toolName: String? = nil,
+        imageArtifactID: String? = nil
+    ) {
         self.role = role
         self.text = text
         self.reasoning = reasoning
         self.toolName = toolName
+        self.imageArtifactID = imageArtifactID
     }
 
     init?(payload: [String: Any]) {
@@ -71,10 +81,20 @@ struct SessionTranscriptMessage: Equatable {
         else {
             return nil
         }
+        let imageArtifactID: String?
+        if role == .tool,
+           let candidate = payload["image_artifact_id"] as? String,
+           !candidate.isEmpty,
+           candidate.count <= 512 {
+            imageArtifactID = candidate
+        } else {
+            imageArtifactID = nil
+        }
         self.role = role
         self.text = text
         self.reasoning = reasoning
         self.toolName = role == .tool ? payload["name"] as? String : nil
+        self.imageArtifactID = imageArtifactID
     }
 
     private static func firstReasoning(in payload: [String: Any], keys: [String]) -> String? {
@@ -99,6 +119,28 @@ struct SessionTranscriptMessage: Equatable {
             return String(data: data, encoding: .utf8)
         }
         return nil
+    }
+}
+
+/// Image bytes returned by the authenticated `artifact.fetch` RPC. The source
+/// path never crosses the transport boundary; callers receive only a verified,
+/// bounded image payload.
+struct GatewayImageArtifact: Equatable {
+    static let maximumBytes = 5 * 1024 * 1024
+
+    let data: Data
+    let mimeType: String
+
+    init?(payload: [String: Any]) {
+        guard let encoded = payload["data_base64"] as? String,
+              let data = Data(base64Encoded: encoded),
+              !data.isEmpty,
+              data.count <= Self.maximumBytes,
+              let mimeType = payload["mime_type"] as? String,
+              ["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"].contains(mimeType)
+        else { return nil }
+        self.data = data
+        self.mimeType = mimeType
     }
 }
 
@@ -2072,6 +2114,24 @@ struct GatewayAPI {
         )
         let rows = result["messages"] as? [[String: Any]] ?? []
         return rows.compactMap(SessionTranscriptMessage.init)
+    }
+
+    /// Retrieve one image generated in this live session. The opaque artifact
+    /// ID is the tool call ID, not a filesystem path, and only a gateway that
+    /// explicitly advertises `artifact.fetch` may receive this request.
+    func fetchImageArtifact(sessionId: String, artifactID: String) async throws -> GatewayImageArtifact {
+        let identifier = artifactID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !identifier.isEmpty, identifier.count <= 512 else {
+            throw GatewayClientError.rpc(message: "The generated image reference is invalid.")
+        }
+        let result = try await client.requestObject(
+            "artifact.fetch",
+            params: ["session_id": sessionId, "artifact_id": identifier]
+        )
+        guard let artifact = GatewayImageArtifact(payload: result) else {
+            throw GatewayClientError.rpc(message: "The gateway returned an invalid generated image.")
+        }
+        return artifact
     }
 
     /// Rename a live session (its runtime id, not the stored key). The typed

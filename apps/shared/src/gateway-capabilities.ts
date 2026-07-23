@@ -59,6 +59,7 @@ export const OPTIONAL_GATEWAY_FEATURE_METHODS = {
   ],
   push: ["push.register_device", "push.deregister_device"],
   session_admin: ["session.rename", "session.archive"],
+  session_transcript: ["session.transcript"],
   trust_center: [
     "trust.audit.list",
     "grant.list",

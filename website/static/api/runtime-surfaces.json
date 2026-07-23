@@ -7019,6 +7019,19 @@
       },
       {
         "aliases": [
+          "/social",
+          "/linkedin"
+        ],
+        "id": "social",
+        "layout": "page",
+        "nav_label": "Social",
+        "path": "/workspace/social",
+        "persistent": false,
+        "surface": "workspace",
+        "title": null
+      },
+      {
+        "aliases": [
           "/kanban",
           "/work"
         ],
@@ -7309,7 +7322,7 @@
     "cli_command": 67,
     "command": 84,
     "dashboard_plugin_manifest": 3,
-    "dashboard_route": 26,
+    "dashboard_route": 27,
     "model_provider": 40,
     "platform": 33,
     "product_surface": 13,

@@ -49,6 +49,7 @@ FEATURE_METHODS: dict[str, frozenset[str]] = {
 # "required methods ⊆ advertised methods". Pets exposes display+adopt only;
 # generation, management, and scale stay desktop/host surfaces.
 OPTIONAL_FEATURE_METHODS: dict[str, frozenset[str]] = {
+    "session_transcript": frozenset({"session.transcript"}),
     "pets": frozenset({
         "pet.info",
         "pet.info.meta",

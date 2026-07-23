@@ -27,6 +27,7 @@ import {
   Info,
   KeyRound,
   Layers3,
+  Megaphone,
   MessageCircle,
   Mic,
   Monitor,
@@ -76,6 +77,7 @@ import {
   sessionRoute,
   SETTINGS_ROUTE,
   SKILLS_ROUTE,
+  SOCIAL_ROUTE,
   STARMAP_ROUTE,
   VOICE_NOTES_ROUTE
 } from '../routes'
@@ -447,6 +449,13 @@ export function CommandPalette() {
             keywords: ['prototype', 'interface', 'design system'],
             label: cc.nav.design.title,
             run: go(DESIGN_ROUTE)
+          },
+          {
+            icon: Megaphone,
+            id: 'nav-social',
+            keywords: ['linkedin', 'post', 'marketing', 'social media'],
+            label: cc.nav.social.title,
+            run: go(SOCIAL_ROUTE)
           },
           {
             action: 'nav.messaging',

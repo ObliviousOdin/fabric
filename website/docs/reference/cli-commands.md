@@ -94,6 +94,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric claw` | OpenClaw migration helpers. |
 | `fabric dashboard` | Launch the web dashboard for managing config, API keys, and sessions. |
 | `fabric serve` | Run the dashboard/desktop JSON-RPC and WebSocket backend without serving the SPA. |
+| `fabric mobile` | Start the secure mobile gateway, optionally install a native preview client, and print a pairing QR. Use `--tailscale` for the recommended private HTTPS path. |
 | `fabric desktop` (alias `gui`) | Build and launch the native Electron desktop app. |
 | `fabric profile` | Manage profiles — multiple isolated Fabric instances. |
 | `fabric completion` | Print shell completion scripts (bash/zsh/fish). |
@@ -278,6 +279,50 @@ Subcommands:
 
 See [LSP — Semantic Diagnostics](/user-guide/features/lsp) for
 the full guide, supported languages, and configuration knobs.
+
+## `fabric mobile`
+
+```bash
+fabric mobile [--tailscale] [--host <address>] [--port <port>] \
+  [--install auto|none|android|ios] [--devices]
+```
+
+Start Fabric's mobile gateway and print a pairing QR. The two remote-access
+modes use different credentials:
+
+| Mode | Command | Connection and sign-in |
+|------|---------|------------------------|
+| Private Tailscale HTTPS (recommended) | `fabric mobile --tailscale --install none` | Fabric binds to `127.0.0.1`; Tailscale Serve publishes the machine's MagicDNS HTTPS origin. The current session token is in the QR, so the admin password is not used. |
+| Direct LAN / VPN bind | `fabric mobile --install none` | Fabric binds to `0.0.0.0:9119` by default and requires a configured authentication provider. With the bundled Basic provider, the phone asks for the configured username and password. |
+
+Install and sign in to Tailscale on both devices, confirm that they are on the
+same tailnet, then run the recommended command. `--tailscale` configures and
+verifies the Tailscale Serve route automatically and refuses to replace an
+unrelated service at the HTTPS root.
+
+Configure or rotate the direct-mode admin password with:
+
+```bash
+fabric dashboard auth password
+```
+
+Restart a running mobile gateway after rotating the password. Direct HTTP
+login is for trusted LAN/VPN use; use the Tailscale HTTPS mode for native
+production clients and PWA installation.
+
+Important options:
+
+| Option | Description |
+|--------|-------------|
+| `--tailscale` | Bind to loopback, configure and verify Tailscale Serve, and advertise the MagicDNS HTTPS origin in the QR. |
+| `--host <address>` | Direct-mode bind address. Defaults to `0.0.0.0`; non-loopback binds fail closed unless an auth provider is configured. |
+| `--port <port>` | Gateway port. Defaults to `9119`; use `0` for an OS-assigned port in direct mode. |
+| `--install <mode>` | Install a native preview client when possible (`auto`, `none`, `android`, or `ios`). |
+| `--devices` | List eligible attached phones and exit without starting the gateway. |
+| `--qr-url <https-origin>` | Advertise another trusted HTTPS reverse-tunnel origin while Fabric remains bound to loopback. |
+
+See [Mobile access](../user-guide/mobile.md) for setup, authentication, native
+client, and troubleshooting details.
 
 ## `fabric setup`
 

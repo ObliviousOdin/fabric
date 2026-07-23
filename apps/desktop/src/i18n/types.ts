@@ -916,7 +916,7 @@ export interface Translations {
     sections: Record<'maintenance' | 'sessions' | 'system' | 'usage', string>
     sectionDescriptions: Record<'maintenance' | 'sessions' | 'system' | 'usage', string>
     nav: Record<
-      'newChat' | 'settings' | 'skills' | 'messaging' | 'artifacts' | 'design',
+      'newChat' | 'settings' | 'skills' | 'messaging' | 'artifacts' | 'design' | 'social',
       { title: string; detail: string }
     >
     sectionEntries: Record<'sessions' | 'system' | 'usage', { title: string; detail: string }>
@@ -1242,6 +1242,38 @@ export interface Translations {
     fidelity: Record<'wireframe' | 'high', string>
     system: Record<'project' | 'fresh' | 'fabric' | 'linear' | 'stripe' | 'vercel' | 'claude', string>
     phases: Record<'discover' | 'direction' | 'build' | 'critique' | 'deliver', string>
+  }
+
+  social: {
+    title: string
+    subtitle: string
+    tabCompose: string
+    tabLibrary: string
+    briefLabel: string
+    briefPlaceholder: string
+    channelLabel: string
+    goalLabel: string
+    toneLabel: string
+    formatLabel: string
+    imageLabel: string
+    imageHint: string
+    start: string
+    reviewHint: string
+    howItWorksTitle: string
+    howItWorks: readonly [string, string, string, string]
+    scanning: string
+    refresh: string
+    scannedNote: (count: number) => string
+    emptyTitle: string
+    emptyBody: string
+    loadFailed: string
+    copyCaption: string
+    openConversation: string
+    withImage: string
+    textOnly: string
+    drafts: (count: number) => string
+    imageAlt: string
+    untitled: string
   }
 
   artifacts: {

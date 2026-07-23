@@ -58,13 +58,14 @@ def capture(server):
 
 # ─── RPCs that must be in _LONG_HANDLERS ────────────────────────────────
 
-# These are polled by the Desktop frontend. Before the fix they ran inline,
+# These are polled by frontend clients. Before the fix they ran inline,
 # blocking the WS read loop under GIL pressure and causing false "needs setup"
 # (#50005). Each one does I/O (DB query, file read, network) that can take
 # seconds when the GIL is contended by concurrent agent turns.
 
 FRONTEND_POLLED_RPCS = [
     "session.list",          # loads session list — SQLite query
+    "session.transcript",    # reads normalized persisted history — SQLite query
     "pet.info",              # petdex poll — file/network read
     "process.list",          # background process status — process registry scan
     "setup.runtime_check",   # runtime readiness — resolve_runtime_provider() I/O

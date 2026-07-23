@@ -582,6 +582,7 @@ let optionalGatewayFeatureMethods: [String: Set<String>] = [
     "pets": ["pet.info", "pet.info.meta", "pet.gallery", "pet.select", "pet.disable", "pet.thumb"],
     "push": ["push.register_device", "push.deregister_device"],
     "session_admin": ["session.rename", "session.archive"],
+    "session_transcript": ["session.transcript"],
     "trust_center": ["trust.audit.list", "grant.list", "grant.create", "grant.revoke"],
     "workspace_read": ["fs.list", "fs.read"],
 ]
@@ -2058,6 +2059,19 @@ struct GatewayAPI {
             params: ["session_id": storedSessionId, "cols": 96, "source": "mobile"]
         )
         return LiveSession(resumePayload: result, storedSessionId: storedSessionId)
+    }
+
+    /// Read persisted display history without creating or resuming a live session.
+    func sessionTranscript(
+        storedSessionId: String,
+        limit: Int = 250
+    ) async throws -> [SessionTranscriptMessage] {
+        let result = try await client.requestObject(
+            "session.transcript",
+            params: ["session_id": storedSessionId, "limit": limit]
+        )
+        let rows = result["messages"] as? [[String: Any]] ?? []
+        return rows.compactMap(SessionTranscriptMessage.init)
     }
 
     /// Rename a live session (its runtime id, not the stored key). The typed

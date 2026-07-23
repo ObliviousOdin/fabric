@@ -107,10 +107,22 @@ final class FabricExperienceUITests: XCTestCase {
         let app = launchFixture("sessions")
 
         XCTAssertTrue(app.navigationBars["Personal Mac"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts["Pinned on this device"].exists)
-        XCTAssertTrue(app.staticTexts["Active now"].exists)
-        XCTAssertTrue(app.staticTexts["Recent sessions"].exists)
-        XCTAssertTrue(app.staticTexts["Ship the next TestFlight build"].exists)
+
+        // SwiftUI List section headers do not have a stable XCUIElement role
+        // across iOS runtimes. The fixture rows carry the hierarchy in their
+        // accessible labels/values, which is what VoiceOver users receive.
+        let pinned = app.descendants(matching: .any)["Release readiness"].firstMatch
+        XCTAssertTrue(pinned.waitForExistence(timeout: 4))
+        XCTAssertTrue((pinned.value as? String ?? "").contains("Pinned on this device"))
+
+        let active = app.descendants(matching: .any)["Ship the next TestFlight build"].firstMatch
+        scrollTo(active, in: app, preferredScrollView: app.collectionViews.firstMatch)
+        XCTAssertTrue(active.exists)
+        XCTAssertTrue((active.value as? String ?? "").contains("Running"))
+
+        let recent = app.descendants(matching: .any)["Review the mobile experience"].firstMatch
+        scrollTo(recent, in: app, preferredScrollView: app.collectionViews.firstMatch)
+        XCTAssertTrue(recent.exists)
     }
 
     func testSettingsFixtureExposesDiagnosticsAndOffboarding() {

@@ -6,6 +6,7 @@ export const COMMAND_CENTER_ROUTE = '/command-center'
 export const SKILLS_ROUTE = '/skills'
 export const DESIGN_ROUTE = '/design'
 export const VOICE_NOTES_ROUTE = '/voice-notes'
+export const SOCIAL_ROUTE = '/social'
 export const MESSAGING_ROUTE = '/messaging'
 export const ARTIFACTS_ROUTE = '/artifacts'
 export const CRON_ROUTE = '/cron'
@@ -24,6 +25,7 @@ export type AppView =
   | 'profiles'
   | 'settings'
   | 'skills'
+  | 'social'
   | 'starmap'
   | 'voice-notes'
 
@@ -38,6 +40,7 @@ export type AppRouteId =
   | 'profiles'
   | 'settings'
   | 'skills'
+  | 'social'
   | 'starmap'
   | 'voice-notes'
 
@@ -54,6 +57,7 @@ export const APP_ROUTES = [
   { id: 'skills', path: SKILLS_ROUTE, view: 'skills' },
   { id: 'design', path: DESIGN_ROUTE, view: 'design' },
   { id: 'voice-notes', path: VOICE_NOTES_ROUTE, view: 'voice-notes' },
+  { id: 'social', path: SOCIAL_ROUTE, view: 'social' },
   { id: 'messaging', path: MESSAGING_ROUTE, view: 'messaging' },
   { id: 'artifacts', path: ARTIFACTS_ROUTE, view: 'artifacts' },
   { id: 'cron', path: CRON_ROUTE, view: 'cron' },

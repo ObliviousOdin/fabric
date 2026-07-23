@@ -10,6 +10,7 @@ import {
   FolderOpen,
   HelpCircle,
   Home,
+  Megaphone,
   MessageSquare,
   Palette,
   Plug,
@@ -53,6 +54,7 @@ export interface AppRouteDef {
 
 const WorkspaceHomePage = lazy(() => import("@/pages/WorkspaceHomePage"));
 const DesignPage = lazy(() => import("@/pages/DesignPage"));
+const SocialPage = lazy(() => import("@/pages/SocialPage"));
 const WorkspacePlaceholderPage = lazy(
   () => import("@/pages/WorkspacePlaceholderPage"),
 );
@@ -108,6 +110,20 @@ export const APP_ROUTES: readonly AppRouteDef[] = [
     layout: "page",
     component: DesignPage,
     nav: { label: "Design", labelKey: "design", icon: Palette },
+  },
+  {
+    id: "social",
+    path: "/workspace/social",
+    aliases: ["/social", "/linkedin"],
+    surface: "workspace",
+    layout: "page",
+    component: SocialPage,
+    nav: {
+      label: "Social",
+      labelKey: "social",
+      icon: Megaphone,
+      anchorAliases: ["social", "linkedin"],
+    },
   },
   {
     id: "work-board",

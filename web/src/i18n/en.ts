@@ -173,6 +173,7 @@ export const en: Translations = {
       knowledge: "Knowledge",
       memory: "Memory",
       securityAccess: "Security and Access",
+      social: "Social",
       system: "System",
       workBoard: "Work Board",
       workspace: "Workspace",
@@ -228,6 +229,63 @@ export const en: Translations = {
       "Turn a brief into a working artifact and a reusable visual contract. Fabric keeps the result in ordinary project files, ready to inspect and evolve.",
     systemLabel: "Design system",
     title: "Design with Fabric",
+  },
+
+  social: {
+    title: "Social Studio",
+    subtitle:
+      "Turn a conversation into a ready-to-post update. Draft it here, then open your Library to copy the caption and grab the image — built for the phone in your hand.",
+    tabCompose: "Compose",
+    tabLibrary: "Library",
+    disable: "Hide from sidebar",
+    enable: "Add to sidebar",
+    disabledNote: "Social Studio is hidden from your sidebar.",
+    backHome: "Back to Home",
+    // Composer
+    briefLabel: "What's the post about?",
+    briefPlaceholder:
+      "We just shipped our agent dashboard after six weeks heads-down. Here's what I learned about shipping fast without breaking trust…",
+    channelLabel: "Channel",
+    goalLabel: "Goal",
+    toneLabel: "Voice",
+    formatLabel: "Format",
+    imageLabel: "Include a matching image",
+    imageHint:
+      "Ask the agent to design a graphic you can post alongside the caption.",
+    start: "Draft in chat",
+    reviewHint:
+      "Fabric drops the prepared brief into Chat so you can review it before sending.",
+    howItWorksTitle: "How it works",
+    howItWorks: [
+      "Describe the post and pick a voice.",
+      "Fabric drafts it in Chat, where you can refine it.",
+      "The finished post lands in your Library.",
+      "Tap Copy on your phone and paste it into LinkedIn.",
+    ],
+    // Library
+    scannedNote: "Scanned your {count} most recent conversations.",
+    scan: "Refresh",
+    scanMore: "Scan more",
+    emptyTitle: "No posts yet",
+    emptyBody:
+      "Draft one in Compose. When the agent writes a post, it shows up here ready to copy.",
+    loadFailed: "Couldn't load your conversations.",
+    retry: "Retry",
+    drafts: "{count} drafts",
+    withImage: "With image",
+    textOnly: "Text only",
+    copyCaption: "Copy caption",
+    copied: "Copied",
+    captionLabel: "Caption",
+    openConversation: "Open conversation",
+    imageAlt: "Generated image for the post",
+    // Workspace Home entry
+    homeCardEyebrow: "New",
+    homeCardTitle: "Turn conversations into posts",
+    homeCardBody:
+      "Social Studio drafts LinkedIn posts from a brief and keeps them ready to copy and paste.",
+    homeEnable: "Enable Social Studio",
+    homeOpen: "Open Social Studio",
   },
 
   status: {

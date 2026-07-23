@@ -8,12 +8,13 @@
  *
  * Schema (subject to bump via STAMP_SCHEMA_VERSION):
  *   {
- *     "schemaVersion": 1,
+ *     "schemaVersion": 2,
  *     "commit":        "<40-char SHA>",
  *     "branch":        "<branch name>",
  *     "builtAt":       "<ISO 8601 UTC timestamp>",
  *     "dirty":         true|false,
- *     "source":        "ci" | "local"
+ *     "source":        "ci" | "local",
+ *     "channel":       "release" | "source"
  *   }
  *
  * Source preference order:
@@ -30,7 +31,7 @@ import { mkdirSync, writeFileSync } from "fs"
 import { resolve, join, relative } from "path"
 import { execSync } from "child_process"
 
-const STAMP_SCHEMA_VERSION = 1
+const STAMP_SCHEMA_VERSION = 2
 
 const DESKTOP_ROOT = resolve(import.meta.dirname, "..")
 const REPO_ROOT = resolve(DESKTOP_ROOT, "..", "..")
@@ -77,6 +78,10 @@ function fromLocalGit() {
   }
 }
 
+export function resolveReleaseChannel(value = process.env.FABRIC_RELEASE_CHANNEL) {
+  return String(value || '').trim().toLowerCase() === 'release' ? 'release' : 'source'
+}
+
 function main() {
   const stamp = fromCI() || fromLocalGit()
   if (!stamp || !stamp.commit) {
@@ -108,7 +113,8 @@ function main() {
     branch: stamp.branch,
     builtAt: new Date().toISOString(),
     dirty: stamp.dirty,
-    source: stamp.source
+    source: stamp.source,
+    channel: resolveReleaseChannel()
   }
 
   mkdirSync(OUT_DIR, { recursive: true })
@@ -119,8 +125,11 @@ function main() {
       " -> " +
       stamp.commit.slice(0, 12) +
       (stamp.branch ? " (" + stamp.branch + ")" : "") +
-      (stamp.dirty ? " [DIRTY]" : "")
+      (stamp.dirty ? " [DIRTY]" : "") +
+      ` [${payload.channel}]`
   )
 }
 
-main()
+if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
+  main()
+}

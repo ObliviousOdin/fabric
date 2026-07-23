@@ -16,15 +16,23 @@ The app targets **macOS, Windows, and Linux**. See
 between a source build, an unsigned CI artifact, and a signed production release.
 
 :::caution Distribution status
-Do not infer that a signed Fabric installer exists from the presence of packaging
-code. A public package is released only when it appears under
+Do not infer that a Fabric installer exists from the presence of packaging
+code. A public package is released only when it appears on the
+[Fabric download page](/download) and under
 [`ObliviousOdin/fabric` releases](https://github.com/ObliviousOdin/fabric/releases)
-with checksums and the required platform signature.
+with checksums and the documented platform signing policy. macOS packages must
+be signed and notarized; Windows packages are temporarily unsigned and display
+SmartScreen guidance.
 :::
 
 ## Install and launch
 
-Install the engine from the public Fabric checkout as described in
+For a packaged app, follow
+[Install Fabric Desktop](/user-guide/install-desktop) to download, verify, and
+install the official macOS, Windows, or Linux artifact.
+
+To run from source, install the engine from the public Fabric checkout as
+described in
 [Install Fabric](/getting-started/installation), then run:
 
 ```bash
@@ -227,16 +235,29 @@ when it is initiated from a visual catalog.
 
 ## Updates
 
-The in-app update action currently drives the managed source-update/rebuild path
-used by `fabric update`; it is not proof of a signed binary auto-update channel.
+The update action follows the app's install channel:
+
+- a packaged release checks the official
+  `desktop-release-manifest.json`, and **Update now** opens the matching
+  installer download;
+- after that installer is applied, the next launch aligns a Fabric-managed
+  CLI/backend checkout to the package's exact source revision before startup;
+- a source build keeps the existing `fabric update` plus desktop rebuild path;
+- a remote backend remains independently updatable.
+
+The packaged path never silently runs the current unsigned Windows executable
+and does not disable signature verification. See
+[Install Fabric Desktop](/user-guide/install-desktop#updates-and-version-alignment)
+for the complete contract.
+
 Preview an engine update from the CLI with:
 
 ```bash
 fabric update --check
 ```
 
-Production desktop auto-update remains gated on signed, checksum-published
-packages, downgrade rules, and rollback evidence. See
+Silent/background installer application remains gated on signed,
+checksum-published packages, downgrade rules, and rollback evidence. See
 [Updating & Uninstalling](/getting-started/updating).
 
 ## Uninstall

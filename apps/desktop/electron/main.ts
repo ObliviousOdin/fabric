@@ -109,6 +109,15 @@ import {
 } from './live-view-windows'
 import { serializeJsonBody, setJsonRequestHeaders } from './oauth-net-request'
 import {
+  compareDesktopVersions,
+  normalizeInstallStamp,
+  releaseAssetUrl,
+  requiresManagedBackendAlignment,
+  resolveLatestDesktopReleaseFromPages,
+  selectInstallerForRuntime,
+  usesPackagedInstallerUpdates
+} from './release-channel'
+import {
   buildSessionWindowUrl,
   chatWindowWebPreferences,
   createSessionWindowRegistry,
@@ -239,9 +248,8 @@ const SOURCE_REPO_ROOT = path.resolve(APP_ROOT, '../..')
 // Returns null when the file is missing (dev runs from a checkout where
 // build hasn't been invoked, or schema mismatch). Callers must handle null.
 //
-// Schema:
-//   { schemaVersion: 1, commit, branch, builtAt, dirty, source }
-const INSTALL_STAMP_SCHEMA_VERSION = 1
+// Schema v1 is accepted as source-mode for backward compatibility. Schema v2:
+//   { schemaVersion: 2, commit, branch, builtAt, dirty, source, channel }
 
 function loadInstallStamp() {
   // Try packaged location first (resources/install-stamp.json), then the
@@ -258,24 +266,13 @@ function loadInstallStamp() {
       const raw = fs.readFileSync(p, 'utf8')
       const parsed = JSON.parse(raw)
 
-      if (parsed && typeof parsed === 'object' && typeof parsed.commit === 'string' && parsed.commit.length >= 7) {
-        if (parsed.schemaVersion !== INSTALL_STAMP_SCHEMA_VERSION) {
-          console.warn(
-            `[fabric] install-stamp.json schemaVersion ${parsed.schemaVersion} != expected ${INSTALL_STAMP_SCHEMA_VERSION}; ignoring`
-          )
+      const stamp = normalizeInstallStamp(parsed, p)
 
-          continue
-        }
-
-        return Object.freeze({
-          schemaVersion: parsed.schemaVersion,
-          commit: parsed.commit,
-          branch: parsed.branch || null,
-          builtAt: parsed.builtAt || null,
-          dirty: Boolean(parsed.dirty),
-          source: parsed.source || null,
-          path: p
-        })
+      if (stamp) {
+        return stamp
+      }
+      if (parsed && typeof parsed === 'object' && 'schemaVersion' in parsed) {
+        console.warn(`[fabric] unsupported or invalid install-stamp.json schemaVersion ${parsed.schemaVersion}; ignoring`)
       }
     } catch (e) {
       console.warn(`[fabric] install-stamp.json found at ${p} , but parsing failed with ${e}`)
@@ -290,7 +287,7 @@ const INSTALL_STAMP = loadInstallStamp()
 
 if (INSTALL_STAMP) {
   console.log(
-    `[fabric] install stamp: ${INSTALL_STAMP.commit.slice(0, 12)}${INSTALL_STAMP.branch ? ` (${INSTALL_STAMP.branch})` : ''}${INSTALL_STAMP.dirty ? ' [DIRTY]' : ''} from ${INSTALL_STAMP.source || 'unknown'}`
+    `[fabric] install stamp: ${INSTALL_STAMP.commit.slice(0, 12)}${INSTALL_STAMP.branch ? ` (${INSTALL_STAMP.branch})` : ''}${INSTALL_STAMP.dirty ? ' [DIRTY]' : ''} from ${INSTALL_STAMP.source || 'unknown'} [${INSTALL_STAMP.channel}]`
   )
 } else if (IS_PACKAGED) {
   // Dev builds without a stamp are normal; packaged builds without one
@@ -2084,6 +2081,10 @@ async function resolveHealedBranch(updateRoot, branch) {
 }
 
 async function checkUpdates() {
+  if (usesPackagedInstallerUpdates(INSTALL_STAMP)) {
+    return checkPackagedReleaseUpdate()
+  }
+
   const updateRoot = resolveUpdateRoot()
   let { branch } = readDesktopUpdateConfig()
   const gitDir = path.join(updateRoot, '.git')
@@ -2196,6 +2197,138 @@ async function checkUpdates() {
     dirty: dirtyStr.length > 0,
     fabricRoot: updateRoot,
     fetchedAt: Date.now()
+  }
+}
+
+const DESKTOP_RELEASES_API = 'https://api.github.com/repos/ObliviousOdin/fabric/releases'
+const DESKTOP_MANIFEST_NAME = 'desktop-release-manifest.json'
+let packagedReleaseUpdate = null
+
+async function fetchReleaseJson(url) {
+  const response = await electronNet.fetch(url, {
+    headers: {
+      accept: 'application/vnd.github+json',
+      'user-agent': 'Fabric-Desktop'
+    }
+  })
+
+  if (!response.ok) {
+    const remaining = response.headers.get('x-ratelimit-remaining')
+    const detail = response.status === 403 && remaining === '0' ? 'GitHub API rate limit reached.' : `HTTP ${response.status}`
+    throw new Error(detail)
+  }
+
+  return response.json()
+}
+
+async function resolveLatestPackagedRelease() {
+  return resolveLatestDesktopReleaseFromPages({
+    loadPage: (page, perPage) => fetchReleaseJson(`${DESKTOP_RELEASES_API}?per_page=${perPage}&page=${page}`),
+    loadManifest: release => fetchReleaseJson(releaseAssetUrl(release.tag_name, DESKTOP_MANIFEST_NAME)),
+    selectInstaller: manifest => selectInstallerForRuntime(manifest, process.platform, process.arch)
+  })
+}
+
+async function checkPackagedReleaseUpdate() {
+  try {
+    const resolved = await resolveLatestPackagedRelease()
+    if (!resolved) {
+      packagedReleaseUpdate = null
+      return {
+        supported: true,
+        channel: 'release',
+        behind: 0,
+        error: 'no-desktop-release',
+        message: 'No published desktop installer is available yet.',
+        currentSha: INSTALL_STAMP?.commit,
+        fetchedAt: Date.now()
+      }
+    }
+    if (!resolved.installer) {
+      packagedReleaseUpdate = null
+      return {
+        supported: false,
+        channel: 'release',
+        reason: 'unsupported-platform',
+        message: `No installer is published for ${process.platform} ${process.arch}.`,
+        currentSha: INSTALL_STAMP?.commit,
+        targetSha: resolved.manifest.source_sha,
+        releaseTag: resolved.manifest.tag,
+        currentVersion: app.getVersion(),
+        targetVersion: resolved.manifest.desktop_app_version,
+        fetchedAt: Date.now()
+      }
+    }
+
+    const comparison = compareDesktopVersions(resolved.manifest.desktop_app_version, app.getVersion())
+    if (comparison === null) {
+      throw new Error('The installed or published desktop version is invalid.')
+    }
+
+    packagedReleaseUpdate = resolved
+    const behind = comparison > 0 ? 1 : 0
+    return {
+      supported: true,
+      channel: 'release',
+      updateAvailable: behind > 0,
+      behind,
+      currentSha: INSTALL_STAMP?.commit,
+      targetSha: resolved.manifest.source_sha,
+      releaseTag: resolved.manifest.tag,
+      currentVersion: app.getVersion(),
+      targetVersion: resolved.manifest.desktop_app_version,
+      assetName: resolved.installer.asset.name,
+      downloadUrl: resolved.installer.downloadUrl,
+      commits: [],
+      dirty: false,
+      message:
+        behind > 0
+          ? `Fabric Desktop ${resolved.manifest.desktop_app_version} is ready. Download and run ${resolved.installer.asset.name}; the managed CLI/backend aligns on next launch.`
+          : `Fabric Desktop ${app.getVersion()} is the latest installer release.`,
+      fetchedAt: Date.now()
+    }
+  } catch (error) {
+    packagedReleaseUpdate = null
+    return {
+      supported: true,
+      channel: 'release',
+      error: 'fetch-failed',
+      message: error instanceof Error ? error.message : String(error),
+      currentSha: INSTALL_STAMP?.commit,
+      fetchedAt: Date.now()
+    }
+  }
+}
+
+async function applyPackagedReleaseUpdate() {
+  const status = await checkPackagedReleaseUpdate()
+  const resolved = packagedReleaseUpdate
+  if (status.error || !resolved?.installer) {
+    return {
+      ok: false,
+      error: status.error || 'installer-unavailable',
+      message: status.message || 'No compatible desktop installer is available.'
+    }
+  }
+  if ((status.behind ?? 0) <= 0) {
+    return { ok: true, message: 'Fabric Desktop is already up to date.' }
+  }
+
+  await shell.openExternal(resolved.installer.downloadUrl)
+  const windowsNote = IS_WINDOWS
+    ? ' This Windows build is unsigned; verify its SHA-256 checksum before choosing More info → Run anyway in SmartScreen.'
+    : ''
+  const message =
+    `Opened ${resolved.installer.asset.name}. Run the downloaded installer, then relaunch Fabric. ` +
+    `The managed CLI/backend will align to ${resolved.manifest.source_sha.slice(0, 12)} on next launch.${windowsNote}`
+
+  emitUpdateProgress({ stage: 'manual', message, percent: null })
+  return {
+    ok: true,
+    manual: true,
+    message,
+    downloadUrl: resolved.installer.downloadUrl,
+    assetName: resolved.installer.asset.name
   }
 }
 
@@ -2468,6 +2601,10 @@ async function applyUpdates(opts = {}) {
   updateInFlight = true
 
   try {
+    if (usesPackagedInstallerUpdates(INSTALL_STAMP)) {
+      return await applyPackagedReleaseUpdate()
+    }
+
     const updater = resolveUpdaterBinary()
 
     if (!updater && !IS_WINDOWS) {
@@ -3110,6 +3247,27 @@ function isBootstrapComplete() {
   return isActiveRuntimeUsable()
 }
 
+function readActiveSourceCommit() {
+  if (!directoryExists(path.join(ACTIVE_FABRIC_ROOT, '.git'))) {
+    return null
+  }
+
+  try {
+    return execFileSync(
+      resolveGitBinary(),
+      ['rev-parse', 'HEAD'],
+      hiddenWindowsChildOptions({
+        cwd: ACTIVE_FABRIC_ROOT,
+        encoding: 'utf8',
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+        stdio: ['ignore', 'pipe', 'ignore']
+      })
+    ).trim()
+  } catch {
+    return null
+  }
+}
+
 function writeBootstrapMarker(payload) {
   fs.mkdirSync(path.dirname(BOOTSTRAP_COMPLETE_MARKER), { recursive: true })
 
@@ -3359,7 +3517,33 @@ function resolveFabricBackend(backendArgs) {
     }
   }
 
-  // 3. Bootstrap-complete ACTIVE_FABRIC_ROOT -- the canonical install at
+  // 3. A release installer and its Fabric-managed backend are one tested
+  //    source unit. When a newer desktop package replaces the shell, align the
+  //    managed checkout to the package's exact source SHA before it starts.
+  const bootstrapMarker = readBootstrapMarker()
+  const activeSourceCommit = bootstrapMarker ? readActiveSourceCommit() : null
+
+  if (requiresManagedBackendAlignment(INSTALL_STAMP, bootstrapMarker, activeSourceCommit)) {
+    rememberLog(
+      `[bootstrap] release/backend alignment required: marker ${String(bootstrapMarker?.pinnedCommit || 'missing').slice(0, 12)}, checkout ${String(activeSourceCommit || 'missing').slice(0, 12)} -> ${INSTALL_STAMP.commit.slice(0, 12)}`
+    )
+    return {
+      kind: 'bootstrap-needed',
+      label: `${PRODUCT_NAME} managed backend must align with this desktop release`,
+      command: null,
+      args: backendArgs,
+      bootstrap: true,
+      env: {},
+      shell: false,
+      activeRoot: ACTIVE_FABRIC_ROOT,
+      installStamp: INSTALL_STAMP,
+      isPackaged: IS_PACKAGED,
+      platform: process.platform,
+      releaseAlignment: true
+    }
+  }
+
+  // 4. Bootstrap-complete ACTIVE_FABRIC_ROOT -- the canonical install at
   //    %LOCALAPPDATA%\fabric\fabric-agent (Windows) or ~/.fabric/fabric-agent.
   //    The bootstrap marker means install.ps1 stages finished and the user
   //    completed initial configuration; we trust the install and go straight
@@ -3369,7 +3553,7 @@ function resolveFabricBackend(backendArgs) {
     return createActiveBackend(backendArgs)
   }
 
-  // 4. Existing `fabric` on PATH -- installed via install.ps1 / install.sh from
+  // 5. Existing `fabric` on PATH -- installed via install.ps1 / install.sh from
   //    a previous tool-only setup, or pip-installed system-wide. Use it but
   //    do NOT write a bootstrap marker; the user did this themselves and we
   //    don't want to take ownership of an install we didn't perform.
@@ -3440,7 +3624,7 @@ function resolveFabricBackend(backendArgs) {
     }
   }
 
-  // 5. Last-ditch: pip-installed fabric_cli module via system Python.
+  // 6. Last-ditch: pip-installed fabric_cli module via system Python.
   //    Same rationale as #4 -- the user installed this; we use it but don't
   //    take ownership.
   const python = findSystemPython()
@@ -3469,7 +3653,7 @@ function resolveFabricBackend(backendArgs) {
     rememberLog(`Ignoring system Python ${python}: fabric_cli is not importable; falling through to bootstrap.`)
   }
 
-  // 6. Nothing usable yet -- signal the bootstrap runner that we need to
+  // 7. Nothing usable yet -- signal the bootstrap runner that we need to
   //    clone+install. Phase 1D's bootstrap-runner consumes this sentinel
   //    and drives install.ps1 stages with a progress UI. Until 1D lands,
   //    callers see the sentinel and surface it as a user-facing error
@@ -3514,7 +3698,7 @@ async function ensureRuntime(backend) {
   if (backend.kind === 'bootstrap-needed') {
     rememberLog('[bootstrap] no Fabric install found; starting first-launch bootstrap')
 
-    if (await handOffWindowsBootstrapRecovery('bootstrap-needed')) {
+    if (!backend.releaseAlignment && (await handOffWindowsBootstrapRecovery('bootstrap-needed'))) {
       const handoffError: Error & { isBootstrapFailure?: boolean; bootstrapHandedOff?: boolean } = new Error(
         `${PRODUCT_NAME} recovery was handed off to ${APP_NAME} Setup. The desktop will restart when recovery completes.`
       )

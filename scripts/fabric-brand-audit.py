@@ -51,6 +51,7 @@ PUBLIC_SITE_DISCOVERY_PATHS = (
     "website/scripts/generate-llms-txt.py",
     "website/sidebars.ts",
     "website/src/components/Homepage/index.tsx",
+    "website/src/pages/download.tsx",
     "website/src/pages/index.tsx",
     "website/src/pages/skills/index.tsx",
 )
@@ -59,6 +60,7 @@ BUILT_PUBLIC_DISCOVERY_PATHS = (
     "index.html",
     "developer-guide/architecture/index.html",
     "docs/index.html",
+    "download/index.html",
     "getting-started/installation/index.html",
     "getting-started/quickstart/index.html",
     "integrations/index.html",

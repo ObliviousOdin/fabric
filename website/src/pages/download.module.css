@@ -1,0 +1,178 @@
+.page {
+  --download-ink: var(--ifm-font-color-base);
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 5rem 1.5rem 6rem;
+}
+
+.hero {
+  max-width: 820px;
+  padding-bottom: 3rem;
+}
+
+.hero h1 {
+  font-size: clamp(2.7rem, 7vw, 5.7rem);
+  letter-spacing: -0.055em;
+  line-height: 0.94;
+  margin: 0 0 1.5rem;
+}
+
+.hero > p:not(.eyebrow) {
+  color: var(--ifm-color-emphasis-700);
+  font-size: clamp(1.05rem, 2.1vw, 1.35rem);
+  line-height: 1.6;
+  max-width: 700px;
+}
+
+.eyebrow,
+.platform {
+  color: var(--ifm-color-primary);
+  font-size: 0.76rem;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+  margin-bottom: 0.65rem;
+  text-transform: uppercase;
+}
+
+.releaseMeta {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.9rem;
+  margin-top: 1.4rem;
+}
+
+.notice {
+  background: color-mix(in srgb, var(--ifm-color-primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ifm-color-primary) 35%, transparent);
+  border-radius: 14px;
+  margin-bottom: 1.5rem;
+  padding: 0.95rem 1.1rem;
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.card {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--ifm-background-surface-color) 92%, white), var(--ifm-background-surface-color));
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 22px;
+  box-shadow: 0 18px 52px rgb(0 0 0 / 8%);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  justify-content: space-between;
+  min-height: 430px;
+  padding: 1.6rem;
+}
+
+.card h2 {
+  font-size: 1.55rem;
+  letter-spacing: -0.025em;
+  margin-bottom: 0.45rem;
+}
+
+.card p {
+  color: var(--ifm-color-emphasis-700);
+  line-height: 1.55;
+}
+
+.actions {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.actions a {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.size {
+  font-size: 0.72rem;
+  font-weight: 500;
+  opacity: 0.72;
+}
+
+.detail,
+.warning {
+  font-size: 0.86rem;
+  margin: 0;
+}
+
+.warning {
+  background: color-mix(in srgb, #e9a23b 13%, transparent);
+  border-left: 3px solid #e9a23b;
+  border-radius: 8px;
+  padding: 0.8rem 0.9rem;
+}
+
+.empty,
+.integrity,
+.updateNote {
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 22px;
+  margin-top: 1rem;
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+}
+
+.empty {
+  text-align: center;
+}
+
+.integrity {
+  align-items: center;
+  display: flex;
+  gap: 2rem;
+  justify-content: space-between;
+  margin-top: 2rem;
+}
+
+.integrity > div:first-child {
+  max-width: 700px;
+}
+
+.integrityActions {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 240px;
+}
+
+.updateNote {
+  background: var(--ifm-color-emphasis-100);
+  margin-top: 1rem;
+}
+
+.updateNote p {
+  margin-bottom: 0;
+  max-width: 860px;
+}
+
+@media (max-width: 996px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding-top: 3rem;
+  }
+
+  .integrity {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .integrityActions {
+    align-items: stretch;
+  }
+}

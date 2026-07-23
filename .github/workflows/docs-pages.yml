@@ -69,6 +69,8 @@ jobs:
       - name: Audit public site source identity
         run: python3 scripts/fabric-brand-audit.py --mode public
       - name: Build documentation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: npm run --prefix website build
       - name: Audit rendered public site identity
         run: python3 scripts/fabric-brand-audit.py --mode public --build-dir website/build

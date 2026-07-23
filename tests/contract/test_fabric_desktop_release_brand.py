@@ -19,6 +19,7 @@ CUSTOMER_GUIDES = (
     ROOT / "website" / "docs" / "getting-started" / "platform-support.md",
     ROOT / "website" / "docs" / "getting-started" / "updating.md",
     ROOT / "website" / "docs" / "user-guide" / "desktop.md",
+    ROOT / "website" / "docs" / "user-guide" / "install-desktop.md",
     ROOT / "website" / "docs" / "user-guide" / "windows-native.md",
     ROOT / "website" / "docs" / "user-guide" / "windows-wsl-quickstart.md",
 )

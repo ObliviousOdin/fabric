@@ -3933,7 +3933,9 @@ async def check_fabric_update(force: bool = False):
 
 
 @app.post("/api/audio/transcribe")
-async def transcribe_audio_upload(payload: AudioTranscriptionRequest):
+async def transcribe_audio_upload(
+    payload: AudioTranscriptionRequest, profile: Optional[str] = None
+):
     data_url = (payload.data_url or "").strip()
     if not data_url.startswith("data:") or "," not in data_url:
         raise HTTPException(status_code=400, detail="Invalid audio payload")
@@ -3981,10 +3983,10 @@ async def transcribe_audio_upload(payload: AudioTranscriptionRequest):
             tmp.write(audio_bytes)
             temp_path = tmp.name
 
-        from tools.transcription_tools import transcribe_audio
+        with _config_profile_scope(profile):
+            from tools.transcription_tools import transcribe_audio
 
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, transcribe_audio, temp_path)
+            result = await asyncio.to_thread(transcribe_audio, temp_path)
     except HTTPException:
         raise
     except Exception as exc:
@@ -4062,13 +4064,22 @@ def _voice_list_error_logged_once(signature: Optional[str]) -> bool:
 
 
 @app.get("/api/audio/elevenlabs/voices")
-async def get_elevenlabs_voices():
+async def get_elevenlabs_voices(profile: Optional[str] = None):
+    """Return non-secret ElevenLabs voice metadata for one profile."""
+    with _config_profile_scope(profile):
+        return await _get_elevenlabs_voices()
+
+async def _get_elevenlabs_voices():
     """Return ElevenLabs voices when an API key is configured.
 
     The desktop UI uses this for the ``tts.elevenlabs.voice_id`` dropdown.
     Only non-secret voice metadata is returned; the API key stays server-side.
     """
-    api_key = (load_env().get("ELEVENLABS_API_KEY") or os.environ.get("ELEVENLABS_API_KEY") or "").strip()
+    api_key = (
+        load_env().get("ELEVENLABS_API_KEY")
+        or os.environ.get("ELEVENLABS_API_KEY")
+        or ""
+    ).strip()
     if not api_key:
         return {"available": False, "voices": []}
 
@@ -4130,7 +4141,7 @@ async def get_elevenlabs_voices():
 
 
 @app.post("/api/audio/speak")
-async def speak_text(payload: TTSSpeakRequest):
+async def speak_text(payload: TTSSpeakRequest, profile: Optional[str] = None):
     """Synthesize speech and return audio as base64 data URL.
 
     Used by the desktop voice-conversation mode to play back assistant
@@ -4143,9 +4154,10 @@ async def speak_text(payload: TTSSpeakRequest):
         raise HTTPException(status_code=400, detail="Text is required")
 
     try:
-        from tools.tts_tool import text_to_speech_tool
-        loop = asyncio.get_running_loop()
-        result_json = await loop.run_in_executor(None, text_to_speech_tool, text)
+        with _config_profile_scope(profile):
+            from tools.tts_tool import text_to_speech_tool
+
+            result_json = await asyncio.to_thread(text_to_speech_tool, text)
     except Exception as exc:
         _log.exception("Desktop voice TTS failed")
         raise HTTPException(status_code=500, detail=f"Speech synthesis failed: {exc}")

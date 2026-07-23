@@ -93,4 +93,39 @@ describe('useMessageStream Live View fallback events', () => {
       target: 'Example'
     })
   })
+
+  it('ignores raw transcript tool events so typed input cannot reach Live View', async () => {
+    await mountStream()
+    const secret = 'voice-mode-raw-tool-secret'
+
+    act(() => {
+      handleEvent!({
+        payload: { args: { ref: 'e12', text: secret }, name: 'browser_type', tool_id: 'browser-secret' },
+        session_id: SID,
+        type: 'tool.start'
+      })
+      handleEvent!({
+        payload: {
+          name: 'browser_type',
+          result: { raw_secret: secret, success: true },
+          tool_id: 'browser-secret'
+        },
+        session_id: SID,
+        type: 'tool.complete'
+      })
+    })
+
+    expect($liveViews.get()).toEqual({})
+
+    act(() => {
+      handleEvent!({
+        payload: { args: { ref: 'e12' }, name: 'browser_type', tool_id: 'browser-secret' },
+        session_id: SID,
+        type: 'visual.start'
+      })
+    })
+
+    expect($liveViews.get()[SID]).toMatchObject({ kind: 'browser', status: 'running' })
+    expect(JSON.stringify($liveViews.get())).not.toContain(secret)
+  })
 })

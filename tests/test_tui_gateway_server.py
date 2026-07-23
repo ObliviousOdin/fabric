@@ -69,6 +69,46 @@ def test_session_create_rejects_at_active_session_limit(monkeypatch, tmp_path):
         reset_fabric_home_override(token)
 
 
+def test_session_create_applies_named_voice_attitude_before_lazy_agent_build(monkeypatch, tmp_path):
+    home = tmp_path / ".fabric"
+    home.mkdir()
+    (home / "config.yaml").write_text(
+        "agent:\n"
+        "  system_prompt: profile-default-prompt\n"
+        "  personalities:\n"
+        "    operator: operator-attitude-prompt\n",
+        encoding="utf-8",
+    )
+    token = set_fabric_home_override(home)
+
+    try:
+        server._cfg_cache = None
+        server._cfg_mtime = None
+        server._cfg_path = None
+        monkeypatch.setattr(server, "_schedule_agent_build", lambda _sid: None)
+        monkeypatch.setattr(server, "_completion_cwd", lambda _params=None: str(tmp_path))
+
+        response = server._methods["session.create"]("voice", {"voice_attitude": "operator"})
+
+        assert "result" in response
+        session_id = response["result"]["session_id"]
+        session = server._sessions[session_id]
+        assert session["personality"] == "operator"
+        assert session["personality_prompt"] == "operator-attitude-prompt"
+        assert "operator-attitude-prompt" not in str(response)
+
+        unknown = server._methods["session.create"]("voice-unknown", {"voice_attitude": "unconfigured"})
+        assert unknown["error"]["code"] == 4008
+    finally:
+        for session in list(server._sessions.values()):
+            server._teardown_session(session)
+        server._sessions.clear()
+        server._cfg_cache = None
+        server._cfg_mtime = None
+        server._cfg_path = None
+        reset_fabric_home_override(token)
+
+
 def test_session_context_uses_session_cwd(monkeypatch, tmp_path):
     """Desktop/TUI sessions must pin the agent cwd per session.
 

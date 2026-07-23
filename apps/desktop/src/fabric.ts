@@ -409,6 +409,14 @@ export function getFabricConfigRecord(): Promise<FabricConfigRecord> {
   })
 }
 
+/** Read a secondary profile's config without changing the active gateway profile. */
+export function getFabricConfigRecordForProfile(profile: string): Promise<FabricConfigRecord> {
+  return window.fabricDesktop.api<FabricConfigRecord>({
+    ...profileScoped(profile),
+    path: '/api/config'
+  })
+}
+
 export function getFabricConfigDefaults(): Promise<FabricConfigRecord> {
   return window.fabricDesktop.api<FabricConfigRecord>({
     ...profileScoped(),
@@ -424,9 +432,9 @@ export function getFabricConfigSchema(): Promise<ConfigSchemaResponse> {
   })
 }
 
-export function saveFabricConfig(config: FabricConfigRecord): Promise<{ ok: boolean }> {
+export function saveFabricConfig(config: FabricConfigRecord, profile?: null | string): Promise<{ ok: boolean }> {
   return window.fabricDesktop.api<{ ok: boolean }>({
-    ...profileScoped(),
+    ...profileScoped(profile),
     path: '/api/config',
     method: 'PUT',
     body: { config }
@@ -1112,8 +1120,13 @@ export function getActionStatus(name: string, lines = 200): Promise<ActionStatus
   })
 }
 
-export function transcribeAudio(dataUrl: string, mimeType?: string): Promise<AudioTranscriptionResponse> {
+export function transcribeAudio(
+  dataUrl: string,
+  mimeType?: string,
+  profile?: null | string
+): Promise<AudioTranscriptionResponse> {
   return window.fabricDesktop.api<AudioTranscriptionResponse>({
+    ...profileScoped(profile),
     path: '/api/audio/transcribe',
     method: 'POST',
     body: {
@@ -1123,16 +1136,18 @@ export function transcribeAudio(dataUrl: string, mimeType?: string): Promise<Aud
   })
 }
 
-export function speakText(text: string): Promise<AudioSpeakResponse> {
+export function speakText(text: string, profile?: null | string): Promise<AudioSpeakResponse> {
   return window.fabricDesktop.api<AudioSpeakResponse>({
+    ...profileScoped(profile),
     path: '/api/audio/speak',
     method: 'POST',
     body: { text }
   })
 }
 
-export function getElevenLabsVoices(): Promise<ElevenLabsVoicesResponse> {
+export function getElevenLabsVoices(profile?: null | string): Promise<ElevenLabsVoicesResponse> {
   return window.fabricDesktop.api<ElevenLabsVoicesResponse>({
+    ...profileScoped(profile),
     path: '/api/audio/elevenlabs/voices'
   })
 }

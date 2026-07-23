@@ -57,21 +57,31 @@ def test_visual_events_survive_disabled_tool_progress(monkeypatch):
     assert "args" not in events[1][2]
 
 
-def test_visual_events_do_not_duplicate_enabled_tool_events(monkeypatch):
+def test_visual_events_also_emit_when_transcript_tool_progress_is_enabled(monkeypatch):
     sid = "visual-progress-on"
     events = _capture_events(monkeypatch)
     _session(monkeypatch, sid, "all")
+    secret = "voice-mode-never-in-visual-event"
 
-    server._on_tool_start(sid, "desktop-1", "computer_use", {"action": "screenshot"})
+    server._on_tool_start(
+        sid, "desktop-1", "computer_use", {"action": "type", "text": secret}
+    )
     server._on_tool_complete(
         sid,
         "desktop-1",
         "computer_use",
-        {"action": "screenshot"},
-        '{"success":true}',
+        {"action": "type", "text": secret},
+        json.dumps({"success": True, "raw_secret": secret}),
     )
 
-    assert [event[0] for event in events] == ["tool.start", "tool.complete"]
+    assert [event[0] for event in events] == [
+        "tool.start",
+        "visual.start",
+        "visual.complete",
+        "tool.complete",
+    ]
+    assert secret not in repr(events[1][2])
+    assert secret not in repr(events[2][2])
 
 
 def test_nonvisual_tools_stay_silent_when_tool_progress_is_disabled(monkeypatch):
@@ -104,16 +114,13 @@ def test_visual_fallback_never_emits_typed_args_or_raw_browser_results(monkeypat
         {"ref": "e12", "text": secret},
     )
 
-    huge_result = json.dumps(
-        {
-            "success": True,
-            "title": "Example",
-            "url": "https://example.com",
-            "snapshot": "x"
-            * (visual_events._LIVE_VIEW_RESULT_PARSE_MAX_CHARS + 1),
-            "raw_secret": secret,
-        }
-    )
+    huge_result = json.dumps({
+        "success": True,
+        "title": "Example",
+        "url": "https://example.com",
+        "snapshot": "x" * (visual_events._LIVE_VIEW_RESULT_PARSE_MAX_CHARS + 1),
+        "raw_secret": secret,
+    })
     real_loads = json.loads
     parsed_sizes: list[int] = []
 
@@ -219,16 +226,14 @@ def test_visual_complete_extracts_image_from_large_serialized_computer_result(
     _session(monkeypatch, sid, "off")
     monkeypatch.setattr(visual_events, "_LIVE_VIEW_IMAGE_MAX_CHARS", 128)
     accepted = "data:image/png;base64,QUJDRA=="
-    result = json.dumps(
-        {
-            "_multimodal": True,
-            "content": [
-                {"type": "text", "text": "x" * 70_000},
-                {"type": "image_url", "image_url": {"url": accepted}},
-            ],
-            "raw_snapshot": "must not cross the DTO boundary",
-        }
-    )
+    result = json.dumps({
+        "_multimodal": True,
+        "content": [
+            {"type": "text", "text": "x" * 70_000},
+            {"type": "image_url", "image_url": {"url": accepted}},
+        ],
+        "raw_snapshot": "must not cross the DTO boundary",
+    })
     assert len(result) > visual_events._LIVE_VIEW_RESULT_PARSE_MAX_CHARS
 
     server._on_tool_complete(
@@ -261,12 +266,10 @@ def test_visual_complete_reduces_failures_to_status_without_error_text(monkeypat
         "browser-error",
         "browser_click",
         {"ref": "secret-ref"},
-        json.dumps(
-            {
-                "success": False,
-                "error": "credential sk-proj-abcdefghijklmnopqrstuvwxyz123456 failed",
-            }
-        ),
+        json.dumps({
+            "success": False,
+            "error": "credential sk-proj-abcdefghijklmnopqrstuvwxyz123456 failed",
+        }),
     )
 
     payload = events[0][2]

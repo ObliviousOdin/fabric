@@ -11,6 +11,7 @@ import {
   popOutLiveView,
   resetLiveViewsForTest,
   setLiveViewPaused,
+  setLiveViewPreferredPresentation,
   setLiveViewStreamFrame,
   startLiveViewTool
 } from './live-view'
@@ -71,6 +72,20 @@ describe('live view tool lifecycle', () => {
 
     expect($liveViews.get().s1.target).toHaveLength(1_024)
     expect($liveViews.get().s1.actions[0].detail).toHaveLength(1_024)
+  })
+
+  it('never retains raw tool context or command text if a caller bypasses visual DTOs', () => {
+    const secret = 'voice-mode-live-view-boundary-secret'
+
+    startLiveViewTool('s1', {
+      args: { command: secret },
+      context: secret,
+      name: 'computer_use',
+      tool_id: 't1'
+    })
+
+    expect($liveViews.get().s1.actions[0].detail).toBeUndefined()
+    expect(JSON.stringify($liveViews.get())).not.toContain(secret)
   })
 
   it('uses a nested multimodal screenshot as the latest ephemeral frame', () => {
@@ -208,6 +223,51 @@ describe('live view tool lifecycle', () => {
 })
 
 describe('live view PiP bridge', () => {
+  it('automatically opens PiP when the session requested watch work before visual activity begins', async () => {
+    setLiveViewPreferredPresentation('s1', 'pip')
+    startLiveViewTool('s1', { name: 'browser_navigate', tool_id: 't1' })
+
+    await vi.waitFor(() => expect(open).toHaveBeenCalledWith({ sessionId: 's1' }))
+
+    expect($liveViews.get().s1).toMatchObject({ presentation: 'pip', status: 'running' })
+    expect($liveViews.get().s1.actions).toHaveLength(1)
+  })
+
+  it('keeps chat-only sessions in the transcript without opening a visual pane', () => {
+    setLiveViewPreferredPresentation('s1', 'chat')
+    startLiveViewTool('s1', { name: 'browser_navigate', tool_id: 't1' })
+
+    expect(open).not.toHaveBeenCalled()
+    expect($liveViews.get().s1.presentation).toBe('hidden')
+  })
+
+  it('does not re-open PiP after the user manually docks the session', async () => {
+    setLiveViewPreferredPresentation('s1', 'pip')
+    startLiveViewTool('s1', { name: 'browser_navigate', tool_id: 't1' })
+    await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(1))
+
+    dockLiveView('s1')
+    open.mockClear()
+    startLiveViewTool('s1', { name: 'browser_click', tool_id: 't2' })
+
+    expect(open).not.toHaveBeenCalled()
+    expect($liveViews.get().s1.presentation).toBe('docked')
+  })
+
+  it('keeps future visual actions hidden after the user manually hides PiP', async () => {
+    setLiveViewPreferredPresentation('s1', 'pip')
+    startLiveViewTool('s1', { name: 'browser_navigate', tool_id: 't1' })
+    await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(1))
+
+    hideLiveView('s1')
+    completeLiveViewTool('s1', { name: 'browser_navigate', tool_id: 't1' })
+    open.mockClear()
+    startLiveViewTool('s1', { name: 'browser_click', tool_id: 't2' })
+
+    expect(open).not.toHaveBeenCalled()
+    expect($liveViews.get().s1.presentation).toBe('hidden')
+  })
+
   it('opens the PiP with the same state and never creates a second activity', async () => {
     startLiveViewTool('s1', { name: 'browser_navigate', tool_id: 't1' })
     setLiveViewStreamFrame('s1', 'data:image/jpeg;base64,stream-frame')

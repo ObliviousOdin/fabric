@@ -93,7 +93,9 @@ function isUpdateToastSnoozed(): boolean {
 // v2: requires the file.attach RPC (remote-gateway non-image file upload).
 // v3: requires visual.status, visual.frame, and the visual lifecycle events
 // used by Desktop Live View.
-const REQUIRED_BACKEND_CONTRACT = 3
+// v4: requires visual lifecycle events even when transcript tool progress is
+// enabled, keeping Live View/PiP on the redacted DTO path.
+const REQUIRED_BACKEND_CONTRACT = 4
 const SKEW_TOAST_ID = 'backend-contract-skew'
 // The contract check runs on every session.resume (applyRuntimeInfo), so
 // without a snooze the warning re-popped on every thread the user opened, even

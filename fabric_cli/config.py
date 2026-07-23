@@ -2127,9 +2127,17 @@ DEFAULT_CONFIG = {
         "record_key": "ctrl+b",
         "max_recording_seconds": 120,
         "auto_tts": False,
-        "beep_enabled": True,         # Play record start/stop beeps in CLI voice mode
-        "silence_threshold": 200,     # RMS below this = silence (0-32767)
-        "silence_duration": 3.0,      # Seconds of silence before auto-stop
+        # Voice Mode defaults are profile-scoped, opaque identifiers only. The
+        # Desktop resolves the named attitude against this profile's configured
+        # personalities; raw prompt text never lives in this config block.
+        "experience": {
+            "attitude": "profile_default",
+            "presentation": "chat",
+            "voice_ref": "profile_default",
+        },
+        "beep_enabled": True,  # Play record start/stop beeps in CLI voice mode
+        "silence_threshold": 200,  # RMS below this = silence (0-32767)
+        "silence_duration": 3.0,  # Seconds of silence before auto-stop
     },
     
     "human_delay": {
@@ -4448,7 +4456,7 @@ OPTIONAL_ENV_VARS = {
 def get_missing_env_vars(required_only: bool = False) -> List[Dict[str, Any]]:
     """
     Check which environment variables are missing.
-    
+
     Returns list of dicts with var info for missing variables.
     """
     missing = []
@@ -4548,7 +4556,7 @@ def clear_model_endpoint_credentials(
 def get_missing_config_fields() -> List[Dict[str, Any]]:
     """
     Check which config fields are missing or outdated (recursive).
-    
+
     Walks the DEFAULT_CONFIG tree at arbitrary depth and reports any keys
     present in defaults but absent from the user's loaded config.
     """
@@ -5596,11 +5604,11 @@ def _persist_migration(config: Dict[str, Any]) -> None:
 def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, Any]:
     """
     Migrate config to latest version, prompting for new required fields.
-    
+
     Args:
         interactive: If True, prompt user for missing values
         quiet: If True, suppress output
-        
+
     Returns:
         Dict with migration results: {"env_added": [...], "config_added": [...], "warnings": [...]}
     """

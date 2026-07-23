@@ -4,13 +4,15 @@ import { KbdCombo } from '@/components/ui/kbd'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
-import { AudioLines, iconSize, Layers3, Loader2, Square, SteeringWheel, Volume2, VolumeX } from '@/lib/icons'
+import { iconSize, Layers3, Loader2, Square, SteeringWheel, Volume2, VolumeX } from '@/lib/icons'
 import { formatCombo } from '@/lib/keybinds/combo'
 import { cn } from '@/lib/utils'
+import type { PendingVoiceModeSession } from '@/store/voice-mode'
 
 import type { ConversationStatus } from './hooks/use-voice-conversation'
 import { ModelPill } from './model-pill'
 import type { ChatBarState, VoiceStatus } from './types'
+import { VoiceModeLauncher } from './voice-mode-launcher'
 
 export const ICON_BTN = 'size-(--composer-control-size) shrink-0 rounded-md'
 export const GHOST_ICON_BTN = cn(
@@ -33,7 +35,7 @@ interface ConversationProps {
   muted: boolean
   status: ConversationStatus
   onEnd: () => void
-  onStart: () => void
+  onStartVoiceMode: (plan: PendingVoiceModeSession) => Promise<void>
   onStopTurn: () => void
   onToggleMute: () => void
 }
@@ -111,21 +113,7 @@ export function ComposerControls({
       )}
       <AutoSpeakButton active={autoSpeak} disabled={disabled} onToggle={onToggleAutoSpeak} />
       {showVoicePrimary ? (
-        <Tip label={c.startVoice}>
-          <Button
-            aria-label={c.startVoice}
-            className={PRIMARY_ICON_BTN}
-            disabled={disabled}
-            onClick={() => {
-              triggerHaptic('open')
-              conversation.onStart()
-            }}
-            size="icon"
-            type="button"
-          >
-            <AudioLines className={iconSize.sm} />
-          </Button>
-        </Tip>
+        <VoiceModeLauncher disabled={disabled} onStart={conversation.onStartVoiceMode} />
       ) : (
         <Tip label={busy ? (busyAction === 'queue' ? c.queueMessage : c.stop) : c.send}>
           <Button

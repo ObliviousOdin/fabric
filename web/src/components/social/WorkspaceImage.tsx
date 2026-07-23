@@ -6,18 +6,9 @@ import { isRemoteImage } from "@fabric/shared";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+import { resolveWorkspaceImagePath } from "./workspace-image-path";
+
 type LoadState = "loading" | "ready" | "error";
-
-function isAbsolutePath(path: string) {
-  return path.startsWith("/") || path.startsWith("~") || /^[A-Za-z]:[\\/]/.test(path);
-}
-
-/** Resolve agent-written relative artifact paths in the producing session's cwd. */
-export function resolveWorkspaceImagePath(path: string, cwd?: string | null) {
-  const candidate = path.trim();
-  if (!cwd || isRemoteImage(candidate) || isAbsolutePath(candidate)) return candidate;
-  return `${cwd.replace(/[\\/]+$/, "")}/${candidate.replace(/^\.\//, "")}`;
-}
 
 /**
  * Render an image an agent produced for a post. Remote `http(s)` URLs load

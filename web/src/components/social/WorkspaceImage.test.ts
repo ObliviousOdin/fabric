@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveWorkspaceImagePath } from "./WorkspaceImage";
+import { resolveWorkspaceImagePath } from "./workspace-image-path";
 
 describe("resolveWorkspaceImagePath", () => {
   it("resolves a relative artifact against the producing session cwd", () => {

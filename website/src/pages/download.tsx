@@ -7,7 +7,8 @@ import styles from "./download.module.css";
 
 const REPOSITORY = "ObliviousOdin/fabric";
 const RELEASES_API =
-  "https://api.github.com/repos/ObliviousOdin/fabric/releases?per_page=10";
+  "https://api.github.com/repos/ObliviousOdin/fabric/releases";
+const RELEASES_PAGE_SIZE = 100;
 const MANIFEST_NAME = "desktop-release-manifest.json";
 const TAG_RE =
   /^v20\d{2}\.(?:[1-9]|1[0-2])\.(?:[1-9]|[12]\d|3[01])(?:\.[2-9]\d*)?$/;
@@ -138,34 +139,42 @@ async function fetchJson(url: string): Promise<unknown> {
 }
 
 async function fetchLiveRelease(): Promise<LatestReleasePayload> {
-  const raw = await fetchJson(RELEASES_API);
-  if (!Array.isArray(raw)) throw new Error("GitHub returned an invalid response.");
-  const releases = (raw as GitHubRelease[]).filter(
-    (release) =>
-      release &&
-      !release.draft &&
-      !release.prerelease &&
-      typeof release.tag_name === "string",
-  );
-  const newest = releases[0]?.tag_name || null;
-  for (const release of releases) {
-    if (!release.assets?.some((asset) => asset.name === MANIFEST_NAME)) continue;
-    const desktopRelease = normalizeManifest(
-      await fetchJson(releaseAssetUrl(release.tag_name, MANIFEST_NAME)),
-      release,
+  let newest: string | null = null;
+  for (let page = 1; ; page += 1) {
+    const raw = await fetchJson(
+      `${RELEASES_API}?per_page=${RELEASES_PAGE_SIZE}&page=${page}`,
     );
-    const publishing = Boolean(newest && newest !== desktopRelease.tag);
-    return {
-      schema_version: 1,
-      status: "ready",
-      generated_at: new Date().toISOString(),
-      newest_release_tag: newest,
-      publishing,
-      desktop_release: desktopRelease,
-      message: publishing
-        ? `Desktop installers for ${newest} are still publishing; showing ${desktopRelease.tag}.`
-        : null,
-    };
+    if (!Array.isArray(raw))
+      throw new Error("GitHub returned an invalid response.");
+    const releases = (raw as GitHubRelease[]).filter(
+      (release) =>
+        release &&
+        !release.draft &&
+        !release.prerelease &&
+        typeof release.tag_name === "string",
+    );
+    newest ??= releases[0]?.tag_name || null;
+    for (const release of releases) {
+      if (!release.assets?.some((asset) => asset.name === MANIFEST_NAME))
+        continue;
+      const desktopRelease = normalizeManifest(
+        await fetchJson(releaseAssetUrl(release.tag_name, MANIFEST_NAME)),
+        release,
+      );
+      const publishing = Boolean(newest && newest !== desktopRelease.tag);
+      return {
+        schema_version: 1,
+        status: "ready",
+        generated_at: new Date().toISOString(),
+        newest_release_tag: newest,
+        publishing,
+        desktop_release: desktopRelease,
+        message: publishing
+          ? `Desktop installers for ${newest} are still publishing; showing ${desktopRelease.tag}.`
+          : null,
+      };
+    }
+    if (raw.length < RELEASES_PAGE_SIZE) break;
   }
   return {
     schema_version: 1,

@@ -46,6 +46,15 @@ export interface SelectedInstaller {
   downloadUrl: string
 }
 
+export interface GitHubReleaseSummary {
+  tag_name: string
+  draft?: boolean
+  prerelease?: boolean
+  assets?: Array<{ name?: string }>
+}
+
+export const GITHUB_RELEASES_PAGE_SIZE = 100
+
 function objectValue(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -244,6 +253,48 @@ export function selectInstallerForRuntime(
     file => file.platform === target.platform && file.arch === target.arch && file.ext === target.ext
   )
   return asset ? { asset, downloadUrl: releaseAssetUrl(manifest.tag, asset.name) } : null
+}
+
+export async function resolveLatestDesktopReleaseFromPages<T>({
+  loadPage,
+  loadManifest,
+  selectInstaller
+}: {
+  loadPage: (page: number, perPage: number) => Promise<unknown>
+  loadManifest: (release: GitHubReleaseSummary) => Promise<unknown>
+  selectInstaller: (manifest: DesktopReleaseManifest) => T
+}): Promise<{ manifest: DesktopReleaseManifest; installer: T } | null> {
+  for (let page = 1; ; page += 1) {
+    const value = await loadPage(page, GITHUB_RELEASES_PAGE_SIZE)
+    if (!Array.isArray(value)) {
+      throw new Error('GitHub returned an invalid releases response.')
+    }
+
+    for (const candidate of value) {
+      const release = objectValue(candidate)
+      if (
+        !release ||
+        release.draft ||
+        release.prerelease ||
+        typeof release.tag_name !== 'string' ||
+        !Array.isArray(release.assets) ||
+        !release.assets.some(asset => objectValue(asset)?.name === 'desktop-release-manifest.json')
+      ) {
+        continue
+      }
+
+      const summary = release as unknown as GitHubReleaseSummary
+      const manifest = validateDesktopReleaseManifest(await loadManifest(summary))
+      if (manifest.tag !== summary.tag_name) {
+        throw new Error('Desktop release manifest tag does not match its GitHub Release.')
+      }
+      return { manifest, installer: selectInstaller(manifest) }
+    }
+
+    if (value.length < GITHUB_RELEASES_PAGE_SIZE) {
+      return null
+    }
+  }
 }
 
 export { OFFICIAL_REPOSITORY }

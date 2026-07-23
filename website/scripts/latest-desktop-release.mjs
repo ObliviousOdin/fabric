@@ -2,7 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 const REPOSITORY = "ObliviousOdin/fabric";
-const RELEASES_API = `https://api.github.com/repos/${REPOSITORY}/releases?per_page=10`;
+const RELEASES_API = `https://api.github.com/repos/${REPOSITORY}/releases`;
+const RELEASES_PAGE_SIZE = 100;
 const PUBLISHED_FALLBACK =
   "https://obliviousodin.github.io/fabric/api/latest-release.json";
 const MANIFEST_NAME = "desktop-release-manifest.json";
@@ -174,14 +175,31 @@ export async function fetchLatestDesktopRelease({
   fetchImpl = fetch,
   token = process.env.GITHUB_TOKEN || "",
 } = {}) {
-  const releases = await fetchJson(fetchImpl, RELEASES_API, token);
-  return resolveLatestDesktopRelease(releases, async (_asset, release) =>
-    fetchJson(
+  const releases = [];
+  for (let page = 1; ; page += 1) {
+    const batch = await fetchJson(
       fetchImpl,
-      releaseAssetUrl(release.tag_name, MANIFEST_NAME),
+      `${RELEASES_API}?per_page=${RELEASES_PAGE_SIZE}&page=${page}`,
       token,
-    ),
-  );
+    );
+    if (!Array.isArray(batch)) {
+      throw new Error("GitHub returned an invalid releases response.");
+    }
+    releases.push(...batch);
+
+    const payload = await resolveLatestDesktopRelease(
+      releases,
+      async (_asset, release) =>
+        fetchJson(
+          fetchImpl,
+          releaseAssetUrl(release.tag_name, MANIFEST_NAME),
+          token,
+        ),
+    );
+    if (payload.status === "ready" || batch.length < RELEASES_PAGE_SIZE) {
+      return payload;
+    }
+  }
 }
 
 export async function writeLatestDesktopRelease({
@@ -224,4 +242,4 @@ export async function writeLatestDesktopRelease({
   return payload;
 }
 
-export { MANIFEST_NAME, RELEASES_API };
+export { MANIFEST_NAME, RELEASES_API, RELEASES_PAGE_SIZE };

@@ -6,6 +6,7 @@ import {
   normalizeInstallStamp,
   releaseAssetUrl,
   requiresManagedBackendAlignment,
+  resolveLatestDesktopReleaseFromPages,
   selectInstallerForRuntime,
   usesPackagedInstallerUpdates,
   validateDesktopReleaseManifest
@@ -132,4 +133,37 @@ test('rejects traversal and noncanonical manifests', () => {
     /unexpected repository/
   )
   assert.throws(() => releaseAssetUrl('latest', 'Fabric.exe'), /invalid tag/)
+})
+
+test('paginates past CLI-only releases to find the latest desktop manifest', async () => {
+  const pages: number[] = []
+  const cliOnlyRelease = {
+    tag_name: 'v2026.7.24',
+    draft: false,
+    prerelease: false,
+    assets: []
+  }
+
+  const resolved = await resolveLatestDesktopReleaseFromPages({
+    loadPage: async (page, perPage) => {
+      assert.equal(perPage, 100)
+      pages.push(page)
+      return page === 1
+        ? Array.from({ length: perPage }, () => cliOnlyRelease)
+        : [
+            {
+              tag_name: manifest.tag,
+              draft: false,
+              prerelease: false,
+              assets: [{ name: 'desktop-release-manifest.json' }]
+            }
+          ]
+    },
+    loadManifest: async () => manifest,
+    selectInstaller: release => selectInstallerForRuntime(release, 'win32', 'x64')
+  })
+
+  assert.deepEqual(pages, [1, 2])
+  assert.equal(resolved?.manifest.tag, manifest.tag)
+  assert.equal(resolved?.installer?.asset.name, 'Fabric-0.22.0-win-x64.exe')
 })

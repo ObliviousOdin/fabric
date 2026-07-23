@@ -113,9 +113,9 @@ import {
   normalizeInstallStamp,
   releaseAssetUrl,
   requiresManagedBackendAlignment,
+  resolveLatestDesktopReleaseFromPages,
   selectInstallerForRuntime,
-  usesPackagedInstallerUpdates,
-  validateDesktopReleaseManifest
+  usesPackagedInstallerUpdates
 } from './release-channel'
 import {
   buildSessionWindowUrl,
@@ -2200,7 +2200,7 @@ async function checkUpdates() {
   }
 }
 
-const DESKTOP_RELEASES_API = 'https://api.github.com/repos/ObliviousOdin/fabric/releases?per_page=10'
+const DESKTOP_RELEASES_API = 'https://api.github.com/repos/ObliviousOdin/fabric/releases'
 const DESKTOP_MANIFEST_NAME = 'desktop-release-manifest.json'
 let packagedReleaseUpdate = null
 
@@ -2222,34 +2222,11 @@ async function fetchReleaseJson(url) {
 }
 
 async function resolveLatestPackagedRelease() {
-  const releases = await fetchReleaseJson(DESKTOP_RELEASES_API)
-  if (!Array.isArray(releases)) {
-    throw new Error('GitHub returned an invalid releases response.')
-  }
-
-  for (const release of releases) {
-    if (!release || release.draft || release.prerelease || typeof release.tag_name !== 'string') {
-      continue
-    }
-    const assets = Array.isArray(release.assets) ? release.assets : []
-    if (!assets.some(asset => asset?.name === DESKTOP_MANIFEST_NAME)) {
-      continue
-    }
-
-    const manifestUrl = releaseAssetUrl(release.tag_name, DESKTOP_MANIFEST_NAME)
-    const manifest = validateDesktopReleaseManifest(await fetchReleaseJson(manifestUrl))
-    if (manifest.tag !== release.tag_name) {
-      throw new Error('Desktop release manifest tag does not match its GitHub Release.')
-    }
-    const installer = selectInstallerForRuntime(manifest, process.platform, process.arch)
-    if (!installer) {
-      return { manifest, installer: null }
-    }
-
-    return { manifest, installer }
-  }
-
-  return null
+  return resolveLatestDesktopReleaseFromPages({
+    loadPage: (page, perPage) => fetchReleaseJson(`${DESKTOP_RELEASES_API}?per_page=${perPage}&page=${page}`),
+    loadManifest: release => fetchReleaseJson(releaseAssetUrl(release.tag_name, DESKTOP_MANIFEST_NAME)),
+    selectInstaller: manifest => selectInstallerForRuntime(manifest, process.platform, process.arch)
+  })
 }
 
 async function checkPackagedReleaseUpdate() {

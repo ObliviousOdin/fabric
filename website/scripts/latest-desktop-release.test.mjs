@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  fetchLatestDesktopRelease,
   resolveLatestDesktopRelease,
   validateDesktopManifest,
 } from "./latest-desktop-release.mjs";
@@ -71,4 +72,44 @@ test("rejects noncanonical repositories and traversal", () => {
       }),
     /Invalid desktop release file/,
   );
+});
+
+test("fetches later release pages when CLI-only releases fill the first page", async () => {
+  const urls = [];
+  const cliOnlyRelease = {
+    tag_name: "v2026.7.24",
+    draft: false,
+    prerelease: false,
+    assets: [],
+  };
+  const payload = await fetchLatestDesktopRelease({
+    token: "test-token",
+    fetchImpl: async (url) => {
+      urls.push(url);
+      const page = new URL(url).searchParams.get("page");
+      const body =
+        page === "1"
+          ? Array.from({ length: 100 }, () => cliOnlyRelease)
+          : page === "2"
+            ? [
+                {
+                  tag_name: manifest.tag,
+                  draft: false,
+                  prerelease: false,
+                  assets: [{ name: "desktop-release-manifest.json" }],
+                },
+              ]
+            : manifest;
+      return {
+        ok: true,
+        json: async () => body,
+      };
+    },
+  });
+
+  assert.equal(payload.status, "ready");
+  assert.equal(payload.desktop_release.tag, manifest.tag);
+  assert.match(urls[0], /per_page=100&page=1$/);
+  assert.match(urls[1], /per_page=100&page=2$/);
+  assert.match(urls[2], /desktop-release-manifest\.json$/);
 });

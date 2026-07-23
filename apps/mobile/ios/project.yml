@@ -52,11 +52,11 @@ targets:
           Fabric connects to the Fabric gateway running on your local network
           or tailnet.
         NSMicrophoneUsageDescription: >-
-          Fabric uses the microphone only when you tap Dictate to turn speech
-          into a message draft.
+          Fabric uses the microphone only when you start Dictation or Voice
+          Mode to turn your speech into messages.
         NSSpeechRecognitionUsageDescription: >-
-          Fabric uses Apple Speech to turn the words you dictate into a message
-          draft.
+          Fabric uses Apple Speech to turn the words you speak into messages
+          for this conversation.
         # Declare local-network access without weakening ATS globally. Fabric
         # TestFlight connections should still use HTTPS, including IP-based
         # LAN and tailnet endpoints.

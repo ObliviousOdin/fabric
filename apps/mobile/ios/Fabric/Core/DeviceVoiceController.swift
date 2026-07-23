@@ -13,6 +13,7 @@ enum DeviceVoiceIssue: String, Identifiable, Equatable {
     case audioInputUnavailable
     case recognitionFailed
     case playbackFailed
+    case voiceModeInterrupted
 
     var id: String { rawValue }
 
@@ -25,6 +26,7 @@ enum DeviceVoiceIssue: String, Identifiable, Equatable {
         case .audioInputUnavailable: return "Microphone unavailable"
         case .recognitionFailed: return "Dictation stopped"
         case .playbackFailed: return "Read aloud unavailable"
+        case .voiceModeInterrupted: return "Voice Mode ended"
         }
     }
 
@@ -44,6 +46,8 @@ enum DeviceVoiceIssue: String, Identifiable, Equatable {
             return "Fabric couldn't continue speech recognition. Your latest transcript remains in the message draft."
         case .playbackFailed:
             return "Fabric couldn't start spoken-audio playback on this iPhone. Check the current audio route, then try again."
+        case .voiceModeInterrupted:
+            return "Audio on this iPhone was interrupted, so Voice Mode turned off. Everything already said stays in the conversation. Start Voice Mode again when you're ready."
         }
     }
 
@@ -229,6 +233,12 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
     private(set) var transcript = ""
     private(set) var speakingMessageID: UUID?
     private(set) var issue: DeviceVoiceIssue?
+    private(set) var voiceModePhase: VoiceModePhase = .inactive
+    private(set) var voiceModeAgentSnapshot: VoiceModeAgentSnapshot = .idle
+
+    /// Chat installs the prompt-submission path. The controller never talks to
+    /// the gateway itself; it only hands over the final utterance text.
+    @ObservationIgnored var onVoiceModeSubmit: ((String) async -> Bool)?
 
     @ObservationIgnored private let audioEngine = AVAudioEngine()
     @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
@@ -238,9 +248,22 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
     @ObservationIgnored private var dictationRunID = UUID()
     @ObservationIgnored private var finalizationTask: Task<Void, Never>?
     @ObservationIgnored private var activeUtterance: AVSpeechUtterance?
+    @ObservationIgnored private var voiceModeWatchdog: Task<Void, Never>?
+    @ObservationIgnored private var voiceModeLocale = Locale.current
+    @ObservationIgnored private var voiceModeListeningStartedAt = Date()
+    @ObservationIgnored private var voiceModeLastTranscriptChangeAt = Date()
+    @ObservationIgnored private var voiceModeLastSeenTranscript = ""
+    @ObservationIgnored private var voiceModeConsecutiveCaptureFailures = 0
+    @ObservationIgnored private var voiceModeBaselineReplyID: UUID?
+    @ObservationIgnored private var voiceModeSawAgentBusy = false
+    @ObservationIgnored private var voiceModeWaitingStartedAt = Date()
+    @ObservationIgnored private var voiceModeSpeakingStartedAt = Date()
+    @ObservationIgnored private var voiceModeSpeakingTimeout: TimeInterval = 0
+    @ObservationIgnored private let voiceModeListenPolicy = VoiceModeListenPolicy.standard
 
     var isListening: Bool { dictationState.isListening }
     var isSpeaking: Bool { speakingMessageID != nil }
+    var voiceModeActive: Bool { voiceModePhase.isActive }
 
     override init() {
         super.init()
@@ -262,6 +285,7 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     func toggleDictation(locale: Locale = .current) async {
+        guard !voiceModeActive else { return }
         switch dictationState.stopAction {
         case .none:
             guard dictationState == .idle else { return }
@@ -368,6 +392,7 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
                     self.transcript = result.bestTranscription.formattedString
                     if result.isFinal {
                         self.completeDictation(runID: runID, cancelRecognition: false)
+                        self.voiceModeCaptureEnded(failed: false)
                         return
                     }
                 }
@@ -375,6 +400,10 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
                     let wasFinalizing = self.dictationState == .finalizing
                     self.completeDictation(runID: runID, cancelRecognition: true)
                     if !wasFinalizing { self.issue = .recognitionFailed }
+                    // A finalize-phase error still delivered every partial the
+                    // user said; only an error while listening counts against
+                    // the Voice Mode recovery budget.
+                    self.voiceModeCaptureEnded(failed: !wasFinalizing)
                 }
             }
         }
@@ -390,6 +419,7 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     func toggleReadAloud(messageID: UUID, text: String) {
+        guard !voiceModeActive else { return }
         if speakingMessageID == messageID {
             stopSpeaking()
             return
@@ -397,10 +427,14 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
 
         let spokenText = DeviceVoiceText.spokenText(from: text)
         guard !spokenText.isEmpty else { return }
+        issue = nil
+        _ = beginSpeaking(messageID: messageID, spokenText: spokenText)
+    }
 
+    /// Shared playback start for read-aloud and Voice Mode replies.
+    private func beginSpeaking(messageID: UUID, spokenText: String) -> Bool {
         cancelDictation()
         stopSpeaking()
-        issue = nil
 
         do {
             let audioSession = AVAudioSession.sharedInstance()
@@ -408,7 +442,7 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
             try audioSession.setActive(true)
         } catch {
             issue = .playbackFailed
-            return
+            return false
         }
 
         let utterance = AVSpeechUtterance(string: spokenText)
@@ -417,6 +451,7 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
         activeUtterance = utterance
         speakingMessageID = messageID
         synthesizer.speak(utterance)
+        return true
     }
 
     func stopSpeaking() {
@@ -429,8 +464,238 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     func stopAll() {
+        endVoiceMode()
         cancelDictation()
         stopSpeaking()
+    }
+
+    // MARK: - Voice Mode
+
+    /// Starts the hands-free conversation loop. Capture begins only here —
+    /// never as a side effect of opening Chat or of a previous session.
+    func startVoiceMode(locale: Locale = .current) async {
+        guard voiceModePhase == .inactive, dictationState == .idle else { return }
+        stopSpeaking()
+        voiceModeLocale = locale
+        voiceModeConsecutiveCaptureFailures = 0
+        voiceModeBaselineReplyID = voiceModeAgentSnapshot.latestReplyID
+        voiceModePhase = .starting
+        startVoiceModeWatchdog()
+        await voiceModeBeginCapture()
+    }
+
+    /// Ends the loop completely: playback stops, microphone capture is
+    /// released, and Chat returns to ordinary typed/dictated use. The
+    /// conversation transcript is untouched.
+    func endVoiceMode() {
+        guard voiceModePhase != .inactive else { return }
+        voiceModePhase = .inactive
+        voiceModeWatchdog?.cancel()
+        voiceModeWatchdog = nil
+        cancelDictation()
+        stopSpeaking()
+    }
+
+    /// Mute drops the current utterance without submitting anything; unmute
+    /// starts a fresh capture.
+    func voiceModeToggleMute() {
+        switch voiceModePhase {
+        case .starting, .listening, .finalizing:
+            voiceModePhase = .muted
+            cancelDictation()
+        case .muted:
+            voiceModeResumeListening()
+        case .inactive, .waitingForAgent, .speaking:
+            break
+        }
+    }
+
+    /// Stops reading the current reply aloud and returns to listening. The
+    /// reply itself stays in the chat transcript.
+    func voiceModeSkipSpeaking() {
+        guard voiceModePhase == .speaking else { return }
+        stopSpeaking()
+        voiceModeResumeListening()
+    }
+
+    /// Chat pushes a bounded snapshot of the agent's turn state whenever it
+    /// changes; the reply loop reacts through pure policy.
+    func voiceModeAgentUpdate(_ snapshot: VoiceModeAgentSnapshot) {
+        voiceModeAgentSnapshot = snapshot
+        guard voiceModeActive else { return }
+        if voiceModePhase == .waitingForAgent, snapshot.busy {
+            voiceModeSawAgentBusy = true
+        }
+        switch VoiceModeAgentPolicy.reaction(
+            phase: voiceModePhase,
+            snapshot: snapshot,
+            baselineReplyID: voiceModeBaselineReplyID,
+            sawAgentBusy: voiceModeSawAgentBusy
+        ) {
+        case .wait:
+            break
+        case .resumeListening:
+            voiceModeResumeListening()
+        case .speak(let messageID, let text):
+            voiceModeSpeakReply(messageID: messageID, text: text)
+        }
+    }
+
+    private func voiceModeBeginCapture() async {
+        guard voiceModePhase == .starting else { return }
+        await startDictation(locale: voiceModeLocale)
+        // Mute or End may have won while permissions/audio were spinning up;
+        // whatever they left behind must not keep a live microphone.
+        guard voiceModePhase == .starting else {
+            cancelDictation()
+            return
+        }
+        if dictationState == .listening {
+            voiceModePhase = .listening
+            let now = Date()
+            voiceModeListeningStartedAt = now
+            voiceModeLastTranscriptChangeAt = now
+            voiceModeLastSeenTranscript = ""
+        } else {
+            // startDictation surfaced the concrete issue (permission,
+            // recognizer, or audio input); Voice Mode ends with that copy.
+            endVoiceMode()
+        }
+    }
+
+    private func voiceModeResumeListening() {
+        guard voiceModeActive else { return }
+        voiceModePhase = .starting
+        Task { @MainActor [weak self] in
+            await self?.voiceModeBeginCapture()
+        }
+    }
+
+    private func startVoiceModeWatchdog() {
+        voiceModeWatchdog?.cancel()
+        voiceModeWatchdog = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                self?.voiceModeWatchdogTick()
+            }
+        }
+    }
+
+    private func voiceModeWatchdogTick() {
+        switch voiceModePhase {
+        case .listening:
+            let now = Date()
+            if transcript != voiceModeLastSeenTranscript {
+                voiceModeLastSeenTranscript = transcript
+                voiceModeLastTranscriptChangeAt = now
+            }
+            switch voiceModeListenPolicy.assess(
+                transcriptIsEmpty: transcript
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                secondsSinceLastTranscriptChange: now
+                    .timeIntervalSince(voiceModeLastTranscriptChangeAt),
+                secondsSinceListeningStarted: now
+                    .timeIntervalSince(voiceModeListeningStartedAt)
+            ) {
+            case .keepListening:
+                break
+            case .finalize:
+                voiceModePhase = .finalizing
+                finishDictation()
+            case .refreshRecognition:
+                voiceModePhase = .starting
+                cancelDictation()
+                Task { @MainActor [weak self] in
+                    await self?.voiceModeBeginCapture()
+                }
+            }
+        case .waitingForAgent:
+            // Before the agent is seen busy, a silent shell resumes quickly;
+            // after, the generous absolute ceiling still fires so a hung turn
+            // or a dropped final `busy = false` can never trap the session
+            // with the microphone off.
+            if voiceModeListenPolicy.shouldResumeFromWaiting(
+                sawAgentBusy: voiceModeSawAgentBusy,
+                secondsWaiting: Date().timeIntervalSince(voiceModeWaitingStartedAt)
+            ) {
+                voiceModeResumeListening()
+            }
+        case .speaking:
+            // The reply is spoken as one utterance; normally `completeSpeech`
+            // resumes listening. If that delegate callback is dropped (an audio
+            // glitch that raised no interruption/route/reset notification), the
+            // synthesizer goes idle with the phase stuck on `speaking`. Recover
+            // so the microphone is never stranded. The reply stays in chat.
+            if voiceModeListenPolicy.shouldRecoverFromSpeaking(
+                synthesizerIdle: !synthesizer.isSpeaking && !synthesizer.isPaused,
+                secondsSpeaking: Date().timeIntervalSince(voiceModeSpeakingStartedAt),
+                speakingTimeout: voiceModeSpeakingTimeout
+            ) {
+                voiceModeResumeListening()
+            }
+        case .inactive, .starting, .muted, .finalizing:
+            break
+        }
+    }
+
+    /// Funnel for every way a capture run can end while Voice Mode is active.
+    private func voiceModeCaptureEnded(failed: Bool) {
+        guard voiceModeActive else { return }
+        if failed { voiceModeConsecutiveCaptureFailures += 1 }
+        switch VoiceModeCapturePolicy.outcome(
+            phase: voiceModePhase,
+            finalTranscript: transcript,
+            failed: failed,
+            consecutiveFailures: voiceModeConsecutiveCaptureFailures
+        ) {
+        case .ignore:
+            break
+        case .restartListening:
+            voiceModeResumeListening()
+        case .endWithFailure:
+            endVoiceMode()
+            if issue == nil { issue = .voiceModeInterrupted }
+        case .submit(let text):
+            voiceModeConsecutiveCaptureFailures = 0
+            voiceModeSubmit(text)
+        }
+    }
+
+    private func voiceModeSubmit(_ text: String) {
+        voiceModePhase = .waitingForAgent
+        voiceModeWaitingStartedAt = Date()
+        voiceModeSawAgentBusy = false
+        voiceModeBaselineReplyID = voiceModeAgentSnapshot.latestReplyID
+        transcript = ""
+        guard let onVoiceModeSubmit else {
+            voiceModeResumeListening()
+            return
+        }
+        Task { @MainActor [weak self] in
+            let accepted = await onVoiceModeSubmit(text)
+            guard let self, self.voiceModePhase == .waitingForAgent else { return }
+            if !accepted { self.voiceModeResumeListening() }
+        }
+    }
+
+    private func voiceModeSpeakReply(messageID: UUID, text: String) {
+        voiceModeBaselineReplyID = messageID
+        let spokenText = DeviceVoiceText.spokenText(from: text)
+        guard !spokenText.isEmpty else {
+            voiceModeResumeListening()
+            return
+        }
+        voiceModeSpeakingStartedAt = Date()
+        voiceModeSpeakingTimeout = voiceModeListenPolicy.speakingTimeout(
+            spokenCharacterCount: spokenText.count
+        )
+        voiceModePhase = .speaking
+        if !beginSpeaking(messageID: messageID, spokenText: spokenText) {
+            // Playback failed; the reply is still readable in chat. Keep the
+            // conversation going instead of ending on a speaker problem.
+            voiceModeResumeListening()
+        }
     }
 
     nonisolated func speechSynthesizer(
@@ -459,6 +724,9 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
         self.activeUtterance = nil
         speakingMessageID = nil
         deactivateAudioSession()
+        if voiceModePhase == .speaking {
+            voiceModeResumeListening()
+        }
     }
 
     private func finishDictation() {
@@ -472,7 +740,11 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
         finalizationTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
-            self?.completeDictation(runID: runID, cancelRecognition: true)
+            guard let self, self.dictationRunID == runID else { return }
+            self.completeDictation(runID: runID, cancelRecognition: true)
+            // Apple Speech never returned the final phrase; the partial
+            // transcript is what the user said.
+            self.voiceModeCaptureEnded(failed: false)
         }
     }
 
@@ -528,6 +800,11 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func handleAudioInterruption() {
+        if voiceModeActive {
+            endVoiceMode()
+            issue = .voiceModeInterrupted
+            return
+        }
         let wasDictating = dictationState.isActive
         let wasSpeaking = isSpeaking
         if wasDictating { cancelDictation() }
@@ -541,16 +818,34 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
 
     private func handleAudioInputInvalidation() {
         guard dictationState == .listening else { return }
+        if voiceModeActive {
+            endVoiceMode()
+            issue = .voiceModeInterrupted
+            return
+        }
         cancelDictation()
         issue = .audioInputUnavailable
     }
 
     private func handleAudioRouteInvalidation() {
+        if voiceModeActive {
+            // The route the session started on is gone (headset unplugged,
+            // Bluetooth dropped). End completely rather than continuing to
+            // capture or speak on a route the user never chose.
+            endVoiceMode()
+            issue = .voiceModeInterrupted
+            return
+        }
         if isSpeaking { stopSpeaking() }
         handleAudioInputInvalidation()
     }
 
     private func handleMediaServicesReset() {
+        if voiceModeActive {
+            endVoiceMode()
+            issue = .voiceModeInterrupted
+            return
+        }
         let wasDictating = dictationState.isActive
         let wasSpeaking = isSpeaking
         stopAll()

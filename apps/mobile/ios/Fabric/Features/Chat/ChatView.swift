@@ -405,10 +405,31 @@ private struct ChatContentView: View {
             )
         }
         .onChange(of: voice.transcript) { _, transcript in
+            // Voice Mode owns its transcript end to end; only manual
+            // dictation merges partial speech into the composer draft.
+            guard !voice.voiceModeActive else { return }
             draft = VoiceDraftComposer.merging(
                 baseDraft: dictationBaseDraft,
                 transcript: transcript
             )
+        }
+        .onChange(of: voiceAgentSnapshot, initial: true) { _, snapshot in
+            voice.voiceModeAgentUpdate(snapshot)
+        }
+        .onAppear {
+            let model = self.model
+            // Voice Mode hands over finished utterances only; Chat submits
+            // them exactly like typed prompts. A busy turn or a pending
+            // approval refuses the submission so speech can never steer a
+            // running turn or stand in for explicit consent.
+            voice.onVoiceModeSubmit = { [weak model] text in
+                guard let model,
+                      model.sessionReady,
+                      !model.busy,
+                      model.pendingApproval == nil,
+                      model.pendingPrompt == nil else { return false }
+                return await model.sendInitialPrompt(text)
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             // Privacy sheets may make the scene temporarily inactive. Only a
@@ -521,6 +542,7 @@ private struct ChatContentView: View {
             messages: model.messages,
             speakingMessageID: voice.speakingMessageID,
             onReadAloud: { message in
+                guard !voice.voiceModeActive else { return }
                 voice.toggleReadAloud(messageID: message.id, text: message.text)
             }
         )
@@ -643,6 +665,17 @@ private struct ChatContentView: View {
             )
         }
 
+        if voice.voiceModeActive {
+            VoiceModeShell(
+                phase: voice.voiceModePhase,
+                awaitingInteraction: hasBlockingInteraction,
+                caption: voice.voiceModePhase.ownsMicrophone ? voice.transcript : "",
+                onToggleMute: { voice.voiceModeToggleMute() },
+                onSkipSpeaking: { voice.voiceModeSkipSpeaking() },
+                onEnd: { voice.endVoiceMode() }
+            )
+        }
+
         ChatComposerBar(
             draft: $draft,
             busy: model.busy,
@@ -658,8 +691,33 @@ private struct ChatContentView: View {
             onAttachFiles: { showFileImporter = true },
             showsDictationControl: true,
             dictationState: voice.dictationState,
-            onToggleDictation: toggleDictation
+            onToggleDictation: toggleDictation,
+            showsVoiceModeControl: true,
+            voiceModeActive: voice.voiceModeActive,
+            voiceModeAvailable: voiceModeAvailable,
+            onToggleVoiceMode: toggleVoiceMode
         )
+    }
+
+    /// Voice Mode submits transcripts as ordinary prompts, so it needs the
+    /// same session readiness as typing — plus an idle turn, because a spoken
+    /// utterance must never silently become a steering note.
+    private var voiceModeAvailable: Bool {
+        VoiceModeAvailability.canStart(
+            sessionReady: model.sessionReady,
+            busy: model.busy,
+            hasUnknownSendOutcome: model.unknownSendOutcome != nil,
+            dictationState: voice.dictationState
+        ) && model.supportsGatewayMethod("prompt.submit")
+    }
+
+    private func toggleVoiceMode() {
+        if voice.voiceModeActive {
+            voice.endVoiceMode()
+        } else {
+            guard voiceModeAvailable else { return }
+            Task { await voice.startVoiceMode() }
+        }
     }
 
     private var voiceIssueBinding: Binding<DeviceVoiceIssue?> {
@@ -676,6 +734,19 @@ private struct ChatContentView: View {
             dictationBaseDraft = draft
         }
         Task { await voice.toggleDictation() }
+    }
+
+    /// Bounded projection of the agent turn that the Voice Mode reply loop
+    /// reacts to: busy state, blocking interactions, and the newest completed
+    /// assistant message. Presentation text only — never tool output.
+    private var voiceAgentSnapshot: VoiceModeAgentSnapshot {
+        let reply = model.messages.last(where: { $0.role == .assistant && !$0.streaming })
+        return VoiceModeAgentSnapshot(
+            busy: model.busy,
+            awaitingInteraction: hasBlockingInteraction,
+            latestReplyID: reply?.id,
+            latestReplyText: reply?.text ?? ""
+        )
     }
 
     private static func openSystemSettings() {
@@ -1010,6 +1081,10 @@ private struct ChatComposerBar: View {
     var showsDictationControl = false
     var dictationState: DeviceDictationState = .idle
     var onToggleDictation: () -> Void = {}
+    var showsVoiceModeControl = false
+    var voiceModeActive = false
+    var voiceModeAvailable = false
+    var onToggleVoiceMode: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1052,7 +1127,7 @@ private struct ChatComposerBar: View {
                     || !supportsMethod(draftDispatchMethod)
             )
 
-            if showsDictationControl {
+            if showsDictationControl && !voiceModeActive {
                 Button(action: onToggleDictation) {
                     Group {
                         if dictationState == .requestingPermission
@@ -1079,6 +1154,25 @@ private struct ChatComposerBar: View {
                 .accessibilityHint(dictationAccessibilityHint)
                 .accessibilityIdentifier("chat-dictation-button")
                 .disabled(dictationControlDisabled)
+            }
+
+            if showsVoiceModeControl {
+                Button(action: onToggleVoiceMode) {
+                    Image(systemName: "waveform.badge.mic")
+                        .font(.title2)
+                        .foregroundStyle(
+                            voiceModeActive ? FabricTheme.danger : FabricTheme.action
+                        )
+                        .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
+                }
+                .accessibilityLabel(voiceModeActive ? "End Voice Mode" : "Start Voice Mode")
+                .accessibilityHint(
+                    voiceModeActive
+                        ? "Stops listening and speaking completely"
+                        : "Starts a hands-free spoken conversation with Fabric"
+                )
+                .accessibilityIdentifier("chat-voice-mode-button")
+                .disabled(!voiceModeActive && !voiceModeAvailable)
             }
 
             if busy {

@@ -45,9 +45,9 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Fabric connects to the Fabric gateway running on your local network or tailnet.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Fabric uses the microphone only when you tap Dictate to turn speech into a message draft.</string>
+	<string>Fabric uses the microphone only when you start Dictation or Voice Mode to turn your speech into messages.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Fabric uses Apple Speech to turn the words you dictate into a message draft.</string>
+	<string>Fabric uses Apple Speech to turn the words you speak into messages for this conversation.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

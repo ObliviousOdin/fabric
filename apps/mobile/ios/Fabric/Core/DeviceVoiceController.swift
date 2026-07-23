@@ -327,7 +327,7 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
             let audioSession = AVAudioSession.sharedInstance()
             let recordingOptions: AVAudioSession.CategoryOptions = [
                 .duckOthers,
-                .allowBluetoothHFP,
+                .allowBluetooth,
             ]
             try audioSession.setCategory(
                 .playAndRecord,

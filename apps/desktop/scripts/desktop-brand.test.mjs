@@ -106,6 +106,7 @@ test('Electron Builder metadata is derived consistently for macOS, Windows, and 
     false,
     'Fabric owns notarization in afterSign so inline .p8 secrets are materialized safely'
   )
+  assert.equal(config.afterSign, 'scripts/notarize.mjs')
   assert.equal(config.dmg.title, 'Install Fabric')
 
   assert.equal(config.win.icon, 'assets/icon.ico')

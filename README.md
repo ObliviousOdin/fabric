@@ -51,8 +51,8 @@ delegated subagents. The brain decides, remembers, and reports back.
 
 - **A model** — cloud, subscription, or local; swap any time with
   `fabric model`.
-- **Skills** — install community skills and curated packs with
-  `fabric skills search`; new capabilities land without waiting for a
+- **Skills** — browse and install community skills and curated packs with
+  `fabric skills browse`; new capabilities land without waiting for a
   release.
 - **Tools** — terminal, browser, computer use, MCP servers, media, and remote
   execution connect through one configuration flow.
@@ -124,8 +124,8 @@ fabric --tui              # Start the terminal UI
 fabric setup              # Configure providers and services
 fabric model              # Select a model or provider
 fabric tools              # Configure tools and integrations
-fabric skills search      # Find and install community skills
-fabric kanban             # Open the durable work board
+fabric skills browse      # Browse and install community skills
+fabric kanban list        # List tasks on the durable work board
 fabric monitor            # Live host infrastructure monitor
 fabric disk usage         # See what Fabric's stores are using
 fabric status             # Inspect the active configuration

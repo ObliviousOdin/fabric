@@ -249,6 +249,30 @@ def test_release_workflow_keeps_required_smoke_contexts_on_prs():
     )
 
 
+def test_promotion_dispatches_desktop_release_after_publish():
+    workflow = Path(".github/workflows/release-channels.yml").read_text(
+        encoding="utf-8"
+    )
+
+    publish = workflow.index("python3 scripts/ci/publish_release.py")
+    dispatch = workflow.index("gh workflow run desktop-release.yml")
+
+    assert publish < dispatch
+    assert "actions: write" in workflow
+    assert 'release_tag="${{ inputs.release_tag }}"' in workflow
+
+
+def test_prepublish_desktop_version_gate_runs_before_publishing():
+    workflow = Path(".github/workflows/release-channels.yml").read_text(
+        encoding="utf-8"
+    )
+
+    gate = workflow.index("desktop_release_assets.py preflight")
+    publish = workflow.index("python3 scripts/ci/publish_release.py")
+
+    assert gate < publish
+
+
 def test_only_successful_main_push_run_can_feed_production():
     assert (
         validate_run(

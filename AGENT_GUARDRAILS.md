@@ -377,6 +377,24 @@ python3 scripts/fabric_identity_audit.py
 python3 scripts/fabric-brand-audit.py --mode public
 ```
 
+**Release / packaging (`.github/workflows/**`, `scripts/ci/**`, audit gates)** — a
+shared/contract surface (§2.1); coordinate before editing:
+```bash
+ruff check .
+scripts/run_tests.sh tests/scripts/          # audit, release-channels, desktop-asset contracts
+python3 scripts/public-release-audit.py                             # workflow-surface + identity
+python3 scripts/fabric_identity_audit.py
+python3 scripts/fabric-brand-audit.py --mode public
+python3 -m unittest discover -s tests/scripts -p 'test_*audit.py'   # exactly what public-ci runs
+```
+Pre-merge verification for this zone = the contract tests + audits above **plus** a
+`release-channels.yml` `channel=alpha` dispatch on the branch. **`desktop-release.yml`'s
+first live run is necessarily post-merge** — the workflow-dispatch API can't see a
+workflow file until it is on `main`, and the `desktop-signing` environment + signing
+secrets don't exist until the maintainer provisions them. Say so in the HANDOFF
+"Not verified" block and babysit the first real run. Native desktop builds do **not**
+run on PRs (§4.2).
+
 **Web dashboard (`web/`)**
 ```bash
 npm ci

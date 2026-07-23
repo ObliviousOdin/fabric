@@ -314,6 +314,28 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "python3 scripts/ci/release_candidate.py",
         "python3 scripts/ci/validate_release_run.py",
         "python3 scripts/ci/publish_release.py",
+        "scripts/ci/desktop_release_assets.py preflight",
+    ),
+    ".github/workflows/desktop-release.yml": (
+        "name: Fabric desktop release",
+        "permissions:\n  contents: read",
+        "group: desktop-release-${{ inputs.release_tag }}",
+        "cancel-in-progress: false",
+        "name: desktop-signing",
+        "--publish never",
+        "persist-credentials: false",
+        "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+        "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+        "scripts/ci/desktop_release_assets.py resolve",
+        "scripts/ci/desktop_release_assets.py collect",
+        "scripts/ci/desktop_release_assets.py verify",
+        "scripts/ci/desktop_release_assets.py attach",
+        # Signature-assertion steps pinned so a later edit cannot silently delete
+        # the fail-loud signing checks.
+        "codesign --verify",
+        "spctl --assess",
+        "stapler validate",
+        "Get-AuthenticodeSignature",
     ),
     "LICENSE": (
         "Apache License",
@@ -356,6 +378,7 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
 EXPECTED_PUBLIC_WORKFLOWS = frozenset(
     {
         "desktop-packaging.yml",
+        "desktop-release.yml",
         "docs-pages.yml",
         "mobile.yml",
         "public-ci.yml",
@@ -373,15 +396,46 @@ PRIVATE_REPOSITORY_PREFIXES = (
     "tests-parity/",
 )
 UNSAFE_WORKFLOW_RE = re.compile(
-    r"\bpull_request_target\s*:|\bworkflow_run\s*:|\bsecrets\s*\.",
+    r"\bpull_request_target\s*:|\bworkflow_run\s*:",
     re.IGNORECASE,
+)
+# Any ``secrets.<NAME>`` reference is banned unless it appears in an explicitly
+# exempted workflow AND names an explicitly allowed secret. This mirrors the
+# per-file ``ALLOWED_WRITE_PERMISSIONS`` design: everything else stays banned.
+SECRET_REFERENCE_RE = re.compile(r"\bsecrets\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)")
+ALLOWED_SECRETS: dict[str, frozenset[str]] = {
+    # desktop-release.yml carries the code-signing / notarization credentials.
+    # Each name is passed step-scoped (never job-level) in the packaging job; the
+    # environment deployment policy plus this allowlist confine them here.
+    "desktop-release.yml": frozenset(
+        {
+            "CSC_LINK",
+            "CSC_KEY_PASSWORD",
+            "APPLE_API_KEY",
+            "APPLE_API_KEY_ID",
+            "APPLE_API_ISSUER",
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET",
+        }
+    ),
+}
+# The signing environment may be declared only by the desktop release workflow;
+# any other workflow claiming it is a privilege-escalation attempt.
+SIGNING_ENVIRONMENT = "desktop-signing"
+SIGNING_ENVIRONMENT_WORKFLOW = "desktop-release.yml"
+SIGNING_ENVIRONMENT_RE = re.compile(
+    rf"(?m)^[ \t]*(?:environment:[ \t]*|name:[ \t]*){re.escape(SIGNING_ENVIRONMENT)}"
+    r"[ \t]*$"
 )
 WORKFLOW_WRITE_PERMISSION_RE = re.compile(
     r"(?m)^\s*([a-z-]+)\s*:\s*write\s*$", re.IGNORECASE
 )
 ALLOWED_WRITE_PERMISSIONS = {
+    "desktop-release.yml": frozenset({"contents"}),
     "docs-pages.yml": frozenset({"id-token", "pages"}),
-    "release-channels.yml": frozenset({"contents"}),
+    # ``actions`` lets promote-production dispatch desktop-release.yml at the tag.
+    "release-channels.yml": frozenset({"actions", "contents"}),
     "skills-index.yml": frozenset({"id-token", "pages"}),
 }
 WORKFLOW_USES_RE = re.compile(r"(?m)^\s*(?:-\s*)?uses:\s*([^\s#]+)")
@@ -750,16 +804,42 @@ def _audit_release_workflow_contract(relative: str, text: str) -> list[Issue]:
 
 def _audit_workflow_safety(relative: str, text: str) -> list[Issue]:
     issues: list[Issue] = []
+    name = Path(relative).name
     for match in UNSAFE_WORKFLOW_RE.finditer(text):
         issues.append(
             Issue(
                 "workflow-surface",
                 relative,
                 _line_number(text, match.start()),
-                "unsafe trigger, write permission, or secret reference",
+                "unsafe trigger (pull_request_target / workflow_run)",
             )
         )
-    allowed_writes = ALLOWED_WRITE_PERMISSIONS.get(Path(relative).name, frozenset())
+    allowed_secrets = ALLOWED_SECRETS.get(name, frozenset())
+    for match in SECRET_REFERENCE_RE.finditer(text):
+        secret_name = match.group(1)
+        if secret_name in allowed_secrets:
+            continue
+        issues.append(
+            Issue(
+                "workflow-surface",
+                relative,
+                _line_number(text, match.start()),
+                f"unexpected secret reference secrets.{secret_name}",
+            )
+        )
+    if name != SIGNING_ENVIRONMENT_WORKFLOW:
+        env_match = SIGNING_ENVIRONMENT_RE.search(text)
+        if env_match is not None:
+            issues.append(
+                Issue(
+                    "workflow-surface",
+                    relative,
+                    _line_number(text, env_match.start()),
+                    f"{SIGNING_ENVIRONMENT} environment is confined to "
+                    f"{SIGNING_ENVIRONMENT_WORKFLOW}",
+                )
+            )
+    allowed_writes = ALLOWED_WRITE_PERMISSIONS.get(name, frozenset())
     for match in WORKFLOW_WRITE_PERMISSION_RE.finditer(text):
         permission = match.group(1).lower()
         if permission in allowed_writes:

@@ -74,6 +74,8 @@ jobs:
           tests/fabric_cli/test_tools_config.py
           tests/scripts/test_release_channels.py
           tests/scripts/test_public_release_audit.py
+          tests/scripts/test_desktop_release_assets.py
+          tests/scripts/test_desktop_release_workflow_audit.py
           -q
 
       - name: Install frontend dependencies
@@ -288,6 +290,23 @@ jobs:
           --run-json source-run.json
           --repository "${{ github.repository }}"
 
+      # Pre-publish desktop version gate (§3.5): fail BEFORE the Python release
+      # exists when this desktop version already shipped from a different commit
+      # and the desktop build inputs changed since — otherwise two releases would
+      # carry same-named, different-byte installers. A Python-only release (no
+      # desktop change) is allowed; the desktop pipeline then skips repackaging.
+      # The version is read at the promoted commit, not main's HEAD.
+      - name: Gate on desktop version reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          git show "$SOURCE_SHA:apps/desktop/package.json" > promoted-desktop-package.json
+          python3 scripts/ci/desktop_release_assets.py preflight \
+            --repository "${{ github.repository }}" \
+            --source-sha "$SOURCE_SHA" \
+            --desktop-package promoted-desktop-package.json
+
       - name: Download the exact beta artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -320,7 +339,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      actions: read
+      # actions: write lets the final step dispatch desktop-release.yml at the tag.
+      actions: write
       contents: write
     environment:
       name: production
@@ -355,3 +375,16 @@ jobs:
           --repository "${{ github.repository }}"
           --source-sha "${{ needs.validate-production-source.outputs.source_sha }}"
           --tag "${{ inputs.release_tag }}"
+
+      # After the Python release is live, dispatch the decoupled desktop build at
+      # ref: <tag> so it stamps the tag commit and runs the tag's own audited
+      # workflow definition. Uses github.token (needs actions: write). If this step
+      # fails, dispatch desktop-release.yml manually with the tag (RELEASING.md).
+      - name: Dispatch the desktop release build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh workflow run desktop-release.yml
+          --repo "${{ github.repository }}"
+          --ref "${{ inputs.release_tag }}"
+          -f release_tag="${{ inputs.release_tag }}"

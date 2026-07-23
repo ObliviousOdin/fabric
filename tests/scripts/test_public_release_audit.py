@@ -28,7 +28,12 @@ def _load_audit_module():
 class PublicReleaseAuditTests(unittest.TestCase):
     def setUp(self) -> None:
         self.audit = _load_audit_module()
-        self.tempdir = tempfile.TemporaryDirectory()
+        # The git-history tests init a real repo in this temp dir; a live .git
+        # races shutil.rmtree at teardown (git background maintenance —
+        # fsmonitor / gc --auto — can write into .git/objects mid-cleanup,
+        # raising ENOTEMPTY). The dir is disposable, so tolerate a best-effort
+        # cleanup instead of erroring the test (requires-python is >= 3.11).
+        self.tempdir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.root = Path(self.tempdir.name)
         for relative, fragments in self.audit.CANONICAL_REQUIREMENTS.items():
             path = self.root / relative

@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fabric architecture loom. Follows the Woven Operations design contract
+     (web/DESIGN.md): ledger columns, thread motif, one active lineage,
+     restrained purple, sentence case, prefers-reduced-motion honored. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="400" viewBox="0 0 880 400" fill="none" role="img" aria-labelledby="fbl-title fbl-desc">
+  <title id="fbl-title">How Fabric fits together</title>
+  <desc id="fbl-desc">Three ledger columns joined by threads. Left: wherever you are — terminal and TUI, desktop app, web dashboard, mobile, messaging and cron. Center: one agent brain — durable memory, community skills, work board and schedules, model choice. Right: hands on the work — terminal and files, browser and computer use, MCP integrations, delegated subagents. One active thread runs from messaging, through the brain, to the browser. Below: memory, skills, and work state live on your disk under ~/.fabric.</desc>
+  <style>
+    .fbl-run   { stroke-dasharray: 26 14; animation: fbl-run 9s linear infinite; }
+    .fbl-comet { stroke-dasharray: 16 484; animation: fbl-comet 6s linear infinite; opacity: 0; }
+    .fbl-live  { animation: fbl-breathe 4s ease-in-out infinite; }
+    @keyframes fbl-run     { to { stroke-dashoffset: -160; } }
+    @keyframes fbl-comet   { 0% { stroke-dashoffset: 0; opacity: 0; } 5% { opacity: 0.9; } 95% { opacity: 0.9; } 100% { stroke-dashoffset: -500; opacity: 0; } }
+    @keyframes fbl-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @media (prefers-reduced-motion: reduce) {
+      .fbl-run, .fbl-live { animation: none; }
+      .fbl-comet { display: none; }
+    }
+  </style>
+  <defs>
+    <pattern id="fbl-weave" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M 0 43.5 H 44 M 43.5 0 V 44" stroke="#9481E6" stroke-opacity="0.045" stroke-width="1" />
+    </pattern>
+    <clipPath id="fbl-tile">
+      <rect x="0" y="0" width="880" height="400" rx="24" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#fbl-tile)">
+    <rect x="0" y="0" width="880" height="400" fill="#0E0C11" />
+    <rect x="0" y="0" width="880" height="400" fill="url(#fbl-weave)" />
+
+    <!-- Resting threads: each surface and each hand joins the brain. -->
+    <g stroke="#9481E6" stroke-opacity="0.15" stroke-width="1.25">
+      <path d="M 252 113 C 292 113 296 150 330 158" />
+      <path d="M 252 153 C 292 153 296 172 330 178" />
+      <path d="M 252 193 C 292 193 296 198 330 198" />
+      <path d="M 252 233 C 292 233 296 224 330 218" />
+      <path d="M 550 158 C 584 150 588 113 628 113" />
+      <path d="M 550 198 C 584 198 588 193 628 193" />
+      <path d="M 550 218 C 584 226 588 233 628 233" />
+    </g>
+    <!-- The active lineage: a message arrives, the brain decides, the browser acts. -->
+    <path class="fbl-run"
+      d="M 252 273 C 300 273 312 240 352 226 C 400 209 470 197 528 187 C 566 180 590 153 628 153"
+      stroke="#9481E6" stroke-width="2" stroke-linecap="round" opacity="0.6" />
+    <path class="fbl-comet"
+      d="M 252 273 C 300 273 312 240 352 226 C 400 209 470 197 528 187 C 566 180 590 153 628 153"
+      stroke="#AAA0FF" stroke-width="2" stroke-linecap="round" />
+
+    <!-- The brain is a raised surface; threads pass beneath it. -->
+    <rect x="330" y="70" width="220" height="260" rx="12" fill="#151318" stroke="#28252A" />
+  </g>
+  <rect x="0.5" y="0.5" width="879" height="399" rx="23.5" stroke="#28252A" />
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+    <!-- Left ledger: where you reach Fabric from. -->
+    <text x="48" y="84" fill="#EAE6EE" font-size="15" font-weight="600">Wherever you are</text>
+    <g fill="#ADA9B1" font-size="13.5">
+      <text x="48" y="118">Terminal and TUI</text>
+      <text x="48" y="158">Desktop app</text>
+      <text x="48" y="198">Web dashboard</text>
+      <text x="48" y="238">Mobile</text>
+      <text x="48" y="278">Messaging and cron</text>
+    </g>
+    <g stroke="#28252A">
+      <path d="M 48 130 H 248" /><path d="M 48 170 H 248" /><path d="M 48 210 H 248" /><path d="M 48 250 H 248" /><path d="M 48 290 H 248" />
+    </g>
+
+    <!-- Center: the brain. -->
+    <circle class="fbl-live" cx="357" cy="99" r="4.5" stroke="#9481E6" stroke-width="1.75" />
+    <text x="371" y="104" fill="#EAE6EE" font-size="15" font-weight="600">One agent brain</text>
+    <g fill="#ADA9B1" font-size="13.5">
+      <text x="350" y="144">Durable memory</text>
+      <text x="350" y="184">Community skills</text>
+      <text x="350" y="224">Work board and schedules</text>
+      <text x="350" y="264">Model choice</text>
+    </g>
+    <g stroke="#28252A">
+      <path d="M 350 156 H 530" /><path d="M 350 196 H 530" /><path d="M 350 236 H 530" /><path d="M 350 276 H 530" />
+    </g>
+    <text x="350" y="308" fill="#ADA9B1" fill-opacity="0.8" font-size="12.5">Cloud, subscription, or local models</text>
+
+    <!-- Right ledger: what Fabric can do for you. -->
+    <text x="632" y="84" fill="#EAE6EE" font-size="15" font-weight="600">Hands on the work</text>
+    <g fill="#ADA9B1" font-size="13.5">
+      <text x="632" y="118">Terminal and files</text>
+      <text x="632" y="158">Browser and computer use</text>
+      <text x="632" y="198">MCP integrations</text>
+      <text x="632" y="238">Delegated subagents</text>
+    </g>
+    <g stroke="#28252A">
+      <path d="M 632 130 H 832" /><path d="M 632 170 H 832" /><path d="M 632 210 H 832" /><path d="M 632 250 H 832" />
+    </g>
+
+    <!-- The ground truth. -->
+    <path d="M 48 340 H 832" stroke="#28252A" />
+    <text x="48" y="366" fill="#ADA9B1" font-size="13">Memory, skills, and work state live on your own disk</text>
+    <text x="832" y="366" text-anchor="end" fill="#EAE6EE" font-size="12.5" font-family="ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace">~/.fabric</text>
+  </g>
+</svg>

@@ -41,6 +41,8 @@ _EPILOGUE = """
 Examples:
     fabric                        Start interactive chat
     fabric chat -q "Hello"        Single query mode
+    printf 'Hello' | fabric --oneshot-stdin
+                                  Private one-shot prompt from standard input
     fabric --tui                  Launch the modern TUI (or set display.interface: tui)
     fabric --cli                  Force the classic REPL (overrides display.interface: tui)
     fabric -c                     Resume the most recent session
@@ -100,7 +102,8 @@ def build_top_level_parser():
         "--version", "-V", action="store_true", help="Show version and exit"
     )
     parser.add_argument("--package-revision", help=argparse.SUPPRESS)
-    parser.add_argument(
+    oneshot_group = parser.add_mutually_exclusive_group()
+    oneshot_group.add_argument(
         "-z",
         "--oneshot",
         metavar="PROMPT",
@@ -111,6 +114,16 @@ def build_top_level_parser():
             "previews, no session_id line. Tools, memory, rules, and "
             "AGENTS.md in the CWD are loaded as normal; approvals are "
             "auto-bypassed. Intended for scripts / pipes."
+        ),
+    )
+    oneshot_group.add_argument(
+        "--oneshot-stdin",
+        action="store_true",
+        default=False,
+        help=(
+            "One-shot mode with the prompt read as UTF-8 from standard input. "
+            "Output matches -z/--oneshot, while prompt text stays out of the "
+            "process argument list. Input is limited to 1 MiB."
         ),
     )
     parser.add_argument(

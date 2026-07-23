@@ -29,6 +29,50 @@ from typing import Optional
 from fabric_cli.fallback_config import get_fallback_chain
 
 
+ONESHOT_STDIN_MAX_BYTES = 1024 * 1024
+
+
+def read_oneshot_stdin(stream=None) -> str:
+    """Read one bounded UTF-8 prompt from standard input.
+
+    Keeping the prompt on stdin prevents private text from appearing in the
+    process argument list. The byte limit is enforced before model startup so
+    accidentally piped files fail closed without consuming provider resources.
+    """
+    source = sys.stdin if stream is None else stream
+    reader = getattr(source, "buffer", source)
+    data = reader.read(ONESHOT_STDIN_MAX_BYTES + 1)
+
+    if isinstance(data, str):
+        encoded = data.encode("utf-8")
+        if len(encoded) > ONESHOT_STDIN_MAX_BYTES:
+            raise ValueError("standard input exceeds the 1 MiB limit")
+        text = data
+    else:
+        if len(data) > ONESHOT_STDIN_MAX_BYTES:
+            raise ValueError("standard input exceeds the 1 MiB limit")
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("standard input must be valid UTF-8") from exc
+
+    prompt = text.strip()
+    if not prompt:
+        raise ValueError("standard input did not contain a prompt")
+    return prompt
+
+
+def run_oneshot_from_stdin(**kwargs) -> int:
+    """Read a private prompt from stdin, then execute normal one-shot mode."""
+    try:
+        prompt = read_oneshot_stdin()
+    except (OSError, ValueError) as exc:
+        sys.stderr.write(f"fabric --oneshot-stdin: {exc}\n")
+        sys.stderr.flush()
+        return 2
+    return run_oneshot(prompt, **kwargs)
+
+
 def _normalize_toolsets(toolsets: object = None) -> list[str] | None:
     if not toolsets:
         return None

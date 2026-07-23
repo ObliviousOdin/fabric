@@ -224,6 +224,11 @@ The v1 vertical slice on both platforms:
    The overflow menu also opens a **live screen view** — a read-only
    picture-in-picture of the gateway host's screen for watching a
    `computer_use` turn, polling `computer.screenshot`.
+4. **Settings** — server identity/status, the pet companion, read-aloud
+   voice, iOS permission inventory, and a **Pages** control that hides
+   optional tabs (e.g. Social) from the tab bar. Hidden pages are a
+   device-local preference (`fabric.mobile.hidden-tabs.v1`); Home and
+   Settings always stay, and Reset local app data restores every page.
 
 Plus the dispatch/remote-control surface the TUI composer has, driven from
 the same chat screen:

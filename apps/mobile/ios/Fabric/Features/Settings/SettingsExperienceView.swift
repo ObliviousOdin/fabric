@@ -76,6 +76,8 @@ struct SettingsExperienceContent: View {
     @State private var petActionError: String?
     @AppStorage(DeviceVoicePreferences.selectedVoiceIdentifierKey)
     private var selectedVoiceIdentifier = ""
+    @AppStorage(ConnectedAppTabPreferences.storageKey)
+    private var hiddenTabsRaw = ""
 
     var body: some View {
         ScrollView {
@@ -200,8 +202,84 @@ struct SettingsExperienceContent: View {
                 petRows
                 Divider().overlay(FabricTheme.border)
                 voiceRow
+                Divider().overlay(FabricTheme.border)
+                pagesRows
             }
         }
+    }
+
+    @ViewBuilder
+    private var pagesRows: some View {
+        let availability = ConnectedAppTabAvailability.resolve(
+            negotiation: appModel?.capabilityNegotiation ?? nil
+        )
+        let hideable = ConnectedAppTabPolicy.hideableTabs(availability: availability)
+        let hidden = ConnectedAppTabPreferences.parse(hiddenTabsRaw)
+
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "square.grid.2x2")
+                    .foregroundStyle(FabricTheme.textMuted)
+                    .frame(width: 24, height: 24)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Pages")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(FabricTheme.text)
+                    Text("Choose which pages appear in the tab bar. Home and Settings always stay. Hidden pages return with Reset local app data.")
+                        .font(.footnote)
+                        .foregroundStyle(FabricTheme.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.vertical, 12)
+            .accessibilityElement(children: .combine)
+
+            ForEach(hideable, id: \.self) { tab in
+                Divider().overlay(FabricTheme.border)
+                pageToggleRow(
+                    tab: tab,
+                    isVisible: !hidden.contains(tab.rawValue)
+                )
+            }
+        }
+    }
+
+    private func pageToggleRow(tab: ConnectedAppTab, isVisible: Bool) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: tab.tabSystemImage)
+                .foregroundStyle(FabricTheme.textMuted)
+                .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
+            Text(tab.tabTitle)
+                .font(.body.weight(.medium))
+                .foregroundStyle(FabricTheme.text)
+            Spacer(minLength: 12)
+            Toggle("Show \(tab.tabTitle)", isOn: pageVisibilityBinding(tab: tab))
+                .labelsHidden()
+                .tint(FabricTheme.action)
+        }
+        .frame(minHeight: FabricTheme.minTarget)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Show \(tab.tabTitle) page")
+        .accessibilityValue(isVisible ? "On" : "Off")
+        .accessibilityIdentifier("settings-page-toggle-\(tab.rawValue)")
+    }
+
+    private func pageVisibilityBinding(tab: ConnectedAppTab) -> Binding<Bool> {
+        Binding(
+            get: {
+                !ConnectedAppTabPreferences.parse(hiddenTabsRaw).contains(tab.rawValue)
+            },
+            set: { isVisible in
+                hiddenTabsRaw = ConnectedAppTabPreferences.setHidden(
+                    !isVisible,
+                    tab: tab,
+                    in: hiddenTabsRaw
+                )
+            }
+        )
     }
 
     @ViewBuilder

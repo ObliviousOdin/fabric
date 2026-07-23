@@ -218,6 +218,7 @@ private struct ChatContentView: View {
     @State private var attachmentSequence = 0
     @State private var voice = DeviceVoiceController()
     @State private var dictationBaseDraft = ""
+    @AppStorage(DictationCleanup.enabledKey) private var cleanupEnabled = true
     @AccessibilityFocusState private var focusedInteractionIdentity: String?
 
     init(
@@ -664,7 +665,9 @@ private struct ChatContentView: View {
             onAttachFiles: { showFileImporter = true },
             showsDictationControl: true,
             dictationState: voice.dictationState,
-            onToggleDictation: toggleDictation
+            onToggleDictation: toggleDictation,
+            showsCleanupControl: cleanupEnabled,
+            onCleanup: applyDraftCleanup
         )
     }
 
@@ -675,6 +678,10 @@ private struct ChatContentView: View {
                 if issue == nil { voice.clearIssue() }
             }
         )
+    }
+
+    private func applyDraftCleanup() {
+        draft = DictationCleanup.apply(draft)
     }
 
     private func toggleDictation() {
@@ -1016,6 +1023,8 @@ private struct ChatComposerBar: View {
     var showsDictationControl = false
     var dictationState: DeviceDictationState = .idle
     var onToggleDictation: () -> Void = {}
+    var showsCleanupControl = false
+    var onCleanup: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1057,6 +1066,25 @@ private struct ChatComposerBar: View {
                     || dictationState.locksDraft
                     || !supportsMethod(draftDispatchMethod)
             )
+
+            if showsCleanupControl {
+                Button(action: onCleanup) {
+                    Image(systemName: "wand.and.stars")
+                        .font(.title2)
+                        .foregroundStyle(FabricTheme.action)
+                        .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
+                }
+                .accessibilityLabel("Clean up draft")
+                .accessibilityHint("Removes filler words and tidies spacing and punctuation in the message draft")
+                .accessibilityIdentifier("chat-cleanup-button")
+                .disabled(
+                    !sessionReady
+                        || busy
+                        || hasUnknownSendOutcome
+                        || trimmedDraft.isEmpty
+                        || dictationState.locksDraft
+                )
+            }
 
             if showsDictationControl {
                 Button(action: onToggleDictation) {

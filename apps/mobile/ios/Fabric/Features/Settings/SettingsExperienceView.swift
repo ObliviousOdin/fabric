@@ -722,6 +722,7 @@ private struct DeviceVoiceSettingsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(DeviceVoicePreferences.selectedVoiceIdentifierKey)
     private var selectedVoiceIdentifier = ""
+    @AppStorage(DictationCleanup.enabledKey) private var cleanupEnabled = true
     @State private var previewVoice = DeviceVoiceController()
 
     private static let previewMessageID = UUID()
@@ -734,6 +735,13 @@ private struct DeviceVoiceSettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(FabricTheme.textMuted)
                 Text("Fabric requires on-device recognition whenever the current Apple Speech recognizer supports it. For other languages or devices, iOS may use Apple's speech service.")
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.textMuted)
+            }
+
+            Section("Clean up") {
+                Toggle("Show Clean up button", isOn: $cleanupEnabled)
+                Text("Adds a Clean up button to the composer that removes filler words (um, uh), collapses repeated words, and tidies spacing and punctuation in your draft. It runs only when you tap it, entirely on this iPhone — URLs and code in backticks are left untouched.")
                     .font(.footnote)
                     .foregroundStyle(FabricTheme.textMuted)
             }

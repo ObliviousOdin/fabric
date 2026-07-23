@@ -271,6 +271,15 @@ the same chat screen:
   audio to Apple's speech service. Gateway-host `voice.record` / `voice.tts`
   operations never capture or play phone audio. Android voice and a
   continuous/model-backed Talk contract remain future work.
+- **Clean up draft** — an explicit, on-device transform (composer wand button,
+  toggle in Settings → Voice) that removes filler words (um, uh), collapses
+  repeated words, and tidies spacing, sentence casing, and terminal punctuation
+  in the draft — the Wispr Flow-style cleanup on top of on-device dictation. It
+  never calls a model or the gateway and only runs on tap; URLs and backtick
+  code spans are preserved verbatim. Model-backed server transcription
+  (uploading a bounded recording to the gateway's existing
+  `/api/audio/transcribe`, already used by the desktop mic) is the documented
+  next step for higher accuracy on technical vocabulary.
 
 The iOS durable Work client also validates and reconciles the versioned
 `fabric.work` Job/Attention ledger. `FabricGoalPortfolio` is the shared native

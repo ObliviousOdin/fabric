@@ -1640,6 +1640,10 @@ final class ChatViewModel {
     private let operations: ChatGatewayOperations
     private let durableWorkNegotiation: () -> GatewayCapabilityNegotiation?
     private let workGatewayID: () -> String?
+    /// Publish the runtime session + server-issued Work identity so the shared
+    /// Work board can sync against this session. Additive: it never changes this
+    /// chat's own durable-work handling.
+    private let onWorkIdentity: (String, FabricWorkSessionIdentity) -> Void
     private let presentationCache: ChatPresentationCache
     private var pendingImageArtifactFetches: Set<String> = []
     private var pendingDurableBackgroundMutations: [PendingDurableBackgroundMutation] = []
@@ -1678,6 +1682,7 @@ final class ChatViewModel {
         supportsMethod: @escaping (String) -> Bool,
         durableWorkNegotiation: @escaping () -> GatewayCapabilityNegotiation? = { nil },
         workGatewayID: @escaping () -> String? = { nil },
+        onWorkIdentity: @escaping (String, FabricWorkSessionIdentity) -> Void = { _, _ in },
         presentationCache: ChatPresentationCache = ChatPresentationCache(),
         operations: ChatGatewayOperations? = nil
     ) {
@@ -1686,6 +1691,7 @@ final class ChatViewModel {
         self.supportsMethod = supportsMethod
         self.durableWorkNegotiation = durableWorkNegotiation
         self.workGatewayID = workGatewayID
+        self.onWorkIdentity = onWorkIdentity
         self.presentationCache = presentationCache
         self.operations = operations ?? .live(api: api)
     }
@@ -1742,6 +1748,9 @@ final class ChatViewModel {
             pendingDurableBackgroundMutations.removeAll()
         }
         workIdentity = identity
+        if let identity, let sessionId {
+            onWorkIdentity(sessionId, identity)
+        }
     }
 
     private func mergeUsage(from payload: [String: Any]) {

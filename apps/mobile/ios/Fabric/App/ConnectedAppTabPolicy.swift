@@ -19,7 +19,7 @@ import Foundation
 extension ConnectedAppTab: CaseIterable {
     /// Canonical left-to-right display order for the tab bar.
     static var allCases: [ConnectedAppTab] {
-        [.home, .sessions, .social, .settings]
+        [.home, .sessions, .work, .social, .settings]
     }
 
     /// Human-facing tab-bar label. Centralized here so the shell and the
@@ -28,6 +28,7 @@ extension ConnectedAppTab: CaseIterable {
         switch self {
         case .home: return "Home"
         case .sessions: return "Sessions"
+        case .work: return "Work"
         case .social: return "Social"
         case .settings: return "Settings"
         }
@@ -38,6 +39,7 @@ extension ConnectedAppTab: CaseIterable {
         switch self {
         case .home: return "sparkles"
         case .sessions: return "bubble.left.and.bubble.right"
+        case .work: return "checklist"
         case .social: return "megaphone"
         case .settings: return "gearshape"
         }
@@ -50,7 +52,7 @@ extension ConnectedAppTab: CaseIterable {
     var isHideable: Bool {
         switch self {
         case .home, .sessions, .settings: return false
-        case .social: return true
+        case .work, .social: return true
         }
     }
 }
@@ -105,10 +107,13 @@ struct ConnectedAppTabAvailability: Equatable {
         negotiation: GatewayCapabilityNegotiation?
     ) -> ConnectedAppTabAvailability {
         // Home, Sessions, Social, and Settings do not depend on an optional
-        // capability family, so they are always available. The negotiation is
-        // accepted now so capability-gated tabs can be added without changing
-        // call sites.
-        let tabs: Set<ConnectedAppTab> = [.home, .sessions, .social, .settings]
+        // capability family, so they are always available. Work appears only
+        // when the gateway advertises the complete `durable_work` contract
+        // (FMB-002), matching the fail-closed rule the content surfaces use.
+        var tabs: Set<ConnectedAppTab> = [.home, .sessions, .social, .settings]
+        if negotiation?.supportsDurableWork == true {
+            tabs.insert(.work)
+        }
         return ConnectedAppTabAvailability(availableTabs: tabs)
     }
 }

@@ -123,6 +123,15 @@ final class AppModel {
     let api: GatewayAPI
     let linkController = FabricLinkControllerModel()
 
+    /// Hidden, fail-closed Durable Work inbox shared by the Work board. It only
+    /// syncs when a chat session has published a runtime context and the gateway
+    /// advertises the complete `durable_work` contract; otherwise it stays
+    /// `.unavailable`.
+    let workInbox = WorkInboxModel()
+    /// The runtime session authority the Work board syncs against, published by
+    /// an open chat session from its `session.info` work identity.
+    private(set) var workContext: FabricWorkInboxContext?
+
     var activeGateway: SavedGateway? {
         gateways.first { $0.id == activeGatewayId }
     }
@@ -661,6 +670,7 @@ final class AppModel {
         capabilityNegotiation = nil
         petState = .unsupported
         petThumbnailCache.removeAll()
+        clearWorkContext()
         phase = .disconnected
         client.close()
         for gatewayID in authGatewayIDs {
@@ -680,6 +690,76 @@ final class AppModel {
 
     func supportsGatewayMethod(_ method: String) -> Bool {
         capabilityNegotiation?.supportsGatewayMethod(method) ?? false
+    }
+
+    // MARK: - Durable Work
+
+    /// Whether the gateway advertises the complete reviewed Durable Work
+    /// contract. Until this is true the Work board stays hidden (FMB-002).
+    var supportsDurableWork: Bool {
+        capabilityNegotiation?.supportsDurableWork == true
+    }
+
+    /// Bind the Work inbox to the runtime session that reported this identity.
+    /// The profile identity is server-issued; a display name can never build it.
+    func publishWorkContext(
+        runtimeSessionID: String,
+        workIdentity: FabricWorkSessionIdentity
+    ) {
+        guard let gatewayID = activeGatewayId,
+              let context = FabricWorkInboxContext(
+                gatewayID: gatewayID,
+                runtimeSessionID: runtimeSessionID,
+                workIdentity: workIdentity,
+                connectionGeneration: connectionGeneration
+              )
+        else { return }
+        workContext = context
+    }
+
+    func clearWorkContext() {
+        workContext = nil
+        workInbox.invalidate()
+    }
+
+    func refreshWork() async {
+        guard let negotiation = capabilityNegotiation,
+              negotiation.supportsDurableWork,
+              let context = workContext
+        else { return }
+        await workInbox.refresh(using: api, context: context, negotiation: negotiation)
+    }
+
+    func cancelWorkJob(_ jobID: String) async -> FabricWorkInboxCancellationResult {
+        guard let negotiation = capabilityNegotiation, let context = workContext else {
+            return .unavailable
+        }
+        return await workInbox.requestCancellation(
+            for: jobID,
+            using: api,
+            context: context,
+            negotiation: negotiation
+        )
+    }
+
+    func respondToWorkAttention(
+        _ attentionID: String,
+        action: String,
+        reason: String? = nil,
+        value: String? = nil
+    ) async -> FabricWorkInboxAttentionResult {
+        guard let negotiation = capabilityNegotiation, let context = workContext else {
+            return .unavailable
+        }
+        return await workInbox.respondToAttention(
+            attentionID,
+            action: action,
+            reason: reason,
+            value: value,
+            using: api,
+            context: context,
+            negotiation: negotiation
+        )
     }
 
     // MARK: - Pets

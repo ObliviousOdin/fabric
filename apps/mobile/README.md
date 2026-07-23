@@ -153,6 +153,16 @@ Legacy fallback is permitted only when the capability is absent; a timeout or
 typed failure from a durable mutation is never retried through
 `prompt.background`.
 
+iOS now also carries a native **Work board** — a phone kanban (Needs
+attention / Active / Done) rendered from the `FabricWorkInboxSections`
+projection, with a job detail sheet offering cancel and simple
+approval-style Attention responses. It is fail-closed exactly like the
+transport: the **Work** tab is absent unless capability negotiation
+advertises the complete `durable_work` contract, and it stays a device-local
+hide-able page once present. Because no released gateway advertises the family
+yet, the populated board is reachable only through the `work-board` DEBUG
+fixture; a follow-up server change is required to advertise the capability.
+
 The server owns profile-private `work.db`; it retains bounded, redacted Job,
 Attention, and event state rather than raw prompts, answers, passwords, or
 secrets. A phone disconnect does not stop a running Job, but a gateway restart

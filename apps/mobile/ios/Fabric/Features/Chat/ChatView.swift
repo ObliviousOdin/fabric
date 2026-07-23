@@ -105,6 +105,12 @@ struct ChatView: View {
                     },
                     workGatewayID: {
                         appModel.activeGatewayId
+                    },
+                    onWorkIdentity: { runtimeSessionID, identity in
+                        appModel.publishWorkContext(
+                            runtimeSessionID: runtimeSessionID,
+                            workIdentity: identity
+                        )
                     }
                 )
                 model = vm

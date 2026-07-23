@@ -12,6 +12,7 @@ enum FabricUIDebugFixture: String, CaseIterable {
     case connectionLegacy = "connection-legacy"
     case sessions
     case chatActivity = "chat-activity"
+    case workBoard = "work-board"
     case settings
 
     static var requested: FabricUIDebugFixture? {
@@ -84,6 +85,8 @@ struct FabricUIDebugFixtureView: View {
                 SessionLibraryDebugFixtureView()
             case .chatActivity:
                 ChatExperienceDebugFixtureView()
+            case .workBoard:
+                WorkBoardDebugFixtureView()
             case .settings:
                 SettingsExperienceDebugFixtureView()
             }
@@ -117,5 +120,116 @@ struct FabricUIDebugFixtureView: View {
             methods: legacyMobileMethods
         )
     )
+}
+
+/// Deterministic Work board for visual QA. Real gateways never advertise the
+/// `durable_work` family yet (FMB-002), so the populated board is only
+/// reachable through this fixture.
+struct WorkBoardDebugFixtureView: View {
+    var body: some View {
+        NavigationStack {
+            WorkBoardScreen(
+                state: .ready(Self.fixture),
+                onRefresh: {},
+                onCancel: { _ in .unavailable },
+                onRespond: { _, _ in .unavailable }
+            )
+            .navigationTitle("Work")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .accessibilityIdentifier("fabric-ui-fixture-work-board")
+    }
+
+    private static var fixture: WorkBoardReadyState {
+        WorkBoardReadyState(
+            sections: sections,
+            availability: .current,
+            isRefreshing: false,
+            syncError: nil,
+            lastUpdated: Date()
+        )
+    }
+
+    private static var sections: FabricWorkInboxSections {
+        var result = FabricWorkInboxSections()
+        result.needsAttention = [
+            FabricWorkInboxJobSummary(
+                id: "job-approve",
+                version: 3,
+                kind: "background_prompt",
+                status: "waiting_attention",
+                title: "Deploy staging build",
+                summary: "Waiting for approval to run the deploy script.",
+                openAttentionCount: 1,
+                attemptCount: 1,
+                createdAt: 1784451600000,
+                startedAt: 1784451601000,
+                updatedAt: 1784451602500,
+                finishedAt: nil,
+                attention: [
+                    FabricWorkInboxAttentionSummary(
+                        id: "att-1",
+                        version: 1,
+                        jobID: "job-approve",
+                        kind: "approval",
+                        state: "pending",
+                        title: "Run deploy.sh?",
+                        blocking: true,
+                        sensitive: false,
+                        allowedActions: ["once", "session", "always", "deny"],
+                        updatedAt: 1784451602500,
+                        canRespond: true
+                    )
+                ],
+                hasResultPreview: false,
+                hasErrorPreview: false,
+                transcriptRoute: nil,
+                canCancel: true
+            )
+        ]
+        result.active = [
+            FabricWorkInboxJobSummary(
+                id: "job-run",
+                version: 5,
+                kind: "background_prompt",
+                status: "running",
+                title: "Summarize weekly analytics",
+                summary: "Reading dashboards…",
+                openAttentionCount: 0,
+                attemptCount: 1,
+                createdAt: 1784451500000,
+                startedAt: 1784451510000,
+                updatedAt: 1784451590000,
+                finishedAt: nil,
+                attention: [],
+                hasResultPreview: false,
+                hasErrorPreview: false,
+                transcriptRoute: FabricWorkInboxTranscriptRoute(runtimeSessionID: "sess-run"),
+                canCancel: true
+            )
+        ]
+        result.completed = [
+            FabricWorkInboxJobSummary(
+                id: "job-done",
+                version: 8,
+                kind: "background_prompt",
+                status: "succeeded",
+                title: "Draft release notes",
+                summary: "Posted the v0.4 notes.",
+                openAttentionCount: 0,
+                attemptCount: 1,
+                createdAt: 1784450000000,
+                startedAt: 1784450010000,
+                updatedAt: 1784450900000,
+                finishedAt: 1784450900000,
+                attention: [],
+                hasResultPreview: true,
+                hasErrorPreview: false,
+                transcriptRoute: FabricWorkInboxTranscriptRoute(runtimeSessionID: "sess-done"),
+                canCancel: false
+            )
+        ]
+        return result
+    }
 }
 #endif

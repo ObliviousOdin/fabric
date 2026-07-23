@@ -137,8 +137,8 @@ final class ConnectedAppTabPolicyTests: XCTestCase {
     // MARK: - Availability resolution
 
     func testAvailabilityAlwaysExposesStructuralAndSocialTabs() {
-        // Regardless of negotiation state, the Phase 1 tab set is always
-        // available (no capability-gated tabs yet).
+        // Without a durable-work contract the always-on tab set is exactly
+        // Home, Sessions, Social, and Settings — Work is absent.
         for negotiation: GatewayCapabilityNegotiation? in [
             nil, .negotiating, .legacy, .invalid(reason: "x")
         ] {
@@ -148,5 +148,52 @@ final class ConnectedAppTabPolicyTests: XCTestCase {
                 [.home, .sessions, .social, .settings]
             )
         }
+    }
+
+    // MARK: - Work tab availability (capability-gated)
+
+    private func durableWorkNegotiation() -> GatewayCapabilityNegotiation {
+        .verified(
+            GatewayCapabilities(
+                contract: GatewayCapabilityContract(
+                    name: "fabric.gateway",
+                    version: 1,
+                    minimumCompatibleVersion: 1
+                ),
+                server: GatewayServerContract(version: "0.4.0", releaseDate: "2026-07-21"),
+                execution: GatewayExecutionContract(
+                    location: "gateway",
+                    toolExecution: "gateway",
+                    survivesClientDisconnect: true,
+                    survivesGatewayRestart: false,
+                    requiresGatewayHostOnline: true
+                ),
+                features: ["durable_work": true],
+                methods: durableWorkGatewayMethods
+            )
+        )
+    }
+
+    func testWorkTabAppearsOnlyWhenDurableWorkAdvertised() {
+        let without = ConnectedAppTabAvailability.resolve(negotiation: .legacy)
+        XCTAssertFalse(without.isAvailable(.work))
+        XCTAssertFalse(
+            ConnectedAppTabPolicy.visibleTabs(hidden: [], availability: without).contains(.work)
+        )
+
+        let with = ConnectedAppTabAvailability.resolve(negotiation: durableWorkNegotiation())
+        XCTAssertTrue(with.isAvailable(.work))
+        XCTAssertEqual(
+            ConnectedAppTabPolicy.visibleTabs(hidden: [], availability: with),
+            [.home, .sessions, .work, .social, .settings]
+        )
+    }
+
+    func testWorkTabIsHideableWhenAvailable() {
+        let availability = ConnectedAppTabAvailability.resolve(negotiation: durableWorkNegotiation())
+        XCTAssertTrue(ConnectedAppTabPolicy.hideableTabs(availability: availability).contains(.work))
+        XCTAssertFalse(
+            ConnectedAppTabPolicy.visibleTabs(hidden: ["work"], availability: availability).contains(.work)
+        )
     }
 }

@@ -94,6 +94,7 @@ struct RootView: View {
 enum ConnectedAppTab: String {
     case home
     case sessions
+    case work
     case social
     case settings
 }
@@ -161,6 +162,17 @@ private struct ConnectedAppShellView: View {
                     Label(ConnectedAppTab.sessions.tabTitle, systemImage: ConnectedAppTab.sessions.tabSystemImage)
                 }
                 .accessibilityIdentifier(ConnectedAppTab.sessions.tabAccessibilityIdentifier)
+
+                if visibleTabs.contains(.work) {
+                    NavigationStack {
+                        WorkBoardView()
+                    }
+                    .tag(ConnectedAppTab.work.rawValue)
+                    .tabItem {
+                        Label(ConnectedAppTab.work.tabTitle, systemImage: ConnectedAppTab.work.tabSystemImage)
+                    }
+                    .accessibilityIdentifier(ConnectedAppTab.work.tabAccessibilityIdentifier)
+                }
 
                 if visibleTabs.contains(.social) {
                     NavigationStack {

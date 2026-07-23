@@ -185,6 +185,7 @@
       "entitlementsInherit": "electron/entitlements.mac.inherit.plist",
       "gatekeeperAssess": false,
       "hardenedRuntime": true,
+      "notarize": false,
       "target": [
         "dmg",
         "zip"

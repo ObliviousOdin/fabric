@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -18,8 +19,10 @@ from fabric_cli.mobile_devices import (
     parse_adb_devices,
     parse_devicectl_devices,
 )
+from fabric_cli.subcommands import mobile as mobile_command
 from fabric_cli.subcommands.mobile import (
     build_mobile_parser,
+    configure_mobile_tailscale,
     validate_mobile_install_selection,
 )
 
@@ -32,12 +35,13 @@ def test_mobile_parser_defaults_to_secure_pairing_and_unambiguous_auto_install()
 
     args = parser.parse_args(["mobile"])
 
-    assert args.func is handler
     assert args.host == "0.0.0.0"
     assert args.port == 9119
     assert args.install == "auto"
+    assert args.tailscale is False
     assert args.no_qr is False
     assert args.skip_build is False
+    args.func(args)
 
 
 def test_mobile_parser_accepts_explicit_device_and_https_advertise_url():
@@ -61,6 +65,140 @@ def test_mobile_parser_accepts_explicit_device_and_https_advertise_url():
     assert args.ios_device == "phone-1"
     assert args.ios_team == "TEAM123456"
     assert args.qr_url == "https://fabric.example.test"
+
+
+def test_mobile_parser_dispatches_tailscale_mode_before_the_mobile_handler(monkeypatch):
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    received = []
+    build_mobile_parser(subparsers, cmd_mobile=received.append)
+    monkeypatch.setattr(
+        mobile_command,
+        "configure_mobile_tailscale",
+        lambda args: (
+            setattr(args, "host", "127.0.0.1"),
+            setattr(args, "qr_url", "https://fabric-box.example.ts.net"),
+        ),
+    )
+
+    args = parser.parse_args(["mobile", "--tailscale", "--install", "none"])
+    args.func(args)
+
+    assert received == [args]
+    assert args.host == "127.0.0.1"
+    assert args.qr_url == "https://fabric-box.example.ts.net"
+
+
+def test_configure_mobile_tailscale_creates_and_verifies_loopback_serve(monkeypatch, capsys):
+    from fabric_cli import tailscale_setup
+
+    status = tailscale_setup.TailscaleStatus(
+        backend_state="Running",
+        dns_name="fabric-box.example.ts.net",
+        ip="100.64.0.9",
+    )
+    monkeypatch.setattr(tailscale_setup, "find_tailscale_binary", lambda: "/opt/tailscale")
+    monkeypatch.setattr(tailscale_setup, "tailscale_status", lambda _, **__: status)
+    monkeypatch.setattr(mobile_command, "_loopback_port_available", lambda _: True)
+    monkeypatch.setattr(
+        tailscale_setup,
+        "_subprocess_env",
+        lambda: {"PATH": "/usr/bin", "TAILSCALE_BE_CLI": "1"},
+    )
+    calls = []
+
+    def runner(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if argv[1:4] == ["serve", "status", "--json"]:
+            configured = len(calls) > 2
+            web = {
+                "other-service.example.ts.net:443": {
+                    "Handlers": {"/": {"Proxy": "http://127.0.0.1:3000"}}
+                }
+            }
+            if configured:
+                web["fabric-box.example.ts.net:443"] = {
+                    "Handlers": {
+                        "/": {"Proxy": "http://127.0.0.1:9119"}
+                    }
+                }
+            payload = {"TCP": {"443": {"HTTPS": True}}, "Web": web}
+            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(payload), stderr="")
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    args = argparse.Namespace(host="0.0.0.0", port=9119, qr_url="")
+    advertised = configure_mobile_tailscale(args, runner=runner)
+
+    assert advertised == "https://fabric-box.example.ts.net"
+    assert args.host == "127.0.0.1"
+    assert args.qr_url == advertised
+    assert [call[0] for call in calls] == [
+        ["/opt/tailscale", "serve", "status", "--json"],
+        [
+            "/opt/tailscale",
+            "serve",
+            "--bg",
+            "--yes",
+            "http://127.0.0.1:9119",
+        ],
+        ["/opt/tailscale", "serve", "status", "--json"],
+    ]
+    assert all(call[1]["env"] == {
+        "PATH": "/usr/bin",
+        "TAILSCALE_BE_CLI": "1",
+    } for call in calls)
+    output = capsys.readouterr().out
+    assert "private Tailscale HTTPS tunnel" in output
+    assert "https://fabric-box.example.ts.net → http://127.0.0.1:9119" in output
+
+
+def test_configure_mobile_tailscale_does_not_replace_an_unrelated_root(monkeypatch):
+    from fabric_cli import tailscale_setup
+
+    monkeypatch.setattr(tailscale_setup, "find_tailscale_binary", lambda: "/opt/tailscale")
+    monkeypatch.setattr(
+        tailscale_setup,
+        "tailscale_status",
+        lambda _, **__: tailscale_setup.TailscaleStatus(
+            backend_state="Running",
+            dns_name="fabric-box.example.ts.net",
+        ),
+    )
+    monkeypatch.setattr(tailscale_setup, "_subprocess_env", lambda: {})
+    monkeypatch.setattr(mobile_command, "_loopback_port_available", lambda _: True)
+    calls = []
+
+    def runner(argv, **kwargs):
+        calls.append(argv)
+        payload = {
+            "Web": {
+                "fabric-box.example.ts.net:443": {
+                    "Handlers": {"/": {"Proxy": "http://127.0.0.1:3000"}}
+                }
+            }
+        }
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(payload), stderr="")
+
+    with pytest.raises(ValueError, match="already uses its HTTPS root"):
+        configure_mobile_tailscale(
+            argparse.Namespace(host="0.0.0.0", port=9119, qr_url=""),
+            runner=runner,
+        )
+
+    assert calls == [["/opt/tailscale", "serve", "status", "--json"]]
+
+
+def test_configure_mobile_tailscale_does_not_change_serve_when_port_is_owned(monkeypatch):
+    monkeypatch.setattr(mobile_command, "_loopback_port_available", lambda _: False)
+    monkeypatch.setattr(
+        "fabric_cli.tailscale_setup.find_tailscale_binary",
+        Mock(side_effect=AssertionError("Tailscale must not be queried")),
+    )
+
+    with pytest.raises(ValueError, match="port 9119 is already in use"):
+        configure_mobile_tailscale(
+            argparse.Namespace(host="0.0.0.0", port=9119, qr_url="")
+        )
 
 
 def test_explicit_selector_sets_effective_platform_and_conflicts_fail():

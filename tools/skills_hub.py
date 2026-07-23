@@ -2499,7 +2499,11 @@ def _validate_bounded_json_graph(
     return value
 
 
-def _preflight_json_bytes(payload: bytes) -> None:
+def _preflight_json_bytes(
+    payload: bytes,
+    *,
+    max_string_bytes: int = MAX_HUB_STRING_BYTES,
+) -> None:
     """Reject pathological JSON shape before the decoder allocates objects.
 
     This intentionally performs only admission accounting, leaving syntax to
@@ -2518,7 +2522,7 @@ def _preflight_json_bytes(payload: bytes) -> None:
     for byte in payload:
         if in_string:
             string_bytes += 1
-            if string_bytes > MAX_HUB_STRING_BYTES * 6:
+            if string_bytes > max_string_bytes * 6:
                 # A Unicode escape may use six raw bytes for one character;
                 # anything beyond this cannot decode within the string cap.
                 raise SkillPayloadTooLarge("JSON string exceeds the byte limit")
@@ -2564,17 +2568,21 @@ def _preflight_json_bytes(payload: bytes) -> None:
             if items > MAX_HUB_JSON_ITEMS:
                 raise SkillPayloadTooLarge("JSON payload contains too many values")
         scalar_bytes += 1
-        if scalar_bytes > MAX_HUB_STRING_BYTES:
+        if scalar_bytes > max_string_bytes:
             raise SkillPayloadTooLarge("JSON scalar exceeds the byte limit")
 
 
-def _bounded_json(response: _BoundedHttpResponse) -> Any:
-    _preflight_json_bytes(response.content)
+def _bounded_json(
+    response: _BoundedHttpResponse,
+    *,
+    max_string_bytes: int = MAX_HUB_STRING_BYTES,
+) -> Any:
+    _preflight_json_bytes(response.content, max_string_bytes=max_string_bytes)
     try:
         parsed = json.loads(response.content)
     except RecursionError as exc:
         raise SkillPayloadTooLarge("JSON payload exceeds the nesting limit") from exc
-    return _validate_bounded_json_graph(parsed)
+    return _validate_bounded_json_graph(parsed, max_string_bytes=max_string_bytes)
 
 
 def _read_bounded_json_file(
@@ -4837,6 +4845,16 @@ class ClawHubSource(SkillSource):
     # timeout=30 so nothing errors), so an unbounded walk can block for
     # minutes. Bound it so a slow/large catalog cannot hang the caller.
     CATALOG_WALK_BUDGET_SECONDS = 12
+    # A catalog walk is used by the scheduled skills-index publisher. A single
+    # transient page failure must not turn an otherwise healthy catalog into a
+    # partial index, but retries must remain bounded for interactive callers.
+    CATALOG_PAGE_MAX_RETRIES = 3
+    CATALOG_RETRY_INITIAL_SECONDS = 1.0
+    # ClawHub catalog entries occasionally include valid rich metadata slightly
+    # larger than the shared 64 KiB JSON-string limit. The full response remains
+    # capped at MAX_SKILL_METADATA_BYTES and the adapter retains only its small
+    # display fields, so use a deliberately narrow catalog-only allowance.
+    CATALOG_MAX_STRING_BYTES = 128 * 1024
 
     def source_id(self) -> str:
         return "clawhub"
@@ -5206,34 +5224,64 @@ class ClawHubSource(SkillSource):
             if max_items > 0
             else None
         )
-        hit_deadline = False
-        hit_max_items = False
+        catalog_complete = False
 
         for _ in range(max_pages):
             if deadline is not None and time.monotonic() > deadline:
-                hit_deadline = True
                 break
             params: Dict[str, Any] = {"limit": 200}
             if cursor:
                 params["cursor"] = cursor
 
-            try:
-                resp = _bounded_http_get(
-                    f"{self.BASE_URL}/skills",
-                    params=params,
-                    timeout=30,
-                    max_bytes=MAX_SKILL_METADATA_BYTES,
-                    follow_redirects=True,
-                )
-                if resp.status_code != 200:
+            data = None
+            retry_delay = self.CATALOG_RETRY_INITIAL_SECONDS
+            for attempt in range(self.CATALOG_PAGE_MAX_RETRIES):
+                try:
+                    resp = _bounded_http_get(
+                        f"{self.BASE_URL}/skills",
+                        params=params,
+                        timeout=30,
+                        max_bytes=MAX_SKILL_METADATA_BYTES,
+                        follow_redirects=True,
+                    )
+                    if resp.status_code == 200:
+                        data = _bounded_json(
+                            resp,
+                            max_string_bytes=self.CATALOG_MAX_STRING_BYTES,
+                        )
+                        break
+                    retryable = resp.status_code in (408, 429) or 500 <= resp.status_code < 600
+                    failure = f"HTTP {resp.status_code}"
+                except (
+                    httpx.HTTPError,
+                    json.JSONDecodeError,
+                    SkillPayloadTooLarge,
+                    ValueError,
+                ) as exc:
+                    retryable = True
+                    failure = str(exc)
+
+                if not retryable or attempt == self.CATALOG_PAGE_MAX_RETRIES - 1:
+                    logger.warning(
+                        "ClawHub catalog page fetch failed at cursor %r after %d attempt(s): %s",
+                        cursor,
+                        attempt + 1,
+                        failure,
+                    )
                     break
-                data = _bounded_json(resp)
-            except (
-                httpx.HTTPError,
-                json.JSONDecodeError,
-                SkillPayloadTooLarge,
-                ValueError,
-            ):
+                logger.debug(
+                    "ClawHub catalog page fetch failed at cursor %r (%s); retrying in %.1fs "
+                    "(attempt %d/%d)",
+                    cursor,
+                    failure,
+                    retry_delay,
+                    attempt + 1,
+                    self.CATALOG_PAGE_MAX_RETRIES,
+                )
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 15.0)
+
+            if data is None:
                 break
 
             items = data.get("items", []) if isinstance(data, dict) else []
@@ -5261,21 +5309,30 @@ class ClawHubSource(SkillSource):
 
             cursor = data.get("nextCursor") if isinstance(data, dict) else None
             if not isinstance(cursor, str) or not cursor:
+                catalog_complete = True
                 break
 
             # Browse's cold-start fallback only renders one page, so stop as
             # soon as we have enough to satisfy the caller's bound. The index
             # builder passes max_items=0 (unbounded) and walks to exhaustion.
             if max_items > 0 and len(results) >= max_items:
-                hit_max_items = True
                 break
 
-        # Only cache a walk that reached a natural stop (cursor exhausted or
-        # page cap). A walk truncated by the wall-clock budget OR by max_items
-        # is partial, so writing it would poison the shared full-catalog cache
-        # with incomplete data.
-        if not hit_deadline and not hit_max_items:
+        # Only cache a walk that reached cursor exhaustion. A walk truncated by
+        # a transport/API failure, the safety page cap, wall-clock budget, or
+        # max_items is partial, so writing it would poison the shared full-
+        # catalog cache with an incomplete slice.
+        if catalog_complete:
             _write_index_cache(cache_key, [_skill_meta_to_dict(s) for s in results])
+        elif max_items == 0:
+            # The offline index builder asks for an unbounded, complete catalog.
+            # Do not hand it a plausible-looking prefix when pagination broke;
+            # its health guard must reject the build instead.
+            logger.warning(
+                "ClawHub catalog walk ended before cursor exhaustion; discarding %d partial entries",
+                len(results),
+            )
+            return []
         return results
 
     def _get_json(self, url: str, timeout: int = 20) -> Optional[Any]:

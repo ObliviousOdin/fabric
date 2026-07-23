@@ -63,7 +63,7 @@ def _install_fake_sources(monkeypatch, *, github_count, claude_count=40,
     monkeypatch.setattr(build_mod, "batch_resolve_paths", lambda skills, auth: skills)
     monkeypatch.setattr(
         build_mod, "GitHubAuth",
-        lambda: types.SimpleNamespace(auth_method=lambda: "token"),
+        lambda: types.SimpleNamespace(auth_method=lambda: "token", get_headers=lambda: {}),
     )
 
 
@@ -86,7 +86,7 @@ def test_degenerate_crawl_exits_nonzero_and_writes_no_file(tmp_path, monkeypatch
 def test_healthy_crawl_writes_index_with_all_sources(tmp_path, monkeypatch):
     out = tmp_path / "skills-index.json"
     monkeypatch.setattr(build_mod, "OUTPUT_PATH", str(out))
-    _install_fake_sources(monkeypatch, github_count=200)
+    _install_fake_sources(monkeypatch, github_count=500)
 
     build_mod.main()  # exit 0 (no SystemExit)
 

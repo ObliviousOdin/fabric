@@ -192,6 +192,7 @@
       ]
     },
     "dmg": {
+      "sign": true,
       "backgroundColor": "#f5f5f7",
       "iconSize": 96,
       "window": {

@@ -261,6 +261,7 @@ _LONG_HANDLERS = frozenset({
     "session.compress",
     "session.list",
     "session.resume",
+    "session.transcript",
     "shell.exec",
     "skills.manage",
     "slash.exec",

@@ -150,6 +150,7 @@ const ArtifactsView = lazy(async () => ({ default: (await import('./artifacts'))
 const CommandCenterView = lazy(async () => ({ default: (await import('./command-center')).CommandCenterView }))
 const CronView = lazy(async () => ({ default: (await import('./cron')).CronView }))
 const DesignView = lazy(async () => ({ default: (await import('./design')).DesignView }))
+const SocialView = lazy(async () => ({ default: (await import('./social')).SocialView }))
 const StarmapView = lazy(async () => ({ default: (await import('./starmap')).StarmapView }))
 const MessagingView = lazy(async () => ({ default: (await import('./messaging')).MessagingView }))
 const ProfilesView = lazy(async () => ({ default: (await import('./profiles')).ProfilesView }))
@@ -1443,6 +1444,14 @@ export function DesktopController() {
               </Suspense>
             }
             path="voice-notes"
+          />
+          <Route
+            element={
+              <Suspense fallback={null}>
+                <SocialView onStartSocial={startDesignChat} />
+              </Suspense>
+            }
+            path="social"
           />
           <Route
             element={

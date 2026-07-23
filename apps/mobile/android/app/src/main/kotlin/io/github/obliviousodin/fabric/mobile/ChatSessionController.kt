@@ -152,6 +152,7 @@ class ChatSessionController(
     val api: GatewayApi,
     private val scope: CoroutineScope,
     resumeStoredSessionId: String?,
+    private val initialPrompt: String? = null,
     private val supportsMethod: (String) -> Boolean = { true },
     private val durableWorkNegotiation: () -> GatewayCapabilityNegotiation? = { null },
     private val workGatewayId: () -> String? = { null },
@@ -472,6 +473,7 @@ class ChatSessionController(
                 refreshBackgroundAvailability()
                 _fatalError.value = null
                 scheduleDurableWorkRecovery()
+                initialPrompt?.takeIf { it.isNotBlank() }?.let(::send)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Activity,
   ArrowRight,
@@ -7,11 +7,13 @@ import {
   CalendarClock,
   CircleAlert,
   Gauge,
+  Megaphone,
   MessageSquare,
   Network,
   ShieldCheck,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui";
+import { useSocialStudioEnabled } from "@/hooks/useSocialStudioEnabled";
 import { ScreenState } from "@/components/experience/ScreenState";
 import {
   StatusSignal,
@@ -160,6 +162,64 @@ function AttentionRow({
 }
 
 /**
+ * Discoverable Home entry for the opt-in Social Studio surface. When the
+ * preference is off it invites the user to enable it (revealing the sidebar
+ * item); when on, it becomes a quick shortcut. Uses only the local preference
+ * store — no backend projection — so it never adds a failure mode to Home.
+ */
+function SocialStudioHomeEntry() {
+  const [enabled, setEnabled] = useSocialStudioEnabled();
+  const navigate = useNavigate();
+
+  if (enabled) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 py-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            aria-hidden
+            className="grid size-8 shrink-0 place-items-center border border-border bg-background-surface text-text-secondary"
+          >
+            <Megaphone className="size-4" />
+          </span>
+          <p className="min-w-0 text-sm text-text-secondary">
+            Social Studio is ready — draft posts and copy them to LinkedIn.
+          </p>
+        </div>
+        <PanelLink to="/workspace/social">Open Social Studio</PanelLink>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 border-b border-border/80 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <span className="text-xs font-medium uppercase tracking-wide text-primary">
+          New
+        </span>
+        <p className="mt-1 text-sm font-medium text-foreground">
+          Turn conversations into posts
+        </p>
+        <p className="mt-0.5 max-w-xl text-sm text-text-secondary">
+          Social Studio drafts LinkedIn posts from a brief and keeps them ready
+          to copy and paste.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setEnabled(true);
+          navigate("/workspace/social");
+        }}
+        className="inline-flex min-h-11 shrink-0 items-center gap-2 bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Megaphone aria-hidden className="size-4" />
+        Enable Social Studio
+      </button>
+    </div>
+  );
+}
+
+/**
  * Workspace landing page built entirely from existing, truthful projections.
  * Durable work and approval counts are intentionally absent until their
  * scoped backend contracts exist.
@@ -271,6 +331,8 @@ export default function WorkspaceHomePage() {
             <PanelLink to="/workspace/work">Open Work Board</PanelLink>
           </div>
         </header>
+
+        <SocialStudioHomeEntry />
 
         {hasAnyError && (
           <div className="flex flex-col gap-4 border-b border-border/80 py-4 sm:flex-row sm:items-center sm:justify-between">

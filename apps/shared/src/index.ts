@@ -195,6 +195,25 @@ export {
   type DesignSystemSource,
 } from "./design";
 export {
+  buildSocialPrompt,
+  extractSocialArtifacts,
+  hasSocialArtifacts,
+  isRemoteImage,
+  SOCIAL_CHANNEL_OPTIONS,
+  SOCIAL_FORMAT_OPTIONS,
+  SOCIAL_GOAL_OPTIONS,
+  SOCIAL_POST_FENCE,
+  SOCIAL_TONE_OPTIONS,
+  type SocialArtifact,
+  type SocialChannel,
+  type SocialFormat,
+  type SocialGoal,
+  type SocialOption,
+  type SocialRequest,
+  type SocialSourceMessage,
+  type SocialTone,
+} from "./social";
+export {
   buildRemoteGatewayWebSocketUrl,
   fetchRemoteAuthProviders,
   fetchRemoteGatewayStatus,

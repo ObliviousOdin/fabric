@@ -28,6 +28,7 @@ const NEW_OPTIONAL_FAMILIES = [
   "node_invoke",
   "push",
   "session_admin",
+  "session_transcript",
   "trust_center",
   "workspace_read",
 ] as const;

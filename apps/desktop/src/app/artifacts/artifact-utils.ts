@@ -80,7 +80,7 @@ function looksLikeArtifact(value: string): boolean {
   return (value.startsWith('/') || WINDOWS_ABSOLUTE_PATH_RE.test(value)) && value.includes('.')
 }
 
-function resolveArtifactValue(value: string, cwd?: null | string): null | string {
+export function resolveArtifactValue(value: string, cwd?: null | string): null | string {
   if (
     /^(?:https?:\/\/|data:|file:)/i.test(value) ||
     value.startsWith('/') ||

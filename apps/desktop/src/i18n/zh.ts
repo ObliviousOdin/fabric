@@ -1226,7 +1226,8 @@ export const zh: Translations = {
       skills: { title: '技能与工具', detail: '启用技能、工具集与提供方' },
       messaging: { title: '消息平台', detail: '配置 Telegram、Slack、Discord 等' },
       artifacts: { title: '产物', detail: '浏览生成的输出' },
-      design: { title: '设计', detail: '创建原型和设计系统' }
+      design: { title: '设计', detail: '创建原型和设计系统' },
+      social: { title: '社交', detail: '为 LinkedIn 起草并复制帖子' }
     },
     sectionEntries: {
       sessions: { title: '会话面板', detail: '搜索、置顶与管理会话' },
@@ -1704,6 +1705,43 @@ export const zh: Translations = {
       critique: '评审并验证结果',
       deliver: '交付文件和 DESIGN.md'
     }
+  },
+
+  social: {
+    title: '社交工作室',
+    subtitle: '把对话变成可直接发布的动态。在这里起草，然后打开资料库复制文案并获取配图。',
+    tabCompose: '撰写',
+    tabLibrary: '资料库',
+    briefLabel: '这条动态讲什么？',
+    briefPlaceholder: '我们刚刚经过六周专注开发上线了智能体仪表盘。以下是我关于快速交付又不失信任的心得……',
+    channelLabel: '渠道',
+    goalLabel: '目标',
+    toneLabel: '语气',
+    formatLabel: '形式',
+    imageLabel: '附带配图',
+    imageHint: '让智能体设计一张可与文案一起发布的图片。',
+    start: '在新会话中起草',
+    reviewHint: '这会打开一个带有准备好草稿的新会话，便于你在发送前查看。',
+    howItWorksTitle: '工作方式',
+    howItWorks: [
+      '描述动态并选择语气。',
+      'Fabric 在新会话中起草，你可以进一步修改。',
+      '完成的动态会出现在你的资料库中。',
+      '复制文案和配图，然后粘贴到 LinkedIn。'
+    ],
+    scanning: '正在扫描最近的对话……',
+    refresh: '刷新',
+    scannedNote: count => `已扫描你最近的 ${count} 个对话。`,
+    emptyTitle: '暂无动态',
+    emptyBody: '在“撰写”中起草一条。当智能体写好动态后，它会出现在这里，随时可复制。',
+    loadFailed: '无法加载你的对话。',
+    copyCaption: '复制文案',
+    openConversation: '打开',
+    withImage: '含配图',
+    textOnly: '纯文本',
+    drafts: count => `${count} 条草稿`,
+    imageAlt: '为该动态生成的图片',
+    untitled: '未命名对话'
   },
 
   artifacts: {

@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "description": "Cross-platform conformance fixture for Social Studio post extraction. Feeding each case's `messages` to the platform's extractSocialArtifacts port must yield exactly `expected` (in order). The web/desktop TypeScript implementation is validated against this file in apps/shared/src/social-contract.test.ts; the Kotlin and Swift ports should assert the same.",
+  "cases": [
+    {
+      "name": "linkedin-post block with markdown image under Artifacts",
+      "messages": [
+        { "role": "user", "content": "Draft me a launch post." },
+        {
+          "role": "assistant",
+          "content": "Here you go:\n\n```linkedin-post\nWe shipped Fabric.\n\nHere is why it matters.\n```\n\n## Artifacts\n\n![Launch graphic](assets/launch.png)",
+          "timestamp": 1700000000
+        }
+      ],
+      "expected": [
+        {
+          "id": "1:0",
+          "caption": "We shipped Fabric.\n\nHere is why it matters.",
+          "imagePath": "assets/launch.png",
+          "messageIndex": 1,
+          "timestamp": 1700000000
+        }
+      ]
+    },
+    {
+      "name": "user message that names the fence is never parsed",
+      "messages": [
+        { "role": "user", "content": "Put the result in a ```linkedin-post``` block please." }
+      ],
+      "expected": []
+    },
+    {
+      "name": "text-only post has a null image and null timestamp",
+      "messages": [
+        { "role": "assistant", "content": "```linkedin-post\nText only post.\n```" }
+      ],
+      "expected": [
+        {
+          "id": "0:0",
+          "caption": "Text only post.",
+          "imagePath": null,
+          "messageIndex": 0,
+          "timestamp": null
+        }
+      ]
+    },
+    {
+      "name": "bare image path under an Artifacts list, bullet not swallowed",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "```linkedin-post\nA lesson learned.\n```\n\nArtifacts:\n- ./out/post-image.jpg"
+        }
+      ],
+      "expected": [
+        {
+          "id": "0:0",
+          "caption": "A lesson learned.",
+          "imagePath": "./out/post-image.jpg",
+          "messageIndex": 0,
+          "timestamp": null
+        }
+      ]
+    },
+    {
+      "name": "unrelated code fence is ignored",
+      "messages": [
+        { "role": "assistant", "content": "```python\nprint('not a post')\n```" },
+        { "role": "assistant", "content": "Some prose without any fence." }
+      ],
+      "expected": []
+    },
+    {
+      "name": "multiple drafts across the conversation keep order and unique ids",
+      "messages": [
+        { "role": "assistant", "content": "```linkedin-post\nDraft one.\n```" },
+        { "role": "user", "content": "try another angle" },
+        { "role": "assistant", "content": "```linkedin-post\nDraft two.\n```" }
+      ],
+      "expected": [
+        { "id": "0:0", "caption": "Draft one.", "imagePath": null, "messageIndex": 0, "timestamp": null },
+        { "id": "2:0", "caption": "Draft two.", "imagePath": null, "messageIndex": 2, "timestamp": null }
+      ]
+    }
+  ]
+}

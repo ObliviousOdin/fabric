@@ -86,6 +86,7 @@ struct RootView: View {
 enum ConnectedAppTab: String {
     case home
     case sessions
+    case social
     case settings
 }
 
@@ -125,6 +126,15 @@ private struct ConnectedAppShellView: View {
                     Label("Sessions", systemImage: "bubble.left.and.bubble.right")
                 }
                 .accessibilityIdentifier("app-tab-sessions")
+
+                NavigationStack {
+                    SocialStudioView()
+                }
+                .tag(ConnectedAppTab.social.rawValue)
+                .tabItem {
+                    Label("Social", systemImage: "megaphone")
+                }
+                .accessibilityIdentifier("app-tab-social")
 
                 NavigationStack {
                     SettingsRootView()

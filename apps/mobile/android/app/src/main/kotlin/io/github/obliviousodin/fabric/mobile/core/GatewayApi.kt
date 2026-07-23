@@ -350,6 +350,7 @@ val OPTIONAL_GATEWAY_FEATURE_METHODS = mapOf(
     ),
     "push" to setOf("push.register_device", "push.deregister_device"),
     "session_admin" to setOf("session.rename", "session.archive"),
+    "session_transcript" to setOf("session.transcript"),
     "trust_center" to setOf(
         "trust.audit.list",
         "grant.list",
@@ -1143,6 +1144,23 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
         }
         val result = client.requestObject("session.resume", params)
         return LiveSession.fromResumePayload(result, storedSessionId)
+    }
+
+    /** Read persisted display history without creating or resuming a live session. */
+    suspend fun sessionTranscript(
+        storedSessionId: String,
+        limit: Int = 250,
+    ): List<SessionTranscriptMessage> {
+        val result = client.requestObject(
+            "session.transcript",
+            buildJsonObject {
+                put("session_id", storedSessionId)
+                put("limit", limit)
+            },
+        )
+        return (result["messages"] as? JsonArray)
+            ?.mapNotNull { (it as? JsonObject)?.let(SessionTranscriptMessage::fromJson) }
+            .orEmpty()
     }
 
     // -- Turns --------------------------------------------------------------

@@ -31,6 +31,7 @@
     "push": true,
     "scoped_grants": true,
     "session_admin": true,
+    "session_transcript": true,
     "trust_center": true,
     "workspace_read": true
   },
@@ -76,6 +77,7 @@
     "session.rename",
     "session.resume",
     "session.steer",
+    "session.transcript",
     "session.undo",
     "slash.exec",
     "spawn_tree.list",

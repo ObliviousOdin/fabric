@@ -216,6 +216,7 @@ function IdleView({
   // show (e.g. pip/non-git backend), degrade to honest "no release notes" copy
   // instead of generic filler.
   const { title, body } = resolveUpdateCopy({ target, shownItems, copy: u })
+  const resolvedBody = status.channel === 'release' && status.message ? status.message : body
 
   return (
     <div className="grid gap-5 px-6 pb-6 pt-7 pr-8">
@@ -223,7 +224,7 @@ function IdleView({
         <BrandMark className="size-16" />
 
         <DialogTitle className="text-center text-xl">{title}</DialogTitle>
-        <DialogDescription className="text-center text-sm">{body}</DialogDescription>
+        <DialogDescription className="text-center text-sm">{resolvedBody}</DialogDescription>
       </div>
 
       <div className="grid gap-3">

@@ -384,8 +384,8 @@ export async function applyUpdates(opts: DesktopUpdateApplyOptions = {}): Promis
         ...IDLE,
         applying: false,
         stage: 'manual',
-        message: result.command ?? 'fabric update',
-        command: result.command ?? 'fabric update'
+        message: result.message ?? result.command ?? 'Complete the update manually.',
+        command: result.command ?? null
       })
 
       return result

@@ -68,7 +68,8 @@ Python release, and the desktop run is re-dispatchable.
 
 `desktop-release.yml` resolves and validates the release, packages macOS
 (`arm64` `.dmg`/`.zip`), Windows (`x64` `.exe`/`.msi`), and Linux
-(`.AppImage`/`.deb`/`.rpm`) installers, **signs and notarizes** them, then
+(`.AppImage`/`.deb`/`.rpm`) installers, signs and notarizes the macOS app and
+DMG, enforces the configured Windows signing policy, then
 attaches them with a `desktop-release-manifest.json`, a combined
 `SHA256SUMS-desktop.txt`, and per-platform `SHA256SUMS`. Attachment is
 **immutable**: an already-attached installer with a matching digest is skipped,
@@ -128,6 +129,12 @@ failing the Authenticode assertion. Remove the variable once the certificate
 lands. macOS and Linux are unaffected. Note that even a notarized macOS app still
 shows the standard first-open confirmation dialog; notarization only removes the
 hard "unidentified developer / malware" block.
+
+Packaged desktop apps resolve updates through `desktop-release-manifest.json`.
+Their update button opens the correct installer download; it never silently
+executes the current unsigned Windows installer. After installation, the next
+launch aligns the Fabric-managed CLI/backend to the package's exact source SHA.
+Source-checkout desktop builds keep the existing source update + rebuild flow.
 
 ### Verifying a download
 

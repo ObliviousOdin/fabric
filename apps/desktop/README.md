@@ -26,17 +26,22 @@ with a purpose-built chat, preview, file-browser, voice, and settings experience
 The source build is available from this repository. Public Fabric installers are
 not considered released until the matching entry appears on the
 [Fabric releases page](https://github.com/ObliviousOdin/fabric/releases)
-with platform signatures, notarization where applicable, and checksums. Do not
+with the platform signing policy, notarization where applicable, and checksums. Do not
 download a similarly named Fabric/Nous installer and assume it is a Fabric build.
 
 The checked-in packaging contract currently produces these release names:
 
 - macOS: `Fabric-<version>-mac-arm64.dmg` and `.zip`
 - Windows: `Fabric-<version>-win-x64.exe` and `.msi`
-- Linux: `Fabric-<version>-linux-x64.AppImage`, `.deb`, and `.rpm`
+- Linux: `Fabric-<version>-linux-x86_64.AppImage`,
+  `Fabric-<version>-linux-amd64.deb`, and
+  `Fabric-<version>-linux-x86_64.rpm`
 
-CI packages are unsigned verification artifacts. They are not substitutes for a
-signed production release.
+CI packages are unsigned verification artifacts. Production macOS packages
+must be signed and notarized. Production Windows packages are temporarily
+allowed to remain unsigned only when the release environment carries the
+explicit `ALLOW_UNSIGNED_WINDOWS=true` acknowledgment; users must verify the
+checksum and follow the documented SmartScreen guidance.
 
 ## Run from a Fabric checkout
 
@@ -100,10 +105,14 @@ Packaging and release are separate gates:
 - macOS Developer ID signing uses Electron Builder's `CSC_LINK` and
   `CSC_KEY_PASSWORD` inputs. Notarization additionally requires either an
   `APPLE_NOTARY_PROFILE`, or the complete `APPLE_API_KEY`,
-  `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER` set.
-- Windows production packages require a Fabric-controlled Authenticode signing
-  identity and a post-sign verification step. An unsigned `.exe` or `.msi` is
-  only a CI/developer artifact.
+  `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER` set. Release CI sets
+  `FABRIC_REQUIRE_NOTARIZATION=true`, which turns missing or partial
+  credentials into a hard failure; local builds without that switch may skip
+  notarization.
+- Windows production packages will use a Fabric-controlled Authenticode signing
+  identity and a post-sign verification step once that identity is available.
+  Until then, only the audited unsigned-release exception may publish an
+  unsigned `.exe` or `.msi`.
 - Linux packages are not code-signed by Electron Builder today. A release must
   still publish checksums (and any separately approved release signature).
 

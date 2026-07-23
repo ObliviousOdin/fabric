@@ -15,8 +15,8 @@ tests on that platform.
 
 | Platform                      | Engine surface                                                                                                       | Desktop surface                                      | Current distribution                                                                         |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **macOS 13+ arm64**           | CLI, TUI, gateway, dashboard                                                                                         | Native `Fabric` app; DMG + zip package target  | Public source checkout; packaged release requires Developer ID signing + notarization        |
-| **Windows 10/11 x64**         | Native CLI/TUI/gateway/dashboard, subject to the [Windows feature matrix](/user-guide/windows-native#feature-matrix) | Native `Fabric` app; NSIS + MSI package target | Package CI target; public installer requires Authenticode signing and clean-machine evidence |
+| **macOS 13+ arm64**           | CLI, TUI, gateway, dashboard                                                                                         | Native `Fabric` app; DMG + zip package target  | Production packages require Developer ID signing + notarization                              |
+| **Windows 10/11 x64**         | Native CLI/TUI/gateway/dashboard, subject to the [Windows feature matrix](/user-guide/windows-native#feature-matrix) | Native `Fabric` app; NSIS + MSI package target | Unsigned packages may ship only with the documented SmartScreen acknowledgment               |
 | **Ubuntu 22.04/24.04 x86_64** | Headless CLI, gateway, dashboard, services                                                                           | Linux desktop packages are preview                   | Public source checkout                                                                       |
 | **Docker Linux amd64**        | Headless engine and gateway                                                                                          | No desktop shell in the container                    | An immutable Fabric-owned image reference supplied by the release owner                       |
 
@@ -78,14 +78,16 @@ host and produce the manifest-derived artifact stem:
 | ----------- | ----------------------------------------------------------- |
 | macOS arm64 | `Fabric-<version>-mac-arm64.dmg`, `.zip`              |
 | Windows x64 | `Fabric-<version>-win-x64.exe`, `.msi`                |
-| Linux x64   | `Fabric-<version>-linux-x64.AppImage`, `.deb`, `.rpm` |
+| Linux x64   | `Fabric-<version>-linux-x86_64.AppImage`, `Fabric-<version>-linux-amd64.deb`, `Fabric-<version>-linux-x86_64.rpm` |
 
 CI outputs are short-lived, unsigned verification artifacts. A production
 desktop release additionally needs:
 
-1. a Fabric-controlled signing identity for macOS and Windows;
+1. a Fabric-controlled signing identity for macOS (Windows temporarily uses
+   the explicit unsigned-release acknowledgment);
 2. Apple notarization and staple verification for macOS;
-3. Authenticode verification for both Windows formats;
+3. Authenticode verification for both Windows formats once Windows signing is
+   enabled;
 4. checksums generated after signing;
 5. clean-machine install, launch, update, rollback, and uninstall evidence; and
 6. publication under `ObliviousOdin/fabric`.
@@ -93,10 +95,10 @@ desktop release additionally needs:
 ## Source-install boundary
 
 The verified Fabric installation starts from the public
-`ObliviousOdin/fabric` checkout. Signed
-desktop packages remain release gates until they are present and independently
-verified. Follow [Install Fabric](/getting-started/installation), and only trust
-release assets published by the official repository.
+`ObliviousOdin/fabric` checkout. Desktop packages remain release gates until
+they are present and independently verified. Follow
+[Install Fabric Desktop](/user-guide/install-desktop), and only trust release
+assets published by the official repository.
 
 ```bash
 fabric version

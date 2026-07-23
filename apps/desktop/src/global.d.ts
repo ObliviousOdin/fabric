@@ -292,6 +292,7 @@ export interface DesktopUpdateCommit {
 
 export interface DesktopUpdateStatus {
   supported: boolean
+  channel?: 'release' | 'source'
   updateAvailable?: boolean
   branch?: string
   currentBranch?: string
@@ -301,6 +302,11 @@ export interface DesktopUpdateStatus {
   behind?: number
   currentSha?: string
   targetSha?: string
+  releaseTag?: string
+  currentVersion?: string
+  targetVersion?: string
+  assetName?: string
+  downloadUrl?: string
   commits?: DesktopUpdateCommit[]
   dirty?: boolean
   fetchedAt?: number
@@ -321,6 +327,8 @@ export interface DesktopUpdateApplyResult {
    *  `fabric update` themselves. `command` is the exact line to run. */
   manual?: boolean
   command?: string
+  downloadUrl?: string
+  assetName?: string
   fabricRoot?: string
   /** True when the backend was updated but the GUI couldn't be relaunched in
    *  place (AppImage / dev run): the new version loads on next launch. */

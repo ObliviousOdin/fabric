@@ -6,7 +6,7 @@ name: Fabric desktop release
 # live. Packaging + signing is decoupled from the Python release so a desktop
 # failure never blocks or corrupts it, and the run is re-dispatchable. The
 # unsigned matrix in desktop-packaging.yml stays as pre-release verification; the
-# release build here is the only signed build.
+# release build here is the only production-policy build.
 on:
   workflow_dispatch:
     inputs:
@@ -69,7 +69,7 @@ jobs:
           --output "$GITHUB_OUTPUT"
 
   package:
-    name: Package and sign ${{ matrix.label }}
+    name: Package release ${{ matrix.label }}
     needs: resolve-release
     if: needs.resolve-release.outputs.should_package == 'true'
     runs-on: ${{ matrix.runner }}
@@ -117,8 +117,8 @@ jobs:
         run: npm ci
 
       # §3.2: build the renderer and main bundle FIRST, with NO signing env. The
-      # Developer ID cert / notarization key / Azure credentials must never be
-      # visible to tsc, Vite, or the bundler — only to electron-builder's sign
+      # Developer ID cert / notarization key must never be visible to tsc,
+      # Vite, or the bundler — only to electron-builder's sign
       # phase below. The channel stamp is a build-time concern (write-build-stamp
       # .mjs runs inside `npm run build`), so it lives here, not with the secrets.
       - name: Build renderer and main
@@ -132,11 +132,10 @@ jobs:
       # Signing secrets are scoped to THIS step only (never job-level), and only
       # electron-builder — not the renderer build above — can see them. electron-
       # builder never publishes from here (electron-builder runs with the publish
-      # mode set to never). WP-B fills in the afterPack payload signing and the
-      # require-notarization fail-loud switch. The release matrix deliberately does
+      # mode set to never). The release matrix deliberately does
       # NOT set CSC_IDENTITY_AUTO_DISCOVERY to "false" (that stays in the
       # verification workflow) so signing stays enabled.
-      - name: Package and sign
+      - name: Package release artifacts
         env:
           # macOS Developer ID + notarization (dedicated minimal-role key).
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -144,11 +143,22 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          # Windows Azure Trusted Signing (WP-B/H1 confirm the concrete provider).
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          # Missing/partial credentials must fail a production macOS build.
+          FABRIC_REQUIRE_NOTARIZATION: ${{ runner.os == 'macOS' && 'true' || 'false' }}
         run: npm run --prefix apps/desktop builder -- ${{ matrix.builder_args }} --publish never
+
+      - name: Notarize and staple macOS disk image
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          dmg="$(find apps/desktop/release -maxdepth 1 -name 'Fabric-*-mac-arm64.dmg' -type f | head -n1)"
+          test -n "$dmg" || { echo "::error::no Fabric dmg produced" >&2; exit 1; }
+          node apps/desktop/scripts/notarize-artifact.mjs "$dmg"
 
       - name: Assert macOS signatures and notarization
         if: runner.os == 'macOS'
@@ -162,15 +172,20 @@ jobs:
           # Offline Gatekeeper needs a stapled ticket on the .app (the .zip carries
           # the stapled .app inside; never stapler-validate a zip).
           stapler validate "$app"
-          # The dmg is signed by electron-builder but NOT stapled here: notarize.mjs
-          # (afterSign) staples only the .app, and the dmg is built afterward. WP-B
-          # adopts the §3.2 extra pass (notarize-artifact.mjs <dmg>) and only then
-          # may `stapler validate` the dmg. Until then assert the dmg's signature
-          # only — its embedded .app is stapled, so the installed app validates
-          # offline; the dmg does a one-time online Gatekeeper check on first mount
-          # (the standard first-open dialog, expected — see §3.4).
+          # Hardened-runtime notarization requires every nested Mach-O to be signed,
+          # including node-pty's extensionless app.asar.unpacked spawn-helper.
+          spawn_helper="$(find "$app/Contents" -type f -name spawn-helper | head -n1)"
+          test -n "$spawn_helper" || { echo "::error::spawn-helper is missing" >&2; exit 1; }
+          file "$spawn_helper" | grep -q 'Mach-O'
+          while IFS= read -r -d '' candidate; do
+            if file "$candidate" | grep -q 'Mach-O'; then
+              codesign --verify --strict --verbose=2 "$candidate"
+            fi
+          done < <(find "$app/Contents" -type f -print0)
+          # The dmg is notarized and stapled in the dedicated post-build pass.
           for dmg in apps/desktop/release/Fabric-*-mac-arm64.dmg; do
             codesign --verify --strict --verbose=2 "$dmg"
+            stapler validate "$dmg"
           done
 
       - name: Assert Windows Authenticode signatures
@@ -203,7 +218,7 @@ jobs:
           --source-sha "${{ needs.resolve-release.outputs.source_sha }}"
           --desktop-version "${{ needs.resolve-release.outputs.desktop_version }}"
 
-      - name: Upload signed installers
+      - name: Upload release installers
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-release-${{ matrix.platform }}
@@ -229,7 +244,7 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
-      - name: Download all signed installers
+      - name: Download all release installers
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: desktop-release-*

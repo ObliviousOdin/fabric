@@ -158,6 +158,11 @@ const config: Config = {
           position: "left",
         },
         {
+          to: "/download",
+          label: "Downloads",
+          position: "left",
+        },
+        {
           to: "/ios",
           label: "iOS app",
           position: "left",

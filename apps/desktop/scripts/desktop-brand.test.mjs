@@ -108,6 +108,7 @@ test('Electron Builder metadata is derived consistently for macOS, Windows, and 
   )
   assert.equal(config.afterSign, 'scripts/notarize.mjs')
   assert.equal(config.dmg.title, 'Install Fabric')
+  assert.equal(config.dmg.sign, true, 'release DMGs must be signed before notarization')
 
   assert.equal(config.win.icon, 'assets/icon.ico')
   assert.equal(config.win.legalTrademarks, 'Fabric')

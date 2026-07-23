@@ -966,6 +966,43 @@ def test_history_to_messages_renders_multimodal_content():
     ]
 
 
+def test_session_transcript_reads_bounded_display_history_without_resuming(monkeypatch):
+    calls = []
+
+    class FakeDB:
+        def get_session(self, session_id):
+            calls.append(("get_session", session_id))
+            return {"id": session_id}
+
+        def get_messages_as_conversation(self, session_id, include_ancestors=False):
+            calls.append(("messages", session_id, include_ancestors))
+            return [
+                {"role": "user", "content": "first"},
+                {"role": "assistant", "content": "second"},
+                {"role": "user", "content": "third"},
+            ]
+
+    monkeypatch.setattr(server, "_get_db", lambda: FakeDB())
+
+    response = server.handle_request(
+        {
+            "id": "1",
+            "method": "session.transcript",
+            "params": {"session_id": "stored", "limit": 2},
+        }
+    )
+
+    assert response["result"] == {
+        "session_id": "stored",
+        "message_count": 3,
+        "messages": [
+            {"role": "assistant", "text": "second"},
+            {"role": "user", "text": "third"},
+        ],
+    }
+    assert calls == [("get_session", "stored"), ("messages", "stored", True)]
+
+
 def test_session_resume_uses_parent_lineage_for_display(monkeypatch):
     captured = {}
 

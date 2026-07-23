@@ -6697,6 +6697,43 @@ def _schedule_agent_build(sid: str, delay: float = 0.05) -> None:
     timer.start()
 
 
+@method("session.transcript")
+def _(rid, params: dict) -> dict:
+    """Return a bounded persisted display transcript without resuming a chat.
+
+    Unlike ``session.resume``, this method never creates an agent, registers a
+    live session, claims an active-session lease, or mutates persistence. It is
+    for read-only library views such as native Social Studio scanners.
+    """
+    session_id = str(params.get("session_id") or "").strip()
+    if not session_id:
+        return _err(rid, 4006, "session_id required")
+    try:
+        limit = int(params.get("limit", 250))
+    except (TypeError, ValueError):
+        limit = 250
+    limit = max(1, min(limit, 250))
+
+    db = _get_db()
+    if db is None:
+        return _db_unavailable_error(rid, code=5000)
+    if not db.get_session(session_id):
+        return _err(rid, 4007, "session not found")
+    try:
+        history = db.get_messages_as_conversation(session_id, include_ancestors=True)
+    except Exception as exc:
+        return _err(rid, 5000, f"transcript failed: {exc}")
+    messages = _history_to_messages(history)
+    return _ok(
+        rid,
+        {
+            "session_id": session_id,
+            "message_count": len(messages),
+            "messages": messages[-limit:],
+        },
+    )
+
+
 @method("session.resume")
 def _(rid, params: dict) -> dict:
     target = params.get("session_id", "")

@@ -39,6 +39,7 @@
     ],
     "push": ["push.register_device", "push.deregister_device"],
     "session_admin": ["session.rename", "session.archive"],
+    "session_transcript": ["session.transcript"],
     "trust_center": ["trust.audit.list", "grant.list", "grant.create", "grant.revoke"],
     "workspace_read": ["fs.list", "fs.read"]
   },

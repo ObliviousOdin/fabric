@@ -8,6 +8,17 @@ import { cn } from "@/lib/utils";
 
 type LoadState = "loading" | "ready" | "error";
 
+function isAbsolutePath(path: string) {
+  return path.startsWith("/") || path.startsWith("~") || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+/** Resolve agent-written relative artifact paths in the producing session's cwd. */
+export function resolveWorkspaceImagePath(path: string, cwd?: string | null) {
+  const candidate = path.trim();
+  if (!cwd || isRemoteImage(candidate) || isAbsolutePath(candidate)) return candidate;
+  return `${cwd.replace(/[\\/]+$/, "")}/${candidate.replace(/^\.\//, "")}`;
+}
+
 /**
  * Render an image an agent produced for a post. Remote `http(s)` URLs load
  * directly; workspace-relative paths are fetched through the managed-files
@@ -19,19 +30,22 @@ type LoadState = "loading" | "ready" | "error";
 export function WorkspaceImage({
   alt,
   className,
+  cwd,
   path,
 }: {
   alt: string;
   className?: string;
+  cwd?: string | null;
   path: string;
 }) {
-  const remote = isRemoteImage(path);
-  const [src, setSrc] = useState<string | null>(remote ? path : null);
+  const resolvedPath = resolveWorkspaceImagePath(path, cwd);
+  const remote = isRemoteImage(resolvedPath);
+  const [src, setSrc] = useState<string | null>(remote ? resolvedPath : null);
   const [state, setState] = useState<LoadState>(remote ? "ready" : "loading");
 
   useEffect(() => {
-    if (isRemoteImage(path)) {
-      setSrc(path);
+    if (isRemoteImage(resolvedPath)) {
+      setSrc(resolvedPath);
       setState("ready");
       return;
     }
@@ -39,7 +53,7 @@ export function WorkspaceImage({
     setState("loading");
     setSrc(null);
     api
-      .readFile(path)
+      .readFile(resolvedPath)
       .then((file) => {
         if (!active) return;
         if (file.data_url && file.mime_type?.startsWith("image/")) {
@@ -55,7 +69,7 @@ export function WorkspaceImage({
     return () => {
       active = false;
     };
-  }, [path]);
+  }, [resolvedPath]);
 
   if (state === "error") {
     return (

@@ -54,6 +54,7 @@ export function SocialArtifactDetail({
                 <WorkspaceImage
                   alt={s.imageAlt}
                   className="max-h-80 w-full border border-border"
+                  cwd={session.cwd}
                   path={artifact.imagePath}
                 />
               )}

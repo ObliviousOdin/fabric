@@ -161,7 +161,7 @@ struct SocialSessionEntry: Identifiable {
     var id: String { session.id }
 }
 
-@Observable
+@MainActor @Observable
 final class SocialLibraryModel {
     var loading = true
     var entries: [SocialSessionEntry] = []
@@ -171,7 +171,7 @@ final class SocialLibraryModel {
         defer { loading = false }
 
         guard appModel.supportsGatewayMethod("session.list"),
-            appModel.supportsGatewayMethod("session.resume") else {
+            appModel.supportsGatewayMethod("session.transcript") else {
             entries = []
             return
         }
@@ -180,8 +180,8 @@ final class SocialLibraryModel {
             let sessions = try await appModel.api.listSessions(limit: 20).filter { $0.messageCount > 0 }
             var result: [SocialSessionEntry] = []
             for session in sessions {
-                if let live = try? await appModel.api.resumeSession(storedSessionId: session.id) {
-                    let artifacts = SocialExtraction.extract(live.messages.map(SocialMessageAdapter.init))
+                if let messages = try? await appModel.api.sessionTranscript(storedSessionId: session.id) {
+                    let artifacts = SocialExtraction.extract(messages.map(SocialMessageAdapter.init))
                     if !artifacts.isEmpty {
                         result.append(SocialSessionEntry(session: session, artifacts: artifacts))
                     }

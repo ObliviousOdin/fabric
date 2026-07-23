@@ -169,6 +169,7 @@ final class GatewayCapabilitiesTests: XCTestCase {
         "node_invoke",
         "push",
         "session_admin",
+        "session_transcript",
         "trust_center",
         "workspace_read",
     ]

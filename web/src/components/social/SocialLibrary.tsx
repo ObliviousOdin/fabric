@@ -185,6 +185,7 @@ export function SocialLibrary() {
                     <WorkspaceImage
                       alt={s.imageAlt}
                       className="h-40 w-full border-b border-border"
+                      cwd={row.session.cwd}
                       path={latest.imagePath}
                     />
                   ) : (

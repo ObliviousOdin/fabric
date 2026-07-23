@@ -473,18 +473,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Open a fresh chat seeded with the composed post prompt for review/send. */
-    fun startChatWithPrompt(prompt: String) {
-        openChat(resumeStoredSessionId = null, title = "New chat")
-        activeChat()?.send(prompt)
-    }
+    fun startChatWithPrompt(prompt: String) =
+        openChat(resumeStoredSessionId = null, title = "New chat", initialPrompt = prompt)
 
     /**
      * Scan recent conversations for post-ready artifacts (a `linkedin-post`
-     * block + optional image). Uses only the negotiated session methods; returns
-     * empty when they are unsupported so the UI degrades gracefully.
+     * block + optional image). The transcript lookup is read-only: a library
+     * refresh must not create background agents or live session leases.
      */
     suspend fun loadSocialLibrary(limit: Int = 20): List<SocialSessionEntry> {
-        if (!supportsGatewayMethod("session.list") || !supportsGatewayMethod("session.resume")) {
+        if (!supportsGatewayMethod("session.list") || !supportsGatewayMethod("session.transcript")) {
             return emptyList()
         }
 
@@ -492,7 +490,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         for (session in api.listSessions(limit).filter { it.messageCount > 0 }) {
             val artifacts =
                 try {
-                    extractSocialArtifacts(api.resumeSession(session.id).messages.map { it.toSocialSource() })
+                    extractSocialArtifacts(api.sessionTranscript(session.id).map { it.toSocialSource() })
                 } catch (_: Exception) {
                     emptyList()
                 }
@@ -514,11 +512,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             override val timestamp: Long? = null
         }
 
-    private fun openChat(resumeStoredSessionId: String?, title: String) {
+    private fun openChat(
+        resumeStoredSessionId: String?,
+        title: String,
+        initialPrompt: String? = null,
+    ) {
         val controller = ChatSessionController(
             api = api,
             scope = viewModelScope,
             resumeStoredSessionId = resumeStoredSessionId,
+            initialPrompt = initialPrompt,
             supportsMethod = ::supportsGatewayMethod,
             durableWorkNegotiation = { _capabilityNegotiation.value },
             workGatewayId = { _activeGatewayId.value },

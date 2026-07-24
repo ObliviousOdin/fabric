@@ -77,6 +77,8 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
   const silenceTriggeredRef = useRef(false)
   const silenceStartedAtRef = useRef<number | null>(null)
   const stopResolverRef = useRef<((recording: MicRecording | null) => void) | null>(null)
+  const runGenerationRef = useRef(0)
+  const mountedRef = useRef(true)
 
   const cleanup = () => {
     if (animationRef.current) {
@@ -89,12 +91,23 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
     streamRef.current?.getTracks().forEach(track => track.stop())
     streamRef.current = null
     recorderRef.current = null
-    setLevel(0)
-    setRecording(false)
+
+    if (mountedRef.current) {
+      setLevel(0)
+      setRecording(false)
+    }
+
     silenceTriggeredRef.current = false
   }
 
-  useEffect(() => () => cleanup(), [])
+  useEffect(
+    () => () => {
+      mountedRef.current = false
+      runGenerationRef.current += 1
+      cleanup()
+    },
+    []
+  )
 
   const startMeter = (stream: MediaStream, options: MicRecorderOptions) => {
     const audioWindow = window as Window & { webkitAudioContext?: BrowserAudioContext }
@@ -175,7 +188,13 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
       throw new Error(copy.microphoneUnsupported)
     }
 
+    const generation = ++runGenerationRef.current
+    const currentRun = () => mountedRef.current && runGenerationRef.current === generation
     const permitted = await window.fabricDesktop?.requestMicrophoneAccess?.()
+
+    if (!currentRun()) {
+      return
+    }
 
     if (permitted === false) {
       throw new Error(copy.microphoneAccessDenied)
@@ -191,6 +210,12 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
       throw micError(error, copy)
     }
 
+    if (!currentRun()) {
+      stream.getTracks().forEach(track => track.stop())
+
+      return
+    }
+
     const mimeType =
       ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/ogg', 'audio/wav'].find(
         type => MediaRecorder.isTypeSupported(type)
@@ -203,6 +228,12 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
     } catch (error) {
       stream.getTracks().forEach(track => track.stop())
       throw micError(error, copy)
+    }
+
+    if (!currentRun()) {
+      stream.getTracks().forEach(track => track.stop())
+
+      return
     }
 
     chunksRef.current = []
@@ -258,8 +289,10 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
     startMeter(stream, options)
   }
 
-  const stop: MicRecorderHandle['stop'] = () =>
-    new Promise<MicRecording | null>(resolve => {
+  const stop: MicRecorderHandle['stop'] = () => {
+    runGenerationRef.current += 1
+
+    return new Promise<MicRecording | null>(resolve => {
       const recorder = recorderRef.current
 
       if (!recorder || recorder.state === 'inactive') {
@@ -272,8 +305,10 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
       stopResolverRef.current = resolve
       recorder.stop()
     })
+  }
 
   const cancel: MicRecorderHandle['cancel'] = () => {
+    runGenerationRef.current += 1
     const recorder = recorderRef.current
     const resolver = stopResolverRef.current
     stopResolverRef.current = null

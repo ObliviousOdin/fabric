@@ -228,6 +228,8 @@ export function maybePlayApprovalSound(sessionId?: null | string, command?: stri
 // Resolve a pending approval from a notification button, mirroring the in-app
 // Run/Reject bar. The notification round-trip carries the exact request id so
 // an old OS button cannot resolve or dismiss a newer approval in that session.
+const approvalResponsesInFlight = new Set<string>()
+
 export async function respondToApprovalAction(
   sessionId: null | string,
   requestId: string | undefined,
@@ -239,11 +241,19 @@ export async function respondToApprovalAction(
     return
   }
 
+  const responseKey = `${sessionId ?? ''}\u0000${requestId}`
+
+  if (approvalResponsesInFlight.has(responseKey)) {
+    return
+  }
+
   const gateway = $gateway.get()
 
   if (!gateway) {
     return
   }
+
+  approvalResponsesInFlight.add(responseKey)
 
   try {
     const response = await gateway.request<ApprovalResolutionResponse>(
@@ -256,6 +266,8 @@ export async function respondToApprovalAction(
     }
   } catch {
     // Leave the prompt parked so the user can still resolve it in-app.
+  } finally {
+    approvalResponsesInFlight.delete(responseKey)
   }
 }
 

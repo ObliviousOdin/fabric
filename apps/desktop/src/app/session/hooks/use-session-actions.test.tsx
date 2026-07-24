@@ -53,10 +53,12 @@ function storedSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
 }
 
 function Harness({
+  navigate = vi.fn(),
   onReady,
   requestGateway
 }: {
-  onReady: (create: (preview?: string | null) => Promise<string | null>) => void
+  navigate?: ReturnType<typeof vi.fn>
+  onReady: (create: (preview?: string | null, preserveRoute?: boolean) => Promise<string | null>) => void
   requestGateway: <T>(method: string, params?: Record<string, unknown>) => Promise<T>
 }) {
   const ref = <T,>(value: T): MutableRefObject<T> => ({ current: value })
@@ -68,7 +70,7 @@ function Harness({
     creatingSessionRef: ref(false),
     ensureSessionState: () => ({}) as ClientSessionState,
     getRouteToken: () => 'token',
-    navigate: vi.fn() as never,
+    navigate: navigate as never,
     requestGateway,
     runtimeIdByStoredSessionIdRef: ref(new Map<string, string>()),
     selectedStoredSessionId: null,
@@ -101,7 +103,7 @@ async function createWith(profileSetup: () => void): Promise<Record<string, unkn
   $currentCwd.set('')
   profileSetup()
 
-  let create: ((preview?: string | null) => Promise<string | null>) | null = null
+  let create: ((preview?: string | null, preserveRoute?: boolean) => Promise<string | null>) | null = null
   render(<Harness onReady={c => (create = c)} requestGateway={requestGateway} />)
   await waitFor(() => expect(create).not.toBeNull())
   await create!()
@@ -178,6 +180,27 @@ describe('createBackendSessionForSend profile routing', () => {
     })
 
     expect(params).toMatchObject({ cwd: '/remote/worktree' })
+  })
+
+  it('can preserve a feature route while creating its backing session', async () => {
+    const navigate = vi.fn()
+
+    const requestGateway = vi.fn(async (method: string) => {
+      if (method === 'session.create') {
+        return { session_id: RUNTIME_SESSION_ID, stored_session_id: 'stored-mithuru' } as never
+      }
+
+      return {} as never
+    })
+
+    let create: ((preview?: string | null, preserveRoute?: boolean) => Promise<string | null>) | null = null
+
+    render(<Harness navigate={navigate} onReady={action => (create = action)} requestGateway={requestGateway} />)
+    await waitFor(() => expect(create).not.toBeNull())
+
+    await create!('Ayubowan', true)
+
+    expect(navigate).not.toHaveBeenCalled()
   })
 })
 

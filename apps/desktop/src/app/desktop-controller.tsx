@@ -20,7 +20,12 @@ import { type ChatMessage, chatMessageText, preserveLocalAssistantErrors, toChat
 import { storedSessionIdForNotification } from '../lib/session-ids'
 import { isMessagingSource } from '../lib/session-source'
 import { latestSessionTodos } from '../lib/todos'
-import { $composerAttachments, stashSessionDraft } from '../store/composer'
+import {
+  $composerAttachments,
+  clearComposerAttachments,
+  removeComposerAttachment,
+  stashSessionDraft
+} from '../store/composer'
 import { setCronFocusJobId } from '../store/cron'
 import {
   $fileBrowserOpen,
@@ -217,6 +222,7 @@ export function DesktopController() {
   const activeSessionId = useStore($activeSessionId)
   const busy = useStore($busy)
   const messages = useStore($messages)
+  const composerAttachments = useStore($composerAttachments)
   const liveViews = useStore($liveViews)
   const currentCwd = useStore($currentCwd)
   const freshDraftReady = useStore($freshDraftReady)
@@ -264,7 +270,14 @@ export function DesktopController() {
   } = useOverlayRouting()
 
   const mithuruOpen = currentView === 'mithuru'
+  const previousNonMithuruRouteRef = useRef(NEW_CHAT_ROUTE)
   const terminalSidebarOpen = chatOpen && terminalTakeover
+
+  useEffect(() => {
+    if (!mithuruOpen) {
+      previousNonMithuruRouteRef.current = `${location.pathname}${location.search}${location.hash}`
+    }
+  }, [location.hash, location.pathname, location.search, mithuruOpen])
 
   const titlebarToolGroups = useGroupRegistry<TitlebarTool>()
   const statusbarItemGroups = useGroupRegistry<StatusbarItem>()
@@ -1422,17 +1435,20 @@ export function DesktopController() {
           <Route
             element={
               <MithuruSimpleMode
+                attachments={composerAttachments}
                 busy={busy}
                 connected={gatewayState === 'open'}
                 messages={messages}
                 onChooseDocument={() => composer.pickContextPaths('file')}
-                onExit={() => navigate(NEW_CHAT_ROUTE)}
+                onClearAttachments={clearComposerAttachments}
+                onExit={() => navigate(previousNonMithuruRouteRef.current)}
+                onRemoveAttachment={id => void removeComposerAttachment(id)}
                 onRespondToApproval={(sessionId, requestId, action) =>
                   respondToApprovalAction(sessionId, requestId, action)
                 }
-                onSubmit={text => submitText(text, { attachments: $composerAttachments.get() })}
+                onSubmit={text => submitText(text, { attachments: $composerAttachments.get(), preserveRoute: true })}
                 onTranscribeAudio={transcribeVoiceAudio}
-                profile={profileScope}
+                profile={activeGatewayProfile || 'default'}
                 speechToTextEnabled={sttEnabled}
               />
             }

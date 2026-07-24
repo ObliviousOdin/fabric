@@ -2,12 +2,14 @@ import { useStore } from '@nanostores/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useMicRecorder } from '@/app/chat/composer/hooks/use-mic-recorder'
+import { PromptOverlays } from '@/components/prompt-overlays'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { chatMessageText } from '@/lib/chat-messages'
 import type { ChatMessage } from '@/lib/chat-messages'
 import { HelpCircle, Mic, MicOff, Pencil, Send, Volume2, VolumeX } from '@/lib/icons'
 import { cn } from '@/lib/utils'
+import type { ComposerAttachment } from '@/store/composer'
 import { $approvalRequest } from '@/store/prompts'
 
 import { MITHURU_LOCALE_NAMES, MITHURU_LOCALES, type MithuruLocale, mithuruTranslate } from './core/localization'
@@ -17,13 +19,16 @@ import { loadMithuruProfile, saveMithuruProfile } from './preferences'
 type MithuruVoiceState = 'idle' | 'listening' | 'processing' | 'speaking' | 'needs-confirmation' | 'offline' | 'error'
 
 interface MithuruSimpleModeProps {
+  attachments: ComposerAttachment[]
   busy: boolean
   connected: boolean
   messages: ChatMessage[]
   profile: string
   speechToTextEnabled: boolean
   onChooseDocument: () => Promise<void> | void
+  onClearAttachments: () => void
   onExit: () => void
+  onRemoveAttachment: (id: string) => void
   onRespondToApproval: (sessionId: null | string, requestId: string, action: 'approve' | 'reject') => Promise<void>
   onSubmit: (text: string) => Promise<boolean> | boolean
   onTranscribeAudio: (audio: Blob) => Promise<string>
@@ -77,6 +82,7 @@ function statusIcon(state: MithuruVoiceState) {
 }
 
 export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
+  const { connected, onTranscribeAudio, profile, speechToTextEnabled } = props
   const [stored, setStored] = useState(() => loadMithuruProfile(props.profile))
   const [stepIndex, setStepIndex] = useState(0)
   const [draft, setDraft] = useState('')
@@ -84,8 +90,12 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
   const [error, setError] = useState('')
   const [showHelp, setShowHelp] = useState(false)
   const [documentConsent, setDocumentConsent] = useState(false)
+  const [speechPrivacyOpen, setSpeechPrivacyOpen] = useState(false)
+  const [attachmentsReviewed, setAttachmentsReviewed] = useState(false)
+  const [approvalSubmitting, setApprovalSubmitting] = useState(false)
   const [speaking, setSpeaking] = useState(false)
   const approvalButtonRef = useRef<HTMLButtonElement>(null)
+  const approvalResponseKeyRef = useRef<string | null>(null)
   const transcriptEndRef = useRef<HTMLDivElement>(null)
   const wasBusyRef = useRef(props.busy)
   const approval = useStore($approvalRequest)
@@ -112,8 +122,21 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
   )
 
   const recorder = useMicRecorder(micCopy)
+  const recorderHandleRef = useRef(recorder.handle)
+  recorderHandleRef.current = recorder.handle
+  const approvalIdentity = approval ? `${approval.sessionId ?? ''}\u0000${approval.requestId}` : null
+  const blocked = Boolean(approval) || props.busy
+
+  const attachmentIdentity = props.attachments
+    .map(attachment => `${attachment.id}:${attachment.uploadState ?? 'ready'}`)
+    .join('\u0000')
+
+  const attachmentsReady = props.attachments.every(
+    attachment => attachment.uploadState !== 'uploading' && attachment.uploadState !== 'error'
+  )
 
   useEffect(() => {
+    recorderHandleRef.current.cancel()
     setStored(loadMithuruProfile(props.profile))
     setStepIndex(0)
   }, [props.profile])
@@ -141,10 +164,23 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
   }, [props.busy, props.connected, state])
 
   useEffect(() => {
+    approvalResponseKeyRef.current = null
+    setApprovalSubmitting(false)
+
     if (approval) {
       approvalButtonRef.current?.focus()
     }
-  }, [approval])
+  }, [approval, approvalIdentity])
+
+  useEffect(() => {
+    if (blocked) {
+      recorderHandleRef.current.cancel()
+    }
+  }, [blocked])
+
+  useEffect(() => {
+    setAttachmentsReviewed(false)
+  }, [attachmentIdentity])
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView?.({ block: 'nearest' })
@@ -157,6 +193,33 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
   const persist = (next = stored) => {
     saveMithuruProfile(props.profile, next)
     setStored(next)
+  }
+
+  const setCloudSpeechAllowed = (allowed: boolean) => {
+    if (!allowed) {
+      recorderHandleRef.current.cancel()
+    }
+
+    persist({ ...stored, preferences: { ...preferences, cloudSpeechAllowed: allowed } })
+    setSpeechPrivacyOpen(false)
+  }
+
+  const respondToApproval = async (action: 'approve' | 'reject') => {
+    if (!approval || !approvalIdentity || approvalResponseKeyRef.current === approvalIdentity) {
+      return
+    }
+
+    approvalResponseKeyRef.current = approvalIdentity
+    setApprovalSubmitting(true)
+
+    try {
+      await props.onRespondToApproval(approval.sessionId, approval.requestId, action)
+    } finally {
+      if (approvalResponseKeyRef.current === approvalIdentity) {
+        approvalResponseKeyRef.current = null
+        setApprovalSubmitting(false)
+      }
+    }
   }
 
   const stopSpeaking = useCallback(() => {
@@ -235,29 +298,36 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
       return
     }
 
+    if (!loadMithuruProfile(profile).preferences.cloudSpeechAllowed) {
+      setError(t('error.onlineSpeechOff'))
+      setState('error')
+
+      return
+    }
+
     setState('processing')
 
     try {
-      const text = (await props.onTranscribeAudio(recording.audio)).trim()
+      const text = (await onTranscribeAudio(recording.audio)).trim()
 
       if (!text) {
         throw new Error('empty transcript')
       }
 
       setDraft(text)
-      setState(props.connected ? 'idle' : 'offline')
+      setState(connected ? 'idle' : 'offline')
       setError('')
     } catch {
       setError(t('error.hearing'))
       setState('error')
     }
-  }, [props, recorder.handle, t])
+  }, [connected, onTranscribeAudio, profile, recorder.handle, t])
 
   const startListening = useCallback(async () => {
     stopSpeaking()
     setError('')
 
-    if (!props.speechToTextEnabled) {
+    if (!speechToTextEnabled) {
       setError(t('error.speechUnsupported'))
       setState('error')
 
@@ -268,7 +338,7 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
     // a verifiably on-device provider is advertised, do not send microphone
     // audio without the user's explicit online-speech choice.
     if (!preferences.cloudSpeechAllowed) {
-      setError(t('error.speechUnsupported'))
+      setError(t('error.onlineSpeechOff'))
       setState('error')
 
       return
@@ -281,7 +351,7 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
       setError(cause instanceof Error ? cause.message : t('error.hearing'))
       setState('error')
     }
-  }, [preferences.cloudSpeechAllowed, props.speechToTextEnabled, recorder.handle, stopSpeaking, t])
+  }, [preferences.cloudSpeechAllowed, recorder.handle, speechToTextEnabled, stopSpeaking, t])
 
   const toggleListening = useCallback(() => {
     if (recorder.recording) {
@@ -318,7 +388,13 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
   const sendDraft = async () => {
     const text = draft.trim()
 
-    if (!text || approval || props.busy || !props.connected) {
+    if (
+      !text ||
+      approval ||
+      props.busy ||
+      !props.connected ||
+      (props.attachments.length > 0 && (!attachmentsReviewed || !attachmentsReady))
+    ) {
       return
     }
 
@@ -328,6 +404,8 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
     if (sent) {
       setDraft('')
       setError('')
+      props.onClearAttachments()
+      setAttachmentsReviewed(false)
     } else {
       setError(t('error.notSent'))
     }
@@ -344,6 +422,7 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
     return (
       <MithuruOnboarding
         onBack={() => setStepIndex(index => Math.max(0, index - 1))}
+        onExit={props.onExit}
         onFinish={finalValues => {
           const next = {
             onboardingCompleted: true,
@@ -394,6 +473,11 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
             </option>
           ))}
         </select>
+        {preferences.voiceEnabled && (
+          <Button className="min-h-12 px-4 text-base" onClick={() => setSpeechPrivacyOpen(true)} variant="outline">
+            {t('privacy.manage')}
+          </Button>
+        )}
         <Button className="min-h-12 px-4 text-base" onClick={() => setShowHelp(value => !value)} variant="outline">
           <HelpCircle className="size-5" /> {t('nav.help')}
         </Button>
@@ -477,14 +561,16 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <Button
                   className="min-h-14 text-base"
-                  onClick={() => void props.onRespondToApproval(approval.sessionId, approval.requestId, 'approve')}
+                  disabled={approvalSubmitting}
+                  onClick={() => void respondToApproval('approve')}
                   ref={approvalButtonRef}
                 >
                   {t('confirm.allowOnce')}
                 </Button>
                 <Button
                   className="min-h-14 text-base"
-                  onClick={() => void props.onRespondToApproval(approval.sessionId, approval.requestId, 'reject')}
+                  disabled={approvalSubmitting}
+                  onClick={() => void respondToApproval('reject')}
                   variant="outline"
                 >
                   {t('confirm.deny')}
@@ -508,12 +594,60 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
               placeholder={t('home.inputPlaceholder')}
               value={draft}
             />
+            {props.attachments.length > 0 && (
+              <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-4">
+                <h3 className="font-semibold">{t('document.attachments')}</h3>
+                <ul className="grid gap-2">
+                  {props.attachments.map(attachment => (
+                    <li
+                      className="flex items-start gap-3 rounded-lg border border-border bg-background p-3"
+                      key={attachment.id}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="break-all font-medium">{attachment.label}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {attachment.kind}
+                          {attachment.uploadState === 'uploading' ? ` · ${t('document.uploading')}` : ''}
+                          {attachment.uploadState === 'error' ? ` · ${t('document.error')}` : ''}
+                        </p>
+                      </div>
+                      <Button
+                        aria-label={t('document.remove', { item: attachment.label })}
+                        disabled={attachment.uploadState === 'uploading'}
+                        onClick={() => props.onRemoveAttachment(attachment.id)}
+                        variant="outline"
+                      >
+                        {t('home.cancel')}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button
+                    disabled={!attachmentsReady}
+                    onClick={() => setAttachmentsReviewed(true)}
+                    variant={attachmentsReviewed ? 'secondary' : 'default'}
+                  >
+                    {attachmentsReviewed ? t('document.reviewed') : t('document.review')}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      props.onClearAttachments()
+                      setAttachmentsReviewed(false)
+                    }}
+                    variant="outline"
+                  >
+                    {t('document.clearAll')}
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className={cn('grid gap-3', preferences.voiceEnabled && 'sm:grid-cols-2')}>
               {preferences.voiceEnabled && (
                 <Button
                   aria-label={recorder.recording ? t('home.stopListening') : t('home.talk')}
                   className="min-h-16 rounded-xl text-lg"
-                  disabled={Boolean(approval) || state === 'processing' || props.busy}
+                  disabled={!recorder.recording && blocked}
                   onClick={toggleListening}
                   title="Alt+Space"
                 >
@@ -523,7 +657,14 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
               )}
               <Button
                 className="min-h-16 rounded-xl text-lg"
-                disabled={Boolean(approval) || !draft.trim() || props.busy || !props.connected}
+                disabled={
+                  Boolean(approval) ||
+                  !draft.trim() ||
+                  props.busy ||
+                  !props.connected ||
+                  (props.attachments.length > 0 && !attachmentsReviewed) ||
+                  !attachmentsReady
+                }
                 onClick={() => void sendDraft()}
                 variant="outline"
               >
@@ -615,6 +756,7 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
               className="min-h-14 text-base"
               onClick={() => {
                 setDocumentConsent(false)
+                setAttachmentsReviewed(false)
                 setDraft(t('suggest.document'))
                 void props.onChooseDocument()
               }}
@@ -627,12 +769,37 @@ export function MithuruSimpleMode(props: MithuruSimpleModeProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog onOpenChange={setSpeechPrivacyOpen} open={speechPrivacyOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-xl">{t('privacy.manage')}</DialogTitle>
+            <DialogDescription className="pt-3 text-base leading-relaxed text-foreground">
+              {preferences.cloudSpeechAllowed ? t('home.privacy.cloud') : t('onboarding.cloud.explanation')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Button
+              className="min-h-14 text-base"
+              onClick={() => setCloudSpeechAllowed(!preferences.cloudSpeechAllowed)}
+            >
+              {preferences.cloudSpeechAllowed ? t('privacy.turnOffOnline') : t('privacy.turnOnOnline')}
+            </Button>
+            <Button className="min-h-14 text-base" onClick={() => setSpeechPrivacyOpen(false)} variant="outline">
+              {t('home.cancel')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <PromptOverlays includeApprovalFallback={false} includeClarify />
     </div>
   )
 }
 
 function MithuruOnboarding({
   onBack,
+  onExit,
   onFinish,
   onNext,
   onUpdate,
@@ -640,6 +807,7 @@ function MithuruOnboarding({
   step
 }: {
   onBack: () => void
+  onExit: () => void
   onFinish: (finalValues: Partial<MithuruPreferences>) => void
   onNext: () => void
   onUpdate: (next: Partial<MithuruPreferences>) => void
@@ -741,6 +909,9 @@ function MithuruOnboarding({
             {t('onboarding.back')}
           </Button>
         )}
+        <Button className="mt-5 min-h-12 text-base" onClick={onExit} variant="textStrong">
+          {t('nav.standardMode')}
+        </Button>
       </section>
     </main>
   )

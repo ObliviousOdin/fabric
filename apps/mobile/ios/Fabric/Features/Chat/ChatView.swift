@@ -1423,7 +1423,12 @@ struct ChatExperienceDebugFixtureView: View {
                     name: "release_check",
                     detail: "Waiting for a signing decision",
                     state: .running,
-                    durationSeconds: nil
+                    durationSeconds: nil,
+                    log: [
+                        "Archiving Fabric scheme",
+                        "Validating entitlements",
+                        "Checking signing identity",
+                    ]
                 ))
             ),
             AssistantTurnPart(
@@ -2533,6 +2538,9 @@ private struct ToolActivityCard: View {
                         .font(.caption)
                         .foregroundStyle(FabricTheme.textMuted)
                 }
+                if !tool.log.isEmpty {
+                    toolLog
+                }
             }
             Spacer(minLength: 0)
         }
@@ -2543,6 +2551,29 @@ private struct ToolActivityCard: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Tool \(title), \(stateLabel)")
         .accessibilityValue(tool.detail ?? "")
+    }
+
+    /// A compact live terminal of the tool's recent progress lines.
+    private var toolLog: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(tool.log.enumerated()), id: \.offset) { _, line in
+                HStack(alignment: .top, spacing: 5) {
+                    Text("›")
+                        .foregroundStyle(stateColor.opacity(0.75))
+                    Text(line)
+                        .foregroundStyle(FabricTheme.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .font(.caption2.monospaced())
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            FabricTheme.canvas.opacity(0.6),
+            in: RoundedRectangle(cornerRadius: FabricTheme.radiusChip)
+        )
+        .padding(.top, 3)
     }
 }
 

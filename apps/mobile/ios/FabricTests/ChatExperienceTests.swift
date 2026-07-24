@@ -47,6 +47,43 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertEqual(text, "Ready to ship.")
     }
 
+    func testToolProgressAccumulatesBoundedDedupedLiveLog() {
+        var message = TranscriptMessage(role: .assistant, text: "", streaming: true)
+        let events: [AssistantTurnEvent] = [
+            .toolStarted(callID: "c1", name: "shell", detail: "cd /repo && make"),
+            .toolProgress(callID: "c1", name: "shell", detail: "compiling module A"),
+            .toolProgress(callID: "c1", name: "shell", detail: "compiling module A"), // immediate dup
+            .toolProgress(callID: "c1", name: "shell", detail: "compiling module B"),
+            .toolProgress(callID: "c1", name: "shell", detail: "linking"),
+            .toolProgress(callID: "c1", name: "shell", detail: "line 5"),
+            .toolProgress(callID: "c1", name: "shell", detail: "line 6"),
+            .toolProgress(callID: "c1", name: "shell", detail: "line 7"),
+        ]
+        for event in events { message = AssistantTurnReducer.reducing(message, event: event) }
+
+        guard case .tool(let tool) = message.assistantParts.last?.content else {
+            return XCTFail("Expected a tool part with a live log")
+        }
+        // start(1) + 6 unique progress lines (one immediate dup dropped) = 7,
+        // bounded to the most recent maximumToolLogLines.
+        XCTAssertEqual(tool.log.count, AssistantTurnReducer.maximumToolLogLines)
+        XCTAssertEqual(tool.log.last, "line 7")
+        XCTAssertEqual(tool.log.first, "compiling module A") // oldest ("cd /repo && make") evicted
+        XCTAssertEqual(tool.log.filter { $0 == "compiling module A" }.count, 1) // de-duped
+
+        // A completion summary updates detail but is not appended to the live log.
+        message = AssistantTurnReducer.reducing(
+            message,
+            event: .toolCompleted(callID: "c1", name: "shell", detail: "done", failed: false, durationSeconds: 1.0)
+        )
+        guard case .tool(let done) = message.assistantParts.last?.content else {
+            return XCTFail("Expected the completed tool part")
+        }
+        XCTAssertEqual(done.detail, "done")
+        XCTAssertEqual(done.log.count, AssistantTurnReducer.maximumToolLogLines)
+        XCTAssertEqual(done.state, .complete)
+    }
+
     func testMirroredSubagentHeaderKeepsAnswerAfterInterveningReasoning() throws {
         var message = TranscriptMessage(role: .assistant, text: "", streaming: true)
         let events = [

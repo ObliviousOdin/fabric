@@ -24,6 +24,10 @@ struct AssistantTurnPart: Identifiable, Equatable {
         var detail: String?
         var state: State
         var durationSeconds: Double?
+        /// Live-only stream of recent progress lines, rendered as a mini
+        /// terminal on the card. Bounded and never persisted to the
+        /// presentation cache (it defaults to empty on restore).
+        var log: [String] = []
     }
 
     /// A generated image's renderable source. Images are either opaque gateway
@@ -329,6 +333,7 @@ enum AssistantTurnReducer {
                 tool.callID = callID ?? tool.callID
                 tool.name = safeName
                 tool.detail = safeDetail ?? tool.detail
+                if let safeDetail { appendLog(safeDetail, to: &tool.log) }
                 tool.state = .running
             }
 
@@ -344,6 +349,7 @@ enum AssistantTurnReducer {
                 tool.callID = callID ?? tool.callID
                 tool.name = safeName
                 tool.detail = safeDetail ?? tool.detail
+                if let safeDetail { appendLog(safeDetail, to: &tool.log) }
                 tool.state = .running
             }
 
@@ -508,6 +514,18 @@ enum AssistantTurnReducer {
         )
         update(&tool)
         appendTool(tool, to: &parts)
+    }
+
+    static let maximumToolLogLines = 6
+
+    /// Append one progress line to a tool's live log, de-duplicating an
+    /// immediately repeated line and keeping only the most recent lines.
+    private static func appendLog(_ line: String, to log: inout [String]) {
+        guard log.last != line else { return }
+        log.append(line)
+        if log.count > maximumToolLogLines {
+            log.removeFirst(log.count - maximumToolLogLines)
+        }
     }
 
     private static func appendTool(

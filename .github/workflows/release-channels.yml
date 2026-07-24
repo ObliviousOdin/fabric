@@ -255,6 +255,9 @@ jobs:
         env:
           CANDIDATE_DIR: ${{ github.workspace }}/dist
         working-directory: ${{ runner.temp }}
+        # The inline script is POSIX shell syntax. GitHub otherwise selects
+        # PowerShell on Windows, where the heredoc is a parse error.
+        shell: bash
         run: |
           python - <<'PY'
           import glob

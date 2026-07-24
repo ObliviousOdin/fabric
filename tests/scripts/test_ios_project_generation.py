@@ -91,6 +91,8 @@ class IOSProjectGenerationTests(unittest.TestCase):
 
         self.capture = self.checkout / "captured-project.yml"
         self.link_build_capture = self.checkout / "captured-link-build"
+        self.rust_paths_capture = self.checkout / "captured-rust-paths"
+        self.rustup_args_capture = self.checkout / "captured-rustup-args"
         self.fake_tools = self.checkout / "fake-tools"
         self.fake_tools.mkdir()
         fake_curl = self.fake_tools / "curl"
@@ -112,7 +114,8 @@ class IOSProjectGenerationTests(unittest.TestCase):
                   esac
                 done
                 test -n "$output"
-                printf '#!/bin/sh\\nexit 0\\n' > "$output"
+                printf '#!/bin/sh\\nprintf "%%s\\\\n" "$@" > "$FABRIC_TEST_CAPTURE_RUSTUP_ARGS"\\n' \
+                  > "$output"
                 """
             ),
             encoding="utf-8",
@@ -139,7 +142,10 @@ class IOSProjectGenerationTests(unittest.TestCase):
                 #!/bin/sh
                 set -eu
                 : "${FABRIC_TEST_CAPTURE_LINK_BUILD:?}"
+                : "${FABRIC_TEST_CAPTURE_RUST_PATHS:?}"
                 printf 'built\\n' > "$FABRIC_TEST_CAPTURE_LINK_BUILD"
+                printf '%s\\n%s\\n' "$CARGO_HOME" "$RUSTUP_HOME" \
+                  > "$FABRIC_TEST_CAPTURE_RUST_PATHS"
                 """
             ),
             encoding="utf-8",
@@ -207,6 +213,8 @@ class IOSProjectGenerationTests(unittest.TestCase):
                 "FABRIC_XCODEGEN_BIN": str(self.fake_xcodegen),
                 "FABRIC_TEST_CAPTURE_SPEC": str(self.capture),
                 "FABRIC_TEST_CAPTURE_LINK_BUILD": str(self.link_build_capture),
+                "FABRIC_TEST_CAPTURE_RUST_PATHS": str(self.rust_paths_capture),
+                "FABRIC_TEST_CAPTURE_RUSTUP_ARGS": str(self.rustup_args_capture),
                 "PATH": f"{self.fake_tools}{os.pathsep}{environment['PATH']}",
             }
         )
@@ -234,6 +242,53 @@ class IOSProjectGenerationTests(unittest.TestCase):
             self.link_build_capture.read_text(encoding="utf-8"),
             "built\n",
         )
+        self.assert_source_manifest_unchanged()
+
+    def test_rustup_cannot_modify_the_user_shell_profile(self) -> None:
+        result = self.run_post_clone()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rustup_args = self.rustup_args_capture.read_text(
+            encoding="utf-8"
+        ).splitlines()
+        self.assertIn("--no-modify-path", rustup_args)
+        self.assert_source_manifest_unchanged()
+
+    def test_rust_bootstrap_uses_physical_paths_beneath_a_symlinked_tmpdir(
+        self,
+    ) -> None:
+        physical_tmp = self.checkout / "physical-tmp"
+        physical_tmp.mkdir()
+        linked_tmp = self.checkout / "linked-tmp"
+        linked_tmp.symlink_to(physical_tmp, target_is_directory=True)
+        fake_mktemp = self.fake_tools / "mktemp"
+        fake_mktemp.write_text(
+            textwrap.dedent(
+                """\
+                #!/bin/sh
+                set -eu
+                : "${FABRIC_TEST_MKTEMP_DIR:?}"
+                mkdir "$FABRIC_TEST_MKTEMP_DIR"
+                printf '%s\\n' "$FABRIC_TEST_MKTEMP_DIR"
+                """
+            ),
+            encoding="utf-8",
+        )
+        fake_mktemp.chmod(0o755)
+
+        result = self.run_post_clone(
+            FABRIC_TEST_MKTEMP_DIR=str(linked_tmp / "work")
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        cargo_home, rustup_home = self.rust_paths_capture.read_text(
+            encoding="utf-8"
+        ).splitlines()
+        physical_prefix = f"{physical_tmp.resolve()}{os.sep}"
+        self.assertTrue(cargo_home.startswith(physical_prefix), cargo_home)
+        self.assertTrue(rustup_home.startswith(physical_prefix), rustup_home)
+        self.assertNotIn(str(linked_tmp), cargo_home)
+        self.assertNotIn(str(linked_tmp), rustup_home)
         self.assert_source_manifest_unchanged()
 
     def test_non_executable_configured_generator_fails_closed(self) -> None:

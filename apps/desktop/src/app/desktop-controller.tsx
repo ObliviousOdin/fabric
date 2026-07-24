@@ -20,7 +20,7 @@ import { type ChatMessage, chatMessageText, preserveLocalAssistantErrors, toChat
 import { storedSessionIdForNotification } from '../lib/session-ids'
 import { isMessagingSource } from '../lib/session-source'
 import { latestSessionTodos } from '../lib/todos'
-import { stashSessionDraft } from '../store/composer'
+import { $composerAttachments, stashSessionDraft } from '../store/composer'
 import { setCronFocusJobId } from '../store/cron'
 import {
   $fileBrowserOpen,
@@ -55,6 +55,7 @@ import { $reviewOpen, REVIEW_PANE_ID } from '../store/review'
 import {
   $activeSessionId,
   $attentionSessionIds,
+  $busy,
   $connection,
   $currentCwd,
   $freshDraftReady,
@@ -101,6 +102,7 @@ import { useGatewayBoot } from './gateway/hooks/use-gateway-boot'
 import { useGatewayRequest } from './gateway/hooks/use-gateway-request'
 import { useKeybinds } from './hooks/use-keybinds'
 import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from './layout-constants'
+import { MithuruSimpleMode } from './mithuru'
 import { ModelPickerOverlay } from './model-picker-overlay'
 import { ModelVisibilityOverlay } from './model-visibility-overlay'
 import { PetGenerateOverlay } from './pet-generate/pet-generate-overlay'
@@ -115,6 +117,7 @@ import { closeActiveTerminal } from './right-sidebar/terminal/terminals'
 import {
   ARTIFACTS_ROUTE,
   CRON_ROUTE,
+  MITHURU_ROUTE,
   NEW_CHAT_ROUTE,
   routeSessionId,
   sessionRoute,
@@ -212,6 +215,8 @@ export function DesktopController() {
   const gatewayState = useStore($gatewayState)
   const connection = useStore($connection)
   const activeSessionId = useStore($activeSessionId)
+  const busy = useStore($busy)
+  const messages = useStore($messages)
   const liveViews = useStore($liveViews)
   const currentCwd = useStore($currentCwd)
   const freshDraftReady = useStore($freshDraftReady)
@@ -258,6 +263,7 @@ export function DesktopController() {
     toggleCommandCenter
   } = useOverlayRouting()
 
+  const mithuruOpen = currentView === 'mithuru'
   const terminalSidebarOpen = chatOpen && terminalTakeover
 
   const titlebarToolGroups = useGroupRegistry<TitlebarTool>()
@@ -1383,6 +1389,7 @@ export function DesktopController() {
 
   return (
     <AppShell
+      hideStatusbar={mithuruOpen}
       leftStatusbarItems={leftStatusbarItems}
       leftTitlebarTools={titlebarToolGroups.flat.left}
       mainOverlays={mainOverlays}
@@ -1393,7 +1400,7 @@ export function DesktopController() {
       terminalPaneOpen={terminalSidebarOpen}
       titlebarTools={titlebarToolGroups.flat.right}
     >
-      {!isSecondaryWindow() && (
+      {!isSecondaryWindow() && !mithuruOpen && (
         <Pane
           forceCollapsed={narrowViewport}
           hoverReveal
@@ -1412,6 +1419,25 @@ export function DesktopController() {
         <Routes>
           <Route element={chatView} index />
           <Route element={chatView} path=":sessionId" />
+          <Route
+            element={
+              <MithuruSimpleMode
+                busy={busy}
+                connected={gatewayState === 'open'}
+                messages={messages}
+                onChooseDocument={() => composer.pickContextPaths('file')}
+                onExit={() => navigate(NEW_CHAT_ROUTE)}
+                onRespondToApproval={(sessionId, requestId, action) =>
+                  respondToApprovalAction(sessionId, requestId, action)
+                }
+                onSubmit={text => submitText(text, { attachments: $composerAttachments.get() })}
+                onTranscribeAudio={transcribeVoiceAudio}
+                profile={profileScope}
+                speechToTextEnabled={sttEnabled}
+              />
+            }
+            path={MITHURU_ROUTE.slice(1)}
+          />
           <Route
             element={
               <Suspense fallback={null}>

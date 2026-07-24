@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest'
 
-import { mergeVoiceModePreferences, voiceModeAttitudesFromConfig, voiceModePreferencesFromConfig } from './voice-mode'
+import {
+  $pendingVoiceModeSession,
+  clearPendingVoiceModeSession,
+  mergeVoiceModePreferences,
+  voiceModeAttitudesFromConfig,
+  voiceModePreferencesFromConfig
+} from './voice-mode'
 
 describe('voice mode preferences', () => {
+  it('clears a prepared one-shot session when Voice Mode is abandoned', () => {
+    $pendingVoiceModeSession.set({
+      attitude: 'focused',
+      presentation: 'chat',
+      profile: 'default',
+      voiceRef: 'profile_default'
+    })
+
+    clearPendingVoiceModeSession()
+
+    expect($pendingVoiceModeSession.get()).toBeNull()
+  })
+
   it('uses safe defaults when profile config has no voice experience block', () => {
     expect(voiceModePreferencesFromConfig({})).toEqual({
       attitude: 'profile_default',

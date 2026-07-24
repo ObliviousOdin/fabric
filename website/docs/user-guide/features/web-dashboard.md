@@ -180,6 +180,11 @@ choose **Track chat in Work**. That action creates one idempotent Triage task
 linked to the TUI session id; it writes directly to the board and does not
 invoke the model.
 
+Profile-scoped runtime selections, such as a fresh voice conversation's
+personality or presentation mode, remain attached to the new TUI session. They
+are not copied into the dashboard URL, shell arguments, or persistent profile
+configuration.
+
 **How it works:**
 
 - `/api/pty` opens a WebSocket authenticated with the dashboard's session token

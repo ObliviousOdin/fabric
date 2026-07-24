@@ -6,7 +6,11 @@ import { triggerHaptic } from '@/lib/haptics'
 import { resetBrowseState } from '@/store/composer-input-history'
 import { notifyError } from '@/store/notifications'
 import { $messages } from '@/store/session'
-import { type PendingVoiceModeSession, prepareVoiceModeSession } from '@/store/voice-mode'
+import {
+  clearPendingVoiceModeSession,
+  type PendingVoiceModeSession,
+  prepareVoiceModeSession
+} from '@/store/voice-mode'
 import { $autoSpeakReplies, setAutoSpeakReplies } from '@/store/voice-prefs'
 
 import { onComposerVoiceToggleRequest } from '../focus'
@@ -103,6 +107,7 @@ export function useComposerVoice({
     consumePendingResponse,
     enabled: voiceConversationActive,
     onFatalError: () => {
+      clearPendingVoiceModeSession()
       setVoiceConversationActive(false)
       setVoiceConversationPending(false)
     },
@@ -159,6 +164,7 @@ export function useComposerVoice({
   )
 
   const endConversation = useCallback(() => {
+    clearPendingVoiceModeSession()
     setVoiceConversationPending(false)
     setVoiceConversationActive(false)
     void conversation.end()

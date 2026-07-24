@@ -166,6 +166,20 @@ profile. Desktop does not save a local copy automatically: leaving the view or
 discarding the draft releases it unless you explicitly choose **Save
 recording**.
 
+## Voice Mode
+
+Use the **Voice Mode** button in the composer to start a fresh,
+profile-scoped voice conversation. Before starting, choose the active profile,
+an already-configured personality, the configured speech voice, and whether the
+conversation stays in Chat or may open the Live View picture-in-picture panel.
+
+Voice Mode keeps the personality prompt and provider credentials in the active
+profile; the launcher sends only the selected names. The first spoken turn
+creates the new backend session, so cancelling before speaking does not affect
+the next ordinary chat. Picture-in-picture opens only after an authorized
+Browser or Computer Use visual event, and can be docked or hidden without
+stopping the conversation.
+
 ## Design systems and outputs
 
 Open **Design** to turn a brief into a reviewed `/design` prompt. The workspace

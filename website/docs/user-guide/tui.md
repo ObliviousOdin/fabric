@@ -282,6 +282,11 @@ There is no general "point any TUI at any standalone gateway port" mode. In part
 
 If you want multiple surfaces to share one set of sessions, use the shared `~/.fabric/state.db` (see [Sessions](sessions.md)) or the web dashboard's embedded chat (see [Web Dashboard](features/web-dashboard.md#chat)) — not a hand-set gateway URL.
 
+Ephemeral runtime selections belong to the TUI session that received them. The
+gateway keeps them out of persistent profile configuration and out of launch
+URLs or command-line arguments, so starting or resuming a session does not
+leak those values through the transport.
+
 ## Reverting to the classic CLI
 
 Launching `fabric` (without `--tui`) stays on the classic CLI by default. To make a machine prefer the TUI, set `display.interface: tui` in `~/.fabric/config.yaml`. To go back, set `interface: cli` or pass `fabric --cli` for a one-off.

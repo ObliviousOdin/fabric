@@ -139,6 +139,11 @@ export function consumePendingVoiceModeSession(profile: string): PendingVoiceMod
   return pending
 }
 
-export function resetVoiceModeSessionForTest(): void {
+/** Cancel a prepared one-shot session before the first turn consumes it. */
+export function clearPendingVoiceModeSession(): void {
   $pendingVoiceModeSession.set(null)
+}
+
+export function resetVoiceModeSessionForTest(): void {
+  clearPendingVoiceModeSession()
 }

@@ -1578,6 +1578,10 @@ STT_OPENAI_BASE_URL=https://api.openai.com/v1
 
 ```yaml
 voice:
+  experience:
+    attitude: profile_default     # Existing named personality, or profile_default
+    presentation: chat             # chat or pip
+    voice_ref: profile_default      # Existing configured voice, or profile_default
   record_key: "ctrl+b"         # Push-to-talk key inside the CLI
   max_recording_seconds: 120    # Hard stop for long recordings
   auto_tts: false               # Enable spoken replies automatically when /voice on

@@ -48,6 +48,13 @@ export const OPTIONAL_GATEWAY_FEATURE_METHODS = {
     "attention.list",
     "attention.respond",
   ],
+  link_remote_control: [
+    "events.poll",
+    "session.attach",
+    "session.detach",
+    "session.input.submit",
+    "session.remote_status",
+  ],
   node_invoke: ["node.announce", "node.result", "node.reject"],
   pets: [
     "pet.info",

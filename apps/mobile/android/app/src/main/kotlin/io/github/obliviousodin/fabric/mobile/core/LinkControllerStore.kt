@@ -45,7 +45,14 @@ internal object LinkControllerStore {
         internal val controllerId: String,
         private val ciphertext: ByteArray,
         internal val cipher: Cipher,
-    )
+    ) {
+        internal fun decrypt(authenticatedCipher: Cipher): ByteArray {
+            require(authenticatedCipher === cipher) {
+                "Fabric Link cipher does not belong to this authentication operation"
+            }
+            return authenticatedCipher.doFinal(ciphertext)
+        }
+    }
 
     fun beginWrite(controllerId: String): EncryptOperation {
         validateControllerId(controllerId)
@@ -93,10 +100,7 @@ internal object LinkControllerStore {
         operation: DecryptOperation,
         authenticatedCipher: Cipher,
     ): ByteArray {
-        require(authenticatedCipher === operation.cipher) {
-            "Fabric Link cipher does not belong to this authentication operation"
-        }
-        val opaqueState = authenticatedCipher.doFinal(operation.ciphertext)
+        val opaqueState = operation.decrypt(authenticatedCipher)
         require(opaqueState.isNotEmpty() && opaqueState.size <= MAX_STATE_BYTES) {
             "Fabric Link controller state is invalid"
         }

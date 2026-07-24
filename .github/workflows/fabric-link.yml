@@ -54,18 +54,13 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install pinned protocol test dependencies
-        run: >-
-          python3 -m pip install
-          --disable-pip-version-check
-          cbor2==6.1.3
-          cryptography==48.0.1
-          pytest==9.0.3
+      - name: Install the locked Fabric test environment
+        run: uv sync --locked --extra dev
 
       - name: Check deterministic v3 corpus and Python implementation
         run: |
-          python3 scripts/generate_fabric_link_interop.py --check
-          python3 -m pytest -q tests/fabric_link
+          uv run python scripts/generate_fabric_link_interop.py --check
+          uv run pytest -q tests/fabric_link
 
       - name: Set up Rust targets
         run: |

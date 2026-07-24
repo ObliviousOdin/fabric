@@ -147,6 +147,12 @@ and terminal theming remain TUI behavior because the browser is rendering the
 real process through [xterm.js](https://xtermjs.org/), not recreating Chat in
 React.
 
+Entering `/remote` in this embedded TUI publishes that exact live conversation
+to explicitly paired [Fabric Link](../fabric-link.md) controllers. Dashboard
+login never grants Link authority, and the browser tab does not become a
+controller implicitly. Closing the owning dashboard chat ends the live
+publication; Link Dispatch remains a separate durable Work path.
+
 - **Left:** recent conversations and session switching
 - **Center:** the persistent TUI transcript and composer
 - **Right:** agent activity, the selected board's Work card, and live Task,

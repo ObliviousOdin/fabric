@@ -11,7 +11,8 @@ import type { RichFenceProps } from './types'
 const LAZY_FENCE: Record<string, LazyExoticComponent<ComponentType<RichFenceProps>>> = {
   diff: lazy(() => import('./diff-embed')),
   mermaid: lazy(() => import('./mermaid-embed')),
-  svg: lazy(() => import('./svg-embed'))
+  svg: lazy(() => import('./svg-embed')),
+  work: lazy(() => import('./work-embed'))
 }
 
 export const RICH_FENCE_LANGUAGES: ReadonlySet<string> = new Set(Object.keys(LAZY_FENCE))

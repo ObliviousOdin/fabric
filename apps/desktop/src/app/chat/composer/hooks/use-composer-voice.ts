@@ -6,6 +6,11 @@ import { triggerHaptic } from '@/lib/haptics'
 import { resetBrowseState } from '@/store/composer-input-history'
 import { notifyError } from '@/store/notifications'
 import { $messages } from '@/store/session'
+import {
+  clearPendingVoiceModeSession,
+  type PendingVoiceModeSession,
+  prepareVoiceModeSession
+} from '@/store/voice-mode'
 import { $autoSpeakReplies, setAutoSpeakReplies } from '@/store/voice-prefs'
 
 import { onComposerVoiceToggleRequest } from '../focus'
@@ -46,6 +51,7 @@ export function useComposerVoice({
 }: UseComposerVoiceArgs) {
   const { t } = useI18n()
   const [voiceConversationActive, setVoiceConversationActive] = useState(false)
+  const [voiceConversationPending, setVoiceConversationPending] = useState(false)
   const lastSpokenIdRef = useRef<string | null>(null)
 
   const { dictate, voiceActivityState, voiceStatus } = useVoiceRecorder({
@@ -100,11 +106,28 @@ export function useComposerVoice({
     busy,
     consumePendingResponse,
     enabled: voiceConversationActive,
-    onFatalError: () => setVoiceConversationActive(false),
+    onFatalError: () => {
+      clearPendingVoiceModeSession()
+      setVoiceConversationActive(false)
+      setVoiceConversationPending(false)
+    },
     onSubmit: submitVoiceTurn,
     onTranscribeAudio,
     pendingResponse
   })
+
+  // A launcher start must not capture microphone input against the thread the
+  // user was just viewing. Wait until the ordinary fresh-draft transition has
+  // cleared its runtime session id; the first spoken turn then creates the
+  // pending profile-scoped backend session.
+  useEffect(() => {
+    if (!voiceConversationPending || disabled || sessionId != null) {
+      return
+    }
+
+    setVoiceConversationPending(false)
+    setVoiceConversationActive(true)
+  }, [disabled, sessionId, voiceConversationPending])
 
   // The `composer.voice` hotkey (Ctrl+B) toggles the conversation. Starting
   // with STT unconfigured lets the conversation surface its own "configure
@@ -124,11 +147,25 @@ export function useComposerVoice({
 
   useEffect(() => onComposerVoiceToggleRequest(toggleVoiceConversation), [toggleVoiceConversation])
 
-  // Explicit start/end for the on-screen conversation controls (the hotkey uses
-  // the gated toggle above).
+  // The hotkey remains an immediate toggle for fast keyboard use. The visible
+  // Voice Mode launcher prepares a fresh profile-scoped session before capture.
   const startConversation = useCallback(() => setVoiceConversationActive(true), [])
 
+  const startVoiceMode = useCallback(
+    async (plan: PendingVoiceModeSession) => {
+      if (disabled) {
+        return
+      }
+
+      await prepareVoiceModeSession(plan)
+      setVoiceConversationPending(true)
+    },
+    [disabled]
+  )
+
   const endConversation = useCallback(() => {
+    clearPendingVoiceModeSession()
+    setVoiceConversationPending(false)
     setVoiceConversationActive(false)
     void conversation.end()
   }, [conversation])
@@ -153,6 +190,7 @@ export function useComposerVoice({
     endConversation,
     handleToggleAutoSpeak,
     startConversation,
+    startVoiceMode,
     voiceActivityState,
     voiceConversationActive,
     voiceStatus

@@ -650,7 +650,7 @@ export function ChatBar({
     dictate,
     endConversation,
     handleToggleAutoSpeak,
-    startConversation,
+    startVoiceMode,
     voiceActivityState,
     voiceConversationActive,
     voiceStatus
@@ -691,7 +691,7 @@ export function ChatBar({
         level: conversation.level,
         muted: conversation.muted,
         onEnd: endConversation,
-        onStart: startConversation,
+        onStartVoiceMode: startVoiceMode,
         onStopTurn: conversation.stopTurn,
         onToggleMute: conversation.toggleMute,
         status: conversation.status

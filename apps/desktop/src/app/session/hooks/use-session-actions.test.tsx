@@ -16,6 +16,7 @@ import {
   setResumeFailedSessionId,
   setSessions
 } from '@/store/session'
+import { $pendingVoiceModeSession, resetVoiceModeSessionForTest } from '@/store/voice-mode'
 
 import type { ClientSessionState } from '../../types'
 
@@ -114,6 +115,7 @@ describe('createBackendSessionForSend profile routing', () => {
     $newChatProfile.set(null)
     $activeGatewayProfile.set('default')
     $currentCwd.set('')
+    resetVoiceModeSessionForTest()
     vi.restoreAllMocks()
   })
 
@@ -146,6 +148,22 @@ describe('createBackendSessionForSend profile routing', () => {
     })
 
     expect(params).toMatchObject({ profile: 'default' })
+  })
+
+  it('passes a selected voice attitude only to the fresh session prepared for its profile', async () => {
+    const params = await createWith(() => {
+      $activeGatewayProfile.set('coder')
+      $newChatProfile.set('analyst')
+      $pendingVoiceModeSession.set({
+        attitude: 'operator',
+        presentation: 'pip',
+        profile: 'analyst',
+        voiceRef: 'profile_default'
+      })
+    })
+
+    expect(params).toMatchObject({ profile: 'analyst', voice_attitude: 'operator' })
+    expect($pendingVoiceModeSession.get()).toBeNull()
   })
 
   it('tags new desktop chats as desktop sessions', async () => {

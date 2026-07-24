@@ -8,6 +8,7 @@ import { preserveLocalAssistantErrors, toChatMessages } from '@/lib/chat-message
 import { setSessionYolo } from '@/lib/yolo-session'
 import { clearQueuedPrompts } from '@/store/composer-queue'
 import { $pinnedSessionIds } from '@/store/layout'
+import { setLiveViewPreferredPresentation } from '@/store/live-view'
 import { clearNotifications, notify, notifyError } from '@/store/notifications'
 import { $activeGatewayProfile, $newChatProfile, ensureGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { resolveNewSessionCwd, tombstoneSessions, untombstoneSessions } from '@/store/projects'
@@ -42,6 +43,7 @@ import {
   workspaceCwdForNewSession
 } from '@/store/session'
 import { broadcastSessionsChanged } from '@/store/session-sync'
+import { consumePendingVoiceModeSession, pendingVoiceModeSessionForProfile } from '@/store/voice-mode'
 import { isWatchWindow } from '@/store/windows'
 import type { SessionCreateResponse, SessionResumeResponse, UsageStats } from '@/types/fabric'
 
@@ -162,6 +164,7 @@ export function useSessionActions({
         // default" bug. This is a no-op for single-profile/local-pooled users:
         // a backend resolves its own launch profile to None (_profile_home).
         const newChatProfile = $newChatProfile.get() ?? normalizeProfileKey($activeGatewayProfile.get())
+        const voiceModePlan = pendingVoiceModeSessionForProfile(newChatProfile)
         await ensureGatewayProfile(newChatProfile)
         const cwd = $currentCwd.get().trim() || workspaceCwdForNewSession()
         // The composer's model/effort/fast is sticky UI state ($currentModel,
@@ -181,10 +184,16 @@ export function useSessionActions({
           ...(newChatProfile ? { profile: newChatProfile } : {}),
           ...(uiModel ? { model: uiModel, ...(uiProvider ? { provider: uiProvider } : {}) } : {}),
           ...(uiEffort ? { reasoning_effort: uiEffort } : {}),
-          ...(uiFast ? { fast: true } : {})
+          ...(uiFast ? { fast: true } : {}),
+          ...(voiceModePlan?.attitude && voiceModePlan.attitude !== 'profile_default'
+            ? { voice_attitude: voiceModePlan.attitude }
+            : {})
         })
 
         const stored = created.stored_session_id ?? null
+        // Clear the launcher plan only after session.create has accepted it. A
+        // gateway/profile failure leaves it intact so the user can retry.
+        const consumedVoiceModePlan = voiceModePlan ? consumePendingVoiceModeSession(newChatProfile) : null
 
         if (
           activeSessionIdRef.current !== startingActiveSessionId ||
@@ -194,6 +203,10 @@ export function useSessionActions({
           await requestGateway('session.close', { session_id: created.session_id }).catch(() => undefined)
 
           return null
+        }
+
+        if (consumedVoiceModePlan) {
+          setLiveViewPreferredPresentation(created.session_id, consumedVoiceModePlan.presentation)
         }
 
         activeSessionIdRef.current = created.session_id
@@ -644,6 +657,7 @@ export function useSessionActions({
         const rows = $sessions.get()
         const parent = parentStoredId ? rows.find(session => sessionMatchesStoredId(session, parentStoredId)) : null
         const branchProfile = normalizeProfileKey(parent?.profile ?? $activeGatewayProfile.get())
+
         // No title: the backend auto-names the branch from its parent's lineage.
         const branched = await requestGateway<SessionCreateResponse>('session.create', {
           cols: 96,
@@ -656,6 +670,7 @@ export function useSessionActions({
 
         const routedSessionId = branched.stored_session_id ?? branched.session_id
         const preview = branchMessages.map(({ content }) => content).find(Boolean) ?? null
+
         // Draft until submit: nest under the parent at the parent's recency so it
         // doesn't bubble to the top until a real message lands (backend persists
         // + auto-names it then). The selected row survives refreshes (sessionsToKeep).

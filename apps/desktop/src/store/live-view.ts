@@ -4,6 +4,7 @@ import type { GatewayEventPayload } from '@/lib/chat-messages'
 
 export type LiveViewKind = 'browser' | 'desktop'
 export type LiveViewPresentation = 'docked' | 'hidden' | 'pip'
+export type LiveViewPreferredPresentation = 'chat' | 'pip'
 export type LiveViewStatus = 'complete' | 'error' | 'running'
 
 export interface LiveViewAction {
@@ -48,10 +49,40 @@ const MAX_TEXT_CHARS = 1_024
 let activitySequence = 0
 let pipRequestSequence = 0
 const pendingPipRequests = new Map<string, number>()
+// A presentation preference may be selected before a visual tool has created a
+// Live View state. It is intentionally renderer-local: it controls only how a
+// safe, already-emitted visual surface is displayed and never enables tools.
+const preferredPresentations = new Map<string, LiveViewPreferredPresentation>()
 
 export const $liveViews = atom<Record<string, LiveViewState>>({})
 /** High-frequency Browser frames live outside session metadata so route-level subscribers stay cold. */
 export const $liveViewStreamFrames = atom<Record<string, string>>({})
+
+/**
+ * Select how the next eligible visual tool activity for a session should appear.
+ * This is deliberately separate from tool permission/configuration and is cleared
+ * with the session's in-memory Live View state in tests and eviction paths.
+ */
+export function setLiveViewPreferredPresentation(sessionId: string, presentation: LiveViewPreferredPresentation): void {
+  if (!sessionId) {
+    return
+  }
+
+  // Keep the selected display mode until the session's visual state is evicted.
+  // The map is bounded and contains no screenshots, tool payloads, or secrets.
+  preferredPresentations.delete(sessionId)
+  preferredPresentations.set(sessionId, presentation)
+
+  while (preferredPresentations.size > MAX_SESSIONS) {
+    const oldestSessionId = preferredPresentations.keys().next().value
+
+    if (!oldestSessionId) {
+      return
+    }
+
+    preferredPresentations.delete(oldestSessionId)
+  }
+}
 
 function acceptedImageDataUrl(value: string | undefined): string | undefined {
   if (
@@ -177,13 +208,12 @@ function toolDetail(name: string, payload: GatewayEventPayload): string | undefi
   const result = asRecord(parseMaybeJson(payload.result))
 
   if (name === 'computer_use') {
-    return firstBoundedString(args, ['action', 'command', 'app', 'window']) ?? boundedText(payload.context)
+    return firstBoundedString(args, ['action', 'app', 'window'])
   }
 
   return (
     firstBoundedString(args, ['url', 'selector', 'ref', 'direction', 'key', 'question']) ??
-    firstBoundedString(result, ['url', 'title']) ??
-    boundedText(payload.context)
+    firstBoundedString(result, ['url', 'title'])
   )
 }
 
@@ -265,6 +295,9 @@ function setLiveView(sessionId: string, updater: (current: LiveViewState | undef
   clearLiveViewStreamFrames(evictedSessionIds)
 
   for (const evictedSessionId of evictedSessionIds) {
+    preferredPresentations.delete(evictedSessionId)
+    pendingPipRequests.delete(evictedSessionId)
+
     if (typeof window !== 'undefined') {
       void window.fabricDesktop?.liveView?.close(evictedSessionId)
     }
@@ -321,10 +354,16 @@ export function startLiveViewTool(sessionId: string, payload: GatewayEventPayloa
     clearLiveViewStreamFrames([sessionId])
   }
 
-  setLiveView(sessionId, state => {
+  const nextState = setLiveView(sessionId, state => {
     const hasRunningAction = state?.actions.some(action => action.status === 'running') ?? false
     const continuingHiddenRun = state?.presentation === 'hidden' && hasRunningAction
-    const presentation = state?.presentation === 'pip' || continuingHiddenRun ? state.presentation : 'docked'
+    const preferredPresentation = preferredPresentations.get(sessionId)
+    const presentation =
+      state?.presentation === 'pip' || continuingHiddenRun
+        ? state.presentation
+        : preferredPresentation === 'chat'
+          ? 'hidden'
+          : 'docked'
     const activityId = hasRunningAction ? (state?.activityId ?? nextActivityId()) : nextActivityId()
 
     const actions = [
@@ -354,6 +393,13 @@ export function startLiveViewTool(sessionId: string, payload: GatewayEventPayloa
       updatedAt: now
     }
   })
+
+  // A voice session may choose PiP before there is anything visual to show. Open
+  // it only after an already-authorized visual tool event has created the state;
+  // this is presentation, never a permission grant or tool activation.
+  if (preferredPresentations.get(sessionId) === 'pip' && nextState.presentation === 'docked') {
+    void popOutLiveView(sessionId)
+  }
 }
 
 export function completeLiveViewTool(sessionId: string, payload: GatewayEventPayload): void {
@@ -527,6 +573,9 @@ export function hideLiveView(sessionId: string): void {
   }
 
   pendingPipRequests.delete(sessionId)
+  // Explicitly hiding a PiP session must outrank the launcher default for any
+  // later visual activity in this same session.
+  setLiveViewPreferredPresentation(sessionId, 'chat')
   clearLiveViewStreamFrames([sessionId])
   setLiveView(sessionId, state => ({
     ...(state ?? current),
@@ -550,6 +599,9 @@ export function dockLiveView(sessionId: string): void {
   }
 
   pendingPipRequests.delete(sessionId)
+  // Manual docking opts out of future automatic PiP while preserving the
+  // docked pane for this and subsequent visual actions.
+  preferredPresentations.delete(sessionId)
   setLiveView(sessionId, state => ({
     ...(state ?? current),
     pipVisible: undefined,
@@ -565,7 +617,12 @@ export function dockLiveView(sessionId: string): void {
 export async function popOutLiveView(sessionId: string): Promise<boolean> {
   const current = $liveViews.get()[sessionId]
 
-  if (!current || typeof window === 'undefined' || !window.fabricDesktop?.liveView) {
+  if (
+    !current ||
+    pendingPipRequests.has(sessionId) ||
+    typeof window === 'undefined' ||
+    !window.fabricDesktop?.liveView
+  ) {
     return false
   }
 
@@ -652,4 +709,5 @@ export function resetLiveViewsForTest(): void {
   activitySequence = 0
   pipRequestSequence = 0
   pendingPipRequests.clear()
+  preferredPresentations.clear()
 }

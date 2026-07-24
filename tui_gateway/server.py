@@ -2464,10 +2464,12 @@ def _start_agent_build(sid: str, session: dict) -> None:
                 # Lazy-resumed (watch) sessions carry the stored conversation
                 # id — pass it through so the upgrade continues that session
                 # instead of starting a fresh one under the same key.
-                kw = {"session_db": session_db}
+                kw: dict[str, Any] = {"session_db": session_db}
                 if resume_sid := current.get("resume_session_id"):
                     kw["session_id"] = resume_sid
                 kw["platform_override"] = _session_source(current)
+                if personality_prompt := current.get("personality_prompt"):
+                    kw["ephemeral_system_prompt"] = str(personality_prompt)
                 resume_overrides = current.get("resume_runtime_overrides")
                 if isinstance(resume_overrides, dict) and resume_overrides:
                     # Cold deferred resume: restore the full persisted runtime
@@ -4734,7 +4736,7 @@ def _current_profile_name() -> str:
 # v2: adds the file.attach RPC (remote-gateway non-image file upload).
 # v3: adds visual.status, visual.frame, and the visual lifecycle events used by
 # Desktop Live View.
-DESKTOP_BACKEND_CONTRACT = 3
+DESKTOP_BACKEND_CONTRACT = 4
 
 
 def _session_info(agent, session: dict | None = None) -> dict:
@@ -5205,10 +5207,9 @@ def _on_tool_start(sid: str, tool_call_id: str, name: str, args: dict):
         # tool.complete is the source of truth for todos (full list from the
         # tool result). args.todos here may be a partial merge update.
         _emit("tool.start", sid, payload)
-    elif _is_live_view_visual_tool(name):
-        # Transcript verbosity must not disable the separate local visual UX.
-        # This narrow event is consumed only by Live View; it does not create a
-        # transcript tool row or alter the model/tool protocol.
+    if _is_live_view_visual_tool(name):
+        # Emit the redacted visual lifecycle independently of transcript tool
+        # progress. Live View/PiP must never fall back to raw tool payloads.
         _emit("visual.start", sid, build_visual_start_payload(tool_call_id, name, args))
 
 
@@ -5222,10 +5223,10 @@ def _on_tool_complete(sid: str, tool_call_id: str, name: str, args: dict, result
     duration_s = time.time() - started_at if started_at else None
     if session is not None:
         _register_generated_image_artifact(session, tool_call_id, name, result)
-    if not _tool_progress_enabled(sid) and _is_live_view_visual_tool(name):
-        # Do not build the transcript payload first: browser snapshots and
-        # Computer Use captures can be megabytes, and parsing/serialising that
-        # raw result here stalls the model loop and can expose typed secrets.
+    is_visual = _is_live_view_visual_tool(name)
+    if is_visual:
+        # Emit the narrow DTO before considering transcript progress. The raw
+        # payload below is only for transcript/tool UI, never Live View/PiP.
         _emit(
             "visual.complete",
             sid,
@@ -5233,7 +5234,8 @@ def _on_tool_complete(sid: str, tool_call_id: str, name: str, args: dict, result
                 tool_call_id, name, args, result, duration_s
             ),
         )
-        return
+        if not _tool_progress_enabled(sid):
+            return
 
     payload = {"tool_id": tool_call_id, "name": name, "args": args}
     if duration_s is not None:
@@ -5272,16 +5274,6 @@ def _on_tool_complete(sid: str, tool_call_id: str, name: str, args: dict, result
         pass
     if _tool_progress_enabled(sid) or payload.get("inline_diff"):
         _emit("tool.complete", sid, payload)
-    elif _is_live_view_visual_tool(name):
-        # Defensive fallback for a future caller that bypasses the early
-        # visual-only branch above.
-        _emit(
-            "visual.complete",
-            sid,
-            build_visual_complete_payload(
-                tool_call_id, name, args, result, duration_s
-            ),
-        )
 
 
 def _on_tool_progress(
@@ -6152,6 +6144,7 @@ def _make_agent(
     service_tier_override: str | None = None,
     platform_override: str | None = None,
     callbacks_override: dict[str, Any] | None = None,
+    ephemeral_system_prompt: str | None = None,
 ):
     from run_agent import AIAgent
     from fabric_cli.launch_context import ignore_rules_enabled
@@ -6178,6 +6171,8 @@ def _make_agent(
     cfg = _load_cfg()
     agent_cfg = cfg.get("agent") or {}
     system_prompt = _prompt_text(agent_cfg.get("system_prompt", ""))
+    if ephemeral_system_prompt is not None:
+        system_prompt = _prompt_text(ephemeral_system_prompt)
     startup_skills = _parse_tui_skills()
     if startup_skills:
         from agent.skill_commands import build_preloaded_skills_prompt
@@ -6885,6 +6880,9 @@ def _(rid, params: dict) -> dict:
     # requested profile is bound; otherwise a remote chat briefly adopts the
     # launch profile's cwd/model/display settings.
     profile_tokens = None
+    voice_attitude = str(params.get("voice_attitude") or "").strip()
+    session_personality = ""
+    session_personality_prompt = ""
     try:
         profile_tokens = _set_profile_runtime_scope(profile_home)
         resolved_cwd = _completion_cwd(params)
@@ -6892,6 +6890,19 @@ def _(rid, params: dict) -> dict:
         initial_tool_progress_mode = _load_tool_progress_mode()
         initial_model = _resolve_model()
         initial_profile_name = _current_profile_name()
+        # Voice Mode may select only an already-configured named personality.
+        # Keep the prompt in the profile runtime scope, never return it to the
+        # client, and apply it before lazy agent construction.
+        if voice_attitude and voice_attitude.lower() not in {
+            "profile_default",
+            "profile default",
+        }:
+            try:
+                session_personality, session_personality_prompt = _validate_personality(
+                    voice_attitude, _load_cfg()
+                )
+            except ValueError as exc:
+                return _err(rid, 4008, str(exc))
     finally:
         _reset_profile_runtime_scope(profile_tokens)
 
@@ -6953,6 +6964,8 @@ def _(rid, params: dict) -> dict:
             "create_service_tier_override": create_service_tier_override,
             "parent_session_id": parent_session_id,
             "pending_title": title or None,
+            "personality": session_personality,
+            "personality_prompt": session_personality_prompt,
             "profile_home": str(profile_home) if profile_home is not None else None,
             "running": False,
             "session_key": key,

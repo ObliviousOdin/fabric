@@ -71,6 +71,10 @@ whether the current browser provider can produce a frame. The client must still
 honor the per-session status response and retain the timeline-only fallback for
 providers without a compatible CDP stream.
 
+The Live View stream is bounded and redacted to visual lifecycle data. It does
+not expose raw browser tool arguments or results to the viewer, and it does not
+turn the preview into additional model context.
+
 For compatible CDP-backed sessions on a **local Fabric backend**, Desktop
 requests one bounded viewport frame through a dedicated authenticated visual
 connection only while the docked view or picture-in-picture window is visible

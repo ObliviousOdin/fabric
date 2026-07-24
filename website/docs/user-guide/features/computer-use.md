@@ -77,6 +77,10 @@ means the RPC exists; it does not prove that the host has a supported capture
 backend or permission, so capture failures remain an unavailable state rather
 than turning into remote control.
 
+Live View transport is limited to bounded, redacted visual lifecycle data. It
+does not expose raw Computer Use arguments or results to the viewer, and it does
+not add another model-visible context stream.
+
 While the view is visible and unpaused, Computer Use Live View can reuse at
 most one accepted, bounded screenshot from a `computer_use` completion. It does
 not start a second screen-capture loop. **Pause visual updates** freezes the

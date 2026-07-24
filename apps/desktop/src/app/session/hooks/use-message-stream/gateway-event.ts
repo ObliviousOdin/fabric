@@ -377,10 +377,6 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         flushQueuedDeltas(sessionId)
         upsertToolCall(sessionId, toTodoPayload(payload) ?? payload, 'running', event.type)
 
-        if (event.type === 'tool.start' && payload) {
-          startLiveViewTool(sessionId, payload)
-        }
-
         if (isActiveEvent) {
           setPetActivity({ reasoning: false, toolRunning: true })
         }
@@ -388,10 +384,6 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         if (sessionId) {
           flushQueuedDeltas(sessionId)
           upsertToolCall(sessionId, toTodoPayload(payload) ?? payload, 'complete', event.type)
-
-          if (payload) {
-            completeLiveViewTool(sessionId, payload)
-          }
 
           if (isActiveEvent) {
             setPetActivity({ toolRunning: false })

@@ -7,6 +7,7 @@ import Speech
 /// contain raw Speech framework or audio-session errors.
 enum DeviceVoiceIssue: String, Identifiable, Equatable {
     case speechUnavailable
+    case onDeviceSpeechUnavailable
     case speechPermissionDenied
     case speechPermissionRestricted
     case microphonePermissionDenied
@@ -19,6 +20,7 @@ enum DeviceVoiceIssue: String, Identifiable, Equatable {
     var title: String {
         switch self {
         case .speechUnavailable: return "Dictation unavailable"
+        case .onDeviceSpeechUnavailable: return "On-device dictation unavailable"
         case .speechPermissionDenied: return "Speech Recognition is off"
         case .speechPermissionRestricted: return "Speech Recognition is restricted"
         case .microphonePermissionDenied: return "Microphone access is off"
@@ -32,6 +34,8 @@ enum DeviceVoiceIssue: String, Identifiable, Equatable {
         switch self {
         case .speechUnavailable:
             return "Apple Speech is not available for the current iPhone language right now. Try again later or type your message."
+        case .onDeviceSpeechUnavailable:
+            return "This iPhone cannot recognize the selected language on device. Allow cloud speech in Mithuru setup or type your message."
         case .speechPermissionDenied:
             return "Allow Speech Recognition for Fabric in iOS Settings to dictate a message."
         case .speechPermissionRestricted:
@@ -261,11 +265,14 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
         issue = nil
     }
 
-    func toggleDictation(locale: Locale = .current) async {
+    func toggleDictation(
+        locale: Locale = .current,
+        allowCloudFallback: Bool = true
+    ) async {
         switch dictationState.stopAction {
         case .none:
             guard dictationState == .idle else { return }
-            await startDictation(locale: locale)
+            await startDictation(locale: locale, allowCloudFallback: allowCloudFallback)
         case .cancel:
             cancelDictation()
         case .finish:
@@ -273,7 +280,10 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    func startDictation(locale: Locale = .current) async {
+    func startDictation(
+        locale: Locale = .current,
+        allowCloudFallback: Bool = true
+    ) async {
         issue = nil
         stopSpeaking()
         let authorizationRunID = UUID()
@@ -308,6 +318,11 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
         guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.isAvailable else {
             dictationState = .idle
             issue = .speechUnavailable
+            return
+        }
+        guard recognizer.supportsOnDeviceRecognition || allowCloudFallback else {
+            dictationState = .idle
+            issue = .onDeviceSpeechUnavailable
             return
         }
 
@@ -389,7 +404,12 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    func toggleReadAloud(messageID: UUID, text: String) {
+    func toggleReadAloud(
+        messageID: UUID,
+        text: String,
+        locale: Locale? = nil,
+        rate: Float? = nil
+    ) {
         if speakingMessageID == messageID {
             stopSpeaking()
             return
@@ -412,8 +432,10 @@ final class DeviceVoiceController: NSObject, AVSpeechSynthesizerDelegate {
         }
 
         let utterance = AVSpeechUtterance(string: spokenText)
-        utterance.voice = DeviceVoicePreferences.selectedVoice()
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        utterance.voice = DeviceVoicePreferences.selectedVoice(
+            preferredLanguages: locale.map { [$0.identifier] } ?? Locale.preferredLanguages
+        )
+        utterance.rate = rate ?? AVSpeechUtteranceDefaultSpeechRate
         activeUtterance = utterance
         speakingMessageID = messageID
         synthesizer.speak(utterance)

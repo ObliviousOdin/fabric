@@ -1,0 +1,10 @@
+# Fabric Link is built by ci_post_clone.sh before this overlay is enabled.
+# The committed Xcode Cloud bootstrap excludes it: Xcode Cloud resolves the
+# project before post-clone scripts can recreate ignored binary artifacts.
+packages:
+  FabricLinkCore:
+    path: ${XCODEGEN_LINK_CORE_PACKAGE_PATH}
+targets:
+  Fabric:
+    dependencies:
+      - package: FabricLinkCore

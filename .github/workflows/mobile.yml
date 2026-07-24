@@ -128,14 +128,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Generate the Xcode project
-        run: ci_scripts/ci_post_clone.sh
-
-      - name: Verify the committed Xcode Cloud bootstrap is current
-        run: git diff --exit-code -- FabricMobile.xcodeproj Fabric/Info.plist
-
       - name: Test the immutable iOS project-generation contract
         run: python3 ../../../tests/scripts/test_ios_project_generation.py
+
+      - name: Generate the archivable Xcode project
+        run: ci_scripts/ci_post_clone.sh
+
+      - name: Verify the staged Fabric Link package
+        run: >-
+          swift package --package-path ../../fabric-link-core/apple describe
 
       - name: Select an available iPhone simulator
         run: |

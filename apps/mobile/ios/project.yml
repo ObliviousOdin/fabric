@@ -1,8 +1,11 @@
 # XcodeGen manifest for the Fabric iOS client.
 # Generate the project with:  xcodegen generate
-# project.yml remains authoritative; the generic .xcodeproj bootstrap is
+# The XcodeGen specs remain authoritative; the generic .xcodeproj bootstrap is
 # committed so Xcode Cloud can discover the project before post-clone scripts.
 name: FabricMobile
+include:
+  - path: ${XCODEGEN_LINK_OVERLAY_PATH}
+    enable: ${XCODEGEN_INCLUDE_LINK_CORE}
 options:
   bundleIdPrefix: io.github.obliviousodin
   deploymentTarget:
@@ -13,17 +16,12 @@ settings:
     SWIFT_VERSION: "5.10"
     MARKETING_VERSION: "0.2.1"
     CURRENT_PROJECT_VERSION: "1"
-packages:
-  FabricLinkCore:
-    path: ../../fabric-link-core/apple
 targets:
   Fabric:
     type: application
     platform: iOS
     sources:
       - Fabric
-    dependencies:
-      - package: FabricLinkCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.obliviousodin.fabric.mobile

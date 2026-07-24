@@ -213,6 +213,20 @@ export PATH="$CARGO_HOME/bin:$PATH"
 "$rustup_init" -y --profile minimal --default-toolchain none --no-modify-path
 "$repo_root/apps/fabric-link-core/apple/build-xcframework.sh"
 
+# Xcode Cloud validates the committed bootstrap before it gets here. Confirm the
+# freshly-built local binary target is now resolvable before we generate the
+# archive project that depends on it, so missing or malformed artifacts fail at
+# the producer with an actionable log instead of later during Xcode setup.
+if ! swift package --package-path "$repo_root/apps/fabric-link-core/apple" describe \
+  > "$work/fabric-link-package.txt" 2>&1; then
+  cat "$work/fabric-link-package.txt" >&2
+  echo "Fabric Link XCFramework is not a resolvable Swift package after staging" >&2
+  exit 2
+fi
+
+XCODEGEN_INCLUDE_LINK_CORE=true \
+XCODEGEN_LINK_OVERLAY_PATH="$ios_dir/project.fabric-link.yml" \
+XCODEGEN_LINK_CORE_PACKAGE_PATH="$repo_root/apps/fabric-link-core/apple" \
 "$xcodegen_bin" generate \
   --spec "$generated_spec" \
   --project "$ios_dir" \

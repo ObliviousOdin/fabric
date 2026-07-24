@@ -72,7 +72,6 @@
 		8A0B7EFB4BE6DE4A75CB6A4A /* SocialStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31EFE7991116F239A4BD0D52 /* SocialStudioView.swift */; };
 		8CE124DBA37F60B488FE71CA /* SettingsExperienceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29D937A8C6A792D2DEAA5C3E /* SettingsExperienceView.swift */; };
 		8CEA98F6B988474EE350B8DE /* FabricWorkSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB978B8F714B72E27A81EFA6 /* FabricWorkSync.swift */; };
-		8E6A12A79CDDE8FF03624005 /* FabricLinkCore in Frameworks */ = {isa = PBXBuildFile; productRef = 6724FDF6E7873B2B6C91772D /* FabricLinkCore */; };
 		8F190214F47E426DF730C91A /* legacy-mobile-methods.json in Resources */ = {isa = PBXBuildFile; fileRef = 67B8A44C68F860E47594E46E /* legacy-mobile-methods.json */; };
 		912FE7194FE58376B6E0136B /* delta.json in Resources */ = {isa = PBXBuildFile; fileRef = 2D075734769A0025DC152BAB /* delta.json */; };
 		93E80ECCC0A0ED853B57627E /* GatewayConnectionIssue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF3A88D833650D34AF2EE13 /* GatewayConnectionIssue.swift */; };
@@ -190,7 +189,6 @@
 		6CDC75A62300A2612B1E32A0 /* FabricLinkController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricLinkController.swift; sourceTree = "<group>"; };
 		6D8F08A60A4586EE5893C3E9 /* fabric-pairing-v2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "fabric-pairing-v2.json"; sourceTree = "<group>"; };
 		6EADD17FCF20136062EF45BB /* DictationCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationCleanupTests.swift; sourceTree = "<group>"; };
-		6F0B198766DDCB21EFD5131B /* apple */ = {isa = PBXFileReference; lastKnownFileType = folder; name = apple; path = "../../fabric-link-core/apple"; sourceTree = SOURCE_ROOT; };
 		718C15081D03DC2245CF33A6 /* VoiceContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceContractTests.swift; sourceTree = "<group>"; };
 		728FF3B5AD846CC75F63A3F3 /* ConversationHomeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationHomeModel.swift; sourceTree = "<group>"; };
 		72F2B280B1145468B9FCD052 /* GatewayEndpointIdentityText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayEndpointIdentityText.swift; sourceTree = "<group>"; };
@@ -256,17 +254,6 @@
 		FD666BEFE17AC010F380D524 /* ConversationHomeModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationHomeModelTests.swift; sourceTree = "<group>"; };
 		FF049EFA40FC8126F9710FB1 /* WorkBoardPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkBoardPresentation.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFrameworksBuildPhase section */
-		A29FBDAD4A3F70D63DE37DE9 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				8E6A12A79CDDE8FF03624005 /* FabricLinkCore in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		0E8152C7A0F246FFFD32AAA9 /* FabricTests */ = {
@@ -364,14 +351,6 @@
 			path = "fabric-voice-v1";
 			sourceTree = "<group>";
 		};
-		4EA845C6BE7FB93834636B24 /* Packages */ = {
-			isa = PBXGroup;
-			children = (
-				6F0B198766DDCB21EFD5131B /* apple */,
-			);
-			name = Packages;
-			sourceTree = "<group>";
-		};
 		50EB366336E063C7752F0741 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -399,7 +378,6 @@
 				0E8152C7A0F246FFFD32AAA9 /* FabricTests */,
 				D3BE45D68BA8D1DFBEB94445 /* FabricUITests */,
 				26D9402EB7BF3114EC7FCF79 /* mobile */,
-				4EA845C6BE7FB93834636B24 /* Packages */,
 				50EB366336E063C7752F0741 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -602,7 +580,6 @@
 			buildPhases = (
 				823CAEDE541AAFB10829B531 /* Sources */,
 				29859CE02D9662BEF4DA09AD /* Resources */,
-				A29FBDAD4A3F70D63DE37DE9 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -610,7 +587,6 @@
 			);
 			name = Fabric;
 			packageProductDependencies = (
-				6724FDF6E7873B2B6C91772D /* FabricLinkCore */,
 			);
 			productName = Fabric;
 			productReference = A1C2E17FA35CD5F43CEAA5DB /* Fabric.app */;
@@ -679,9 +655,6 @@
 			);
 			mainGroup = 63A40C9A5D0F942D90F1A1C6;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				8E3D0371CF658F0B7507526C /* XCLocalSwiftPackageReference "../../fabric-link-core/apple" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 50EB366336E063C7752F0741 /* Products */;
 			projectDirPath = "";
@@ -1129,20 +1102,6 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		8E3D0371CF658F0B7507526C /* XCLocalSwiftPackageReference "../../fabric-link-core/apple" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../fabric-link-core/apple";
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		6724FDF6E7873B2B6C91772D /* FabricLinkCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = FabricLinkCore;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 9263233CCF6D1388C76C53DC /* Project object */;
 }

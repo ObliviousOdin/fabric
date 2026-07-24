@@ -105,6 +105,36 @@ final class ResumeHistoryTests: XCTestCase {
         XCTAssertEqual(reasoningTexts, ["Considering the options", "Structured thought"])
     }
 
+    func testResumeRestoresGeneratedImageAsOpaqueArtifact() {
+        let live = LiveSession(
+            sessionId: "runtime-123",
+            storedSessionId: "stored-456",
+            messages: [
+                SessionTranscriptMessage(role: .user, text: "Make a picture"),
+                SessionTranscriptMessage(
+                    role: .tool,
+                    text: "image_generate",
+                    toolName: "image_generate",
+                    imageArtifactID: "image-call-1"
+                ),
+                SessionTranscriptMessage(role: .assistant, text: "Done.")
+            ]
+        )
+
+        let transcript = ChatViewModel.restoredMessages(from: live)
+        let restoredImage = transcript[1].assistantParts.compactMap { part -> AssistantTurnPart.GeneratedImage? in
+            guard case .generatedImage(let image) = part.content else { return nil }
+            return image
+        }.first
+        guard let image = restoredImage else {
+            return XCTFail("Expected a restored generated-image part")
+        }
+        XCTAssertEqual(image.callID, "image-call-1")
+        guard case .gatewayArtifact = image.source else {
+            return XCTFail("Resume must retain an opaque gateway artifact")
+        }
+    }
+
     func testRestoredToolRowsFoldIntoTheFollowingAssistantTurn() {
         let live = LiveSession(
             sessionId: "runtime-123",
@@ -137,6 +167,7 @@ final class ResumeHistoryTests: XCTestCase {
             switch part.content {
             case .tool: return "tool"
             case .reasoning: return "reasoning"
+            case .generatedImage: return "image"
             case .text: return "text"
             }
         }

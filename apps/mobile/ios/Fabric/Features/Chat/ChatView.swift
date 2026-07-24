@@ -1938,6 +1938,8 @@ private struct AssistantTurnBody: View {
                                 }
                             }
                         }
+                    case .generatedImage(_, let image):
+                        GeneratedImageCard(image: image)
                     }
                 }
             }
@@ -1975,11 +1977,13 @@ private struct AssistantTurnBody: View {
 private enum AssistantTurnSegment: Identifiable {
     case text(id: String, String)
     case activity(id: String, [AssistantTurnPart])
+    case generatedImage(id: String, AssistantTurnPart.GeneratedImage)
 
     var id: String {
         switch self {
         case .text(let id, _): return "text-seg:\(id)"
         case .activity(let id, _): return "activity-seg:\(id)"
+        case .generatedImage(let id, _): return "image-seg:\(id)"
         }
     }
 
@@ -2016,6 +2020,9 @@ private enum AssistantTurnSegment: Identifiable {
             case .text(let text):
                 flushActivity()
                 result.append(.text(id: part.id, text))
+            case .generatedImage(let image):
+                flushActivity()
+                result.append(.generatedImage(id: part.id, image))
             case .reasoning, .tool:
                 activity.append(part)
             }
@@ -2061,6 +2068,8 @@ private struct AssistantActivityTimeline: View {
                             ReasoningDisclosureCard(reasoning: reasoning)
                         case .tool(let tool):
                             ToolActivityCard(tool: tool)
+                        case .generatedImage(let image):
+                            GeneratedImageCard(image: image)
                         case .text:
                             EmptyView()
                         }
@@ -2262,6 +2271,168 @@ private struct ReasoningDisclosureCard: View {
         .background(FabricTheme.surfaceInset)
         .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radius))
         .accessibilityHint(isExpanded ? "Collapse reasoning" : "Expand reasoning")
+    }
+}
+
+private struct GeneratedImageCard: View {
+    let image: AssistantTurnPart.GeneratedImage
+
+    @State private var showDetail = false
+
+    var body: some View {
+        Button {
+            showDetail = true
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                preview
+                HStack(spacing: 8) {
+                    Label("Generated image", systemImage: "wand.and.stars")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(FabricTheme.text)
+                    Spacer(minLength: 8)
+                    Text("Tap to view")
+                        .font(.caption2)
+                        .foregroundStyle(FabricTheme.textMuted)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(FabricTheme.surfaceInset)
+            .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radiusLarge))
+            .overlay(
+                RoundedRectangle(cornerRadius: FabricTheme.radiusLarge)
+                    .stroke(FabricTheme.border.opacity(0.65), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Generated image")
+        .accessibilityHint("Opens the full-size image")
+        .sheet(isPresented: $showDetail) {
+            GeneratedImageDetailSheet(image: image)
+                .presentationDetents([.large])
+        }
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        switch image.source {
+        case .gatewayArtifact:
+            imageLoadingPreview("Getting generated image from Fabric…")
+        case .unavailable:
+            imageUnavailablePreview("Fabric couldn't retrieve this generated image.")
+        case .data(let data, _):
+            if let rendered = UIImage(data: data) {
+                imagePreview(Image(uiImage: rendered))
+            } else {
+                imageUnavailablePreview("Fabric returned an unreadable image.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func imagePreview(_ rendered: Image) -> some View {
+        rendered
+            .resizable()
+            .scaledToFill()
+            .frame(maxWidth: .infinity)
+            .frame(height: 260)
+            .clipped()
+            .accessibilityHidden(true)
+    }
+
+    private func imageLoadingPreview(_ label: String) -> some View {
+        ProgressView(label)
+            .font(.caption)
+            .frame(maxWidth: .infinity, minHeight: 224)
+            .background(FabricTheme.surfaceRaised)
+    }
+
+    private func imageUnavailablePreview(_ detail: String) -> some View {
+        ContentUnavailableView(
+            "Image unavailable",
+            systemImage: "photo.badge.exclamationmark",
+            description: Text(detail)
+        )
+        .font(.caption)
+        .frame(maxWidth: .infinity, minHeight: 224)
+        .background(FabricTheme.surfaceRaised)
+    }
+}
+
+private struct GeneratedImageDetailSheet: View {
+    let image: AssistantTurnPart.GeneratedImage
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            GeometryReader { proxy in
+                ZStack {
+                    FabricTheme.canvas.ignoresSafeArea()
+                    detailContent(size: proxy.size)
+                }
+            }
+            .navigationTitle("Generated image")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+    @ViewBuilder
+    private func detailContent(size: CGSize) -> some View {
+        switch image.source {
+        case .gatewayArtifact:
+            ProgressView("Getting generated image from Fabric…")
+        case .unavailable:
+            ContentUnavailableView(
+                "Image unavailable",
+                systemImage: "photo.badge.exclamationmark",
+                description: Text("Fabric couldn't retrieve this generated image.")
+            )
+        case .data(let data, _):
+            if let rendered = UIImage(data: data) {
+                ZoomableGeneratedImage(image: Image(uiImage: rendered))
+                    .frame(width: size.width, height: size.height)
+            } else {
+                ContentUnavailableView(
+                    "Image unavailable",
+                    systemImage: "photo.badge.exclamationmark",
+                    description: Text("Fabric returned an unreadable image.")
+                )
+            }
+        }
+    }
+}
+
+private struct ZoomableGeneratedImage: View {
+    let image: Image
+
+    @GestureState private var gestureScale = 1.0
+    @State private var scale = 1.0
+
+    var body: some View {
+        image
+            .resizable()
+            .scaledToFit()
+            .scaleEffect(scale * gestureScale)
+            .gesture(
+                MagnificationGesture()
+                    .updating($gestureScale) { value, state, _ in
+                        state = value
+                    }
+                    .onEnded { value in
+                        scale = min(max(scale * value, 1), 4)
+                    }
+            )
+            .onTapGesture(count: 2) {
+                withAnimation(.easeInOut(duration: 0.2)) { scale = 1 }
+            }
+            .accessibilityLabel("Generated image")
+            .accessibilityHint("Pinch to zoom. Double tap to reset zoom.")
     }
 }
 

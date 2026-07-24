@@ -147,6 +147,144 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertFalse(description.contains("sk-1234567890"))
     }
 
+    func testImageGenerateCompletionNeverRendersAProviderURLDirectly() throws {
+        let event = GatewayEvent(
+            type: "tool.complete",
+            sessionId: "session-1",
+            payload: [
+                "tool_id": "image-call-1",
+                "name": "image_generate",
+                "summary": "Generated image",
+                "result": [
+                    "success": true,
+                    "image": "https://cdn.example.test/generated/warehouse.png",
+                ],
+            ]
+        )
+
+        let parsed = try XCTUnwrap(AssistantTurnReducer.event(from: event))
+        guard case .toolCompleted(
+            callID: let callID,
+            name: let name,
+            detail: let detail,
+            failed: let failed,
+            durationSeconds: _,
+            generatedImage: let image
+        ) = parsed else {
+            return XCTFail("Expected an image-generation completion")
+        }
+        XCTAssertEqual(callID, "image-call-1")
+        XCTAssertEqual(name, "image_generate")
+        XCTAssertEqual(detail, "Generated image")
+        XCTAssertFalse(failed)
+        XCTAssertNil(image)
+
+        var message = TranscriptMessage(role: .assistant, text: "", streaming: true)
+        message = AssistantTurnReducer.reducing(message, event: parsed)
+        // A provider URL is never rendered directly; only a staged local
+        // artifact can add an image card.
+        message = AssistantTurnReducer.reducing(message, event: parsed)
+        message = AssistantTurnReducer.reducing(message, event: .textDelta("Ready for review."))
+
+        XCTAssertEqual(message.assistantParts.count, 2)
+        guard case .tool(let tool) = message.assistantParts[0].content,
+              case .text(let answer) = message.assistantParts[1].content else {
+            return XCTFail("Expected tool and answer in transcript order")
+        }
+        XCTAssertEqual(tool.state, .complete)
+        XCTAssertEqual(answer, "Ready for review.")
+    }
+
+    func testGeneratedImageURLsNeverReachTheIOSRenderer() {
+        let urls = [
+            "http://cdn.example.test/image.png",
+            "data:image/png;base64,AAAA",
+            "https://localhost/image.png",
+            "https://127.0.0.1/image.png",
+            "https://gateway.internal/image.png",
+            "https://intranet.corp.example/image.png",
+            "https://user:password@cdn.example.test/image.png",
+            "https://cdn.example.test/image.png",
+        ]
+        for url in urls {
+            let event = GatewayEvent(
+                type: "tool.complete",
+                sessionId: "session-1",
+                payload: [
+                    "tool_id": "call-1",
+                    "name": "image_generate",
+                    "result": ["success": true, "image": url],
+                ]
+            )
+            guard case .toolCompleted(_, _, _, false, _, let image) = AssistantTurnReducer.event(from: event) else {
+                return XCTFail("Expected image-generation completion")
+            }
+            XCTAssertNil(image, "Direct image URL must be staged through an artifact: \(url)")
+        }
+    }
+
+    func testLocalImageGenerationResultUsesOpaqueGatewayArtifactPlaceholder() throws {
+        let direct = GatewayEvent(
+            type: "tool.complete",
+            sessionId: "session-1",
+            payload: [
+                "tool_id": "image-call-local",
+                "name": "image_generate",
+                "result": [
+                    "success": true,
+                    "image": "/Users/example/.fabric/cache/images/generated.png",
+                ],
+            ]
+        )
+        let sidecar = GatewayEvent(
+            type: "tool.complete",
+            sessionId: "session-1",
+            payload: [
+                "tool_id": "image-call-sidecar",
+                "name": "image_generate",
+                "files_written": ["/Users/example/.fabric/cache/images/generated.png"],
+            ]
+        )
+
+        for event in [direct, sidecar] {
+            let parsed = try XCTUnwrap(AssistantTurnReducer.event(from: event))
+            guard case .toolCompleted(
+                callID: let callID,
+                name: _,
+                detail: _,
+                failed: false,
+                durationSeconds: _,
+                generatedImage: let image
+            ) = parsed else {
+                return XCTFail("Expected local image completion")
+            }
+            XCTAssertEqual(image?.callID, callID)
+            guard case .gatewayArtifact? = image?.source else {
+                return XCTFail("Expected opaque gateway artifact, never a local path")
+            }
+            XCTAssertFalse(String(describing: image).contains("/Users/example"))
+        }
+    }
+
+    func testGatewayImageArtifactDecodesOnlyBoundedSupportedImagePayloads() throws {
+        let bytes = Data([0x89, 0x50, 0x4E, 0x47])
+        let artifact = try XCTUnwrap(GatewayImageArtifact(payload: [
+            "artifact_id": "image-call-1",
+            "mime_type": "image/png",
+            "data_base64": bytes.base64EncodedString(),
+        ]))
+        XCTAssertEqual(artifact.mimeType, "image/png")
+        XCTAssertEqual(artifact.data, bytes)
+        XCTAssertNil(GatewayImageArtifact(payload: [
+            "mime_type": "text/plain",
+            "data_base64": bytes.base64EncodedString(),
+        ]))
+        XCTAssertNil(GatewayImageArtifact(payload: [
+            "mime_type": "image/png",
+            "data_base64": "not-base64",
+        ]))
+    }
+
     func testActivityTextRedactsCredentialShapesAndHonorsExactBound() {
         let source = "Authorization: Bearer abcdef token=supersecret --password hunter2 sk-1234567890"
         let safe = ChatPresentationSafety.sanitized(source, maximumCharacters: 64)
@@ -786,6 +924,13 @@ final class ChatExperienceTests: XCTestCase {
                         durationSeconds: 1
                     ))
                 ),
+                AssistantTurnPart(
+                    id: "image:1",
+                    content: .generatedImage(.init(
+                        source: .gatewayArtifact,
+                        callID: "image-call-1"
+                    ))
+                ),
             ]
         )
         let messages = Array(repeating: TranscriptMessage(
@@ -798,8 +943,14 @@ final class ChatExperienceTests: XCTestCase {
         XCTAssertFalse(presentation.contains("hunter2"))
         XCTAssertFalse(presentation.contains("assistant-secret"))
         XCTAssertFalse(presentation.contains("tool-secret"))
+        XCTAssertFalse(presentation.contains("image-call-1"))
 
         cache.replace(key: "gateway\u{1F}session", messages: messages)
+        let diskText = String(
+            decoding: try Data(contentsOf: cache.snapshotURL(for: "gateway\u{1F}session")),
+            as: UTF8.self
+        )
+        XCTAssertFalse(diskText.contains("image-call-1"))
         let restored = cache.load(key: "gateway\u{1F}session")
         XCTAssertLessThanOrEqual(restored.count, ChatPresentationCache.maximumMessages)
         XCTAssertFalse(restored.contains(where: \.streaming))

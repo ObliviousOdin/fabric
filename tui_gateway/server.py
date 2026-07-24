@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import queue
+import stat
 import subprocess
 import sys
 import threading
@@ -262,6 +263,7 @@ _LONG_HANDLERS = frozenset({
     "session.list",
     "session.resume",
     "session.transcript",
+    "artifact.fetch",
     "shell.exec",
     "skills.manage",
     "slash.exec",
@@ -4614,6 +4616,149 @@ def _is_live_view_visual_tool(name: str | None) -> bool:
     return name == "computer_use" or bool(name and name.startswith("browser_"))
 
 
+_GENERATED_IMAGE_ARTIFACT_MAX_BYTES = 5 * 1024 * 1024
+_GENERATED_IMAGE_ARTIFACT_LIMIT = 12
+_GENERATED_IMAGE_MIME_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+}
+
+
+def _generated_image_roots(session: dict) -> tuple[Path, ...]:
+    roots = [get_fabric_home() / "cache" / "images"]
+    profile_home = session.get("profile_home")
+    if profile_home:
+        roots.append(Path(profile_home) / "cache" / "images")
+    resolved: list[Path] = []
+    for root in roots:
+        try:
+            candidate = root.expanduser().resolve(strict=False)
+        except OSError:
+            continue
+        if candidate not in resolved:
+            resolved.append(candidate)
+    return tuple(resolved)
+
+
+def _registered_generated_image(path_value: object, session: dict) -> Optional[tuple[Path, str]]:
+    """Validate an image tool's local result before making it fetchable.
+
+    The wire protocol accepts only the opaque tool-call id. This registration
+    step keeps its backing path within Fabric's generated-image cache, rejects
+    links/symlinks, and bounds the bytes that a mobile client can request.
+    """
+    if not isinstance(path_value, str) or not path_value or len(path_value) > 2048:
+        return None
+    if path_value.startswith("file://") or "://" in path_value:
+        return None
+    try:
+        requested = Path(path_value).expanduser()
+        if requested.is_symlink():
+            return None
+        target = requested.resolve(strict=True)
+        stat = target.stat()
+    except OSError:
+        return None
+    mime_type = _GENERATED_IMAGE_MIME_TYPES.get(target.suffix.lower())
+    if (
+        not target.is_file()
+        or mime_type is None
+        or stat.st_size <= 0
+        or stat.st_size > _GENERATED_IMAGE_ARTIFACT_MAX_BYTES
+    ):
+        return None
+    try:
+        if not any(target.is_relative_to(root) for root in _generated_image_roots(session)):
+            return None
+    except ValueError:
+        return None
+    return target, mime_type
+
+
+def _read_registered_generated_image(path_value: object, session: dict) -> Optional[tuple[bytes, str]]:
+    """Read a registered image through a root directory fd without following links.
+
+    ``artifact.fetch`` must not re-open a previously validated pathname: a local
+    process could swap it for a symlink between validation and ``read_bytes``.
+    Resolve the artifact to a direct child of a trusted cache root, then open it
+    relative to an already-open root fd with ``O_NOFOLLOW`` and read that fd.
+    """
+    artifact = _registered_generated_image(path_value, session)
+    if artifact is None:
+        return None
+    target, mime_type = artifact
+    root = next((root for root in _generated_image_roots(session) if target.is_relative_to(root)), None)
+    if root is None:
+        return None
+    relative = target.relative_to(root)
+    if relative.parent != Path("."):
+        return None
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory = getattr(os, "O_DIRECTORY", 0)
+    if not nofollow or not directory:
+        return None  # Fail closed where the platform cannot guarantee no-follow.
+    root_fd = -1
+    file_fd = -1
+    try:
+        root_fd = os.open(str(root), os.O_RDONLY | directory | nofollow)
+        file_fd = os.open(relative.name, os.O_RDONLY | nofollow, dir_fd=root_fd)
+        metadata = os.fstat(file_fd)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_size <= 0
+            or metadata.st_size > _GENERATED_IMAGE_ARTIFACT_MAX_BYTES
+        ):
+            return None
+        with os.fdopen(file_fd, "rb", closefd=True) as image_file:
+            file_fd = -1
+            data = image_file.read(_GENERATED_IMAGE_ARTIFACT_MAX_BYTES + 1)
+        if not data or len(data) > _GENERATED_IMAGE_ARTIFACT_MAX_BYTES:
+            return None
+        return data, mime_type
+    except OSError:
+        return None
+    finally:
+        if file_fd >= 0:
+            with contextlib.suppress(OSError):
+                os.close(file_fd)
+        if root_fd >= 0:
+            with contextlib.suppress(OSError):
+                os.close(root_fd)
+
+
+def _register_generated_image_artifact(
+    session: dict, tool_call_id: str, name: str, result: str
+) -> None:
+    if name != "image_generate" or not tool_call_id or len(tool_call_id) > 512:
+        return
+    try:
+        payload = json.loads(result)
+    except (TypeError, ValueError):
+        return
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        return
+    for field in ("host_image", "image"):
+        artifact = _registered_generated_image(payload.get(field), session)
+        if artifact is None:
+            continue
+        path, mime_type = artifact
+        artifacts = session.setdefault("generated_image_artifacts", {})
+        if not isinstance(artifacts, dict):
+            return
+        artifacts[tool_call_id] = {
+            "path": str(path),
+            "mime_type": mime_type,
+            "created_at": time.time(),
+        }
+        while len(artifacts) > _GENERATED_IMAGE_ARTIFACT_LIMIT:
+            artifacts.pop(next(iter(artifacts)), None)
+        return
+
+
 def _on_tool_start(sid: str, tool_call_id: str, name: str, args: dict):
     session = _sessions.get(sid)
     if session is not None:
@@ -4654,6 +4799,8 @@ def _on_tool_complete(sid: str, tool_call_id: str, name: str, args: dict, result
         snapshot = session.setdefault("edit_snapshots", {}).pop(tool_call_id, None)
         started_at = session.setdefault("tool_started_at", {}).pop(tool_call_id, None)
     duration_s = time.time() - started_at if started_at else None
+    if session is not None:
+        _register_generated_image_artifact(session, tool_call_id, name, result)
     if not _tool_progress_enabled(sid) and _is_live_view_visual_tool(name):
         # Do not build the transcript payload first: browser snapshots and
         # Computer Use captures can be megabytes, and parsing/serialising that
@@ -5433,6 +5580,7 @@ def _reset_session_agent(sid: str, session: dict) -> dict:
         session["config_model_seen"] = _config_model_target()
         session["attached_images"] = []
         session["edit_snapshots"] = {}
+        session["generated_image_artifacts"] = {}
         session["image_counter"] = 0
         session["running"] = False
         session["show_reasoning"] = _load_show_reasoning()
@@ -6024,7 +6172,9 @@ def _coerce_message_text(content: Any) -> str:
     return str(content)
 
 
-def _history_to_messages(history: list[dict]) -> list[dict]:
+def _history_to_messages(
+    history: list[dict], artifact_session: Optional[dict] = None
+) -> list[dict]:
     messages = []
     tool_call_args = {}
 
@@ -6052,9 +6202,15 @@ def _history_to_messages(history: list[dict]) -> list[dict]:
             tc_info = tool_call_args.get(tc_id) if tc_id else None
             name = (tc_info[0] if tc_info else None) or m.get("tool_name") or "tool"
             args = (tc_info[1] if tc_info else None) or {}
-            messages.append(
-                {"role": "tool", "name": name, "context": _tool_ctx(name, args)}
-            )
+            message = {"role": "tool", "name": name, "context": _tool_ctx(name, args)}
+            if name == "image_generate" and tc_id and artifact_session is not None:
+                raw_result = m.get("content")
+                if isinstance(raw_result, str):
+                    _register_generated_image_artifact(artifact_session, tc_id, name, raw_result)
+                artifacts = artifact_session.get("generated_image_artifacts")
+                if isinstance(artifacts, dict) and tc_id in artifacts:
+                    message["image_artifact_id"] = tc_id
+            messages.append(message)
             continue
         # An assistant turn may carry only reasoning/thinking content with no
         # visible text (extended-thinking turns, thinking-only recovery
@@ -6698,6 +6854,72 @@ def _schedule_agent_build(sid: str, delay: float = 0.05) -> None:
     timer.start()
 
 
+@method("artifact.list")
+def _(rid, params: dict) -> dict:
+    """List bounded live-session image artifacts without exposing host paths."""
+    session_id = params.get("session_id")
+    if not isinstance(session_id, str) or not session_id.strip():
+        return _err(rid, 4006, "session_id required")
+    session = _sessions.get(session_id)
+    if session is None:
+        return _err(rid, 4007, "session not found")
+    artifacts = session.get("generated_image_artifacts")
+    if not isinstance(artifacts, dict):
+        return _ok(rid, {"session_id": session_id, "artifacts": []})
+    items: list[dict[str, object]] = []
+    for artifact_id, entry in artifacts.items():
+        if not isinstance(artifact_id, str) or not isinstance(entry, dict):
+            continue
+        artifact = _registered_generated_image(entry.get("path"), session)
+        if artifact is None:
+            continue
+        path, mime_type = artifact
+        try:
+            byte_size = path.stat().st_size
+        except OSError:
+            continue
+        items.append({
+            "artifact_id": artifact_id,
+            "mime_type": mime_type,
+            "byte_size": byte_size,
+        })
+    return _ok(rid, {"session_id": session_id, "artifacts": items})
+
+
+@method("artifact.fetch")
+def _(rid, params: dict) -> dict:
+    """Return one registered generated image by opaque tool-call id.
+
+    Client input is never a path. Registration happens exclusively in
+    ``_on_tool_complete`` after the local image result passes cache-root,
+    symlink, type, and byte-limit checks.
+    """
+    session_id = params.get("session_id")
+    artifact_id = params.get("artifact_id")
+    if not isinstance(session_id, str) or not session_id.strip():
+        return _err(rid, 4006, "session_id required")
+    if not isinstance(artifact_id, str) or not artifact_id or len(artifact_id) > 512:
+        return _err(rid, 4006, "artifact_id required")
+    session = _sessions.get(session_id)
+    if session is None:
+        return _err(rid, 4007, "session not found")
+    artifacts = session.get("generated_image_artifacts")
+    entry = artifacts.get(artifact_id) if isinstance(artifacts, dict) else None
+    if not isinstance(entry, dict):
+        return _err(rid, 4008, "artifact not found")
+    fetched = _read_registered_generated_image(entry.get("path"), session)
+    if fetched is None:
+        if isinstance(artifacts, dict):
+            artifacts.pop(artifact_id, None)
+        return _err(rid, 4008, "artifact is unavailable")
+    data, mime_type = fetched
+    return _ok(rid, {
+        "artifact_id": artifact_id,
+        "mime_type": mime_type,
+        "data_base64": base64.b64encode(data).decode("ascii"),
+    })
+
+
 @method("session.transcript")
 def _(rid, params: dict) -> dict:
     """Return a bounded persisted display transcript without resuming a chat.
@@ -6903,7 +7125,7 @@ def _(rid, params: dict) -> dict:
         # A delegated child mid-run emits no session events of its own — report
         # its liveness from the relay registry so the window shows a busy turn.
         child_running = _child_run_active(target, profile_home)
-        messages = _history_to_messages(history)
+        messages = _history_to_messages(history, artifact_session=record)
         return _ok(
             rid,
             {
@@ -6995,7 +7217,7 @@ def _(rid, params: dict) -> dict:
         _schedule_agent_build(sid)
         _schedule_session_cap_enforcement()  # trim detached idle sessions over the cap
 
-        messages = _history_to_messages(display_history)
+        messages = _history_to_messages(display_history, artifact_session=record)
         return _ok(
             rid,
             {
@@ -7051,7 +7273,6 @@ def _(rid, params: dict) -> dict:
             : max(0, len(display_history) - len(raw_history))
         ]
         history = sanitize_replay_history(raw_history)
-        messages = _history_to_messages(display_history)
         tokens = _set_session_context(target)
         try:
             # Pass the profile's db so the agent persists turns to the right
@@ -7150,6 +7371,7 @@ def _(rid, params: dict) -> dict:
             _close_lookup_db()
             return _err(rid, 5000, f"resume failed: {e}")
         session = _sessions.get(sid) or {}
+        messages = _history_to_messages(display_history, artifact_session=session)
     return _ok(
         rid,
         {

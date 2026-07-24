@@ -26,10 +26,26 @@ struct AssistantTurnPart: Identifiable, Equatable {
         var durationSeconds: Double?
     }
 
+    /// A generated image's renderable source. Images are either opaque gateway
+    /// artifacts or bounded in-memory bytes; arbitrary tool URLs never reach
+    /// the renderer.
+    enum GeneratedImageSource: Equatable {
+        case gatewayArtifact
+        case unavailable
+        case data(Data, mimeType: String)
+    }
+
+    /// An image produced by Fabric's dedicated image-generation tool.
+    struct GeneratedImage: Equatable {
+        let source: GeneratedImageSource
+        let callID: String?
+    }
+
     enum Content: Equatable {
         case text(String)
         case reasoning(Reasoning)
         case tool(Tool)
+        case generatedImage(GeneratedImage)
     }
 
     let id: String
@@ -51,20 +67,23 @@ enum AssistantTurnEvent: Equatable {
         name: String,
         detail: String?,
         failed: Bool,
-        durationSeconds: Double?
+        durationSeconds: Double?,
+        generatedImage: AssistantTurnPart.GeneratedImage? = nil
     )
     case messageComplete(authoritativeText: String?)
 }
 
 /// Redaction and text caps shared by live cards and the offline presentation
-/// cache. Tool result/argument objects never enter the reducer at all; these
-/// patterns are a second line of defence for the small server-authored summary
-/// fields that are allowed through.
+/// cache. Tool result/argument objects never enter the reducer except for
+/// a bounded generated-image artifact id; these patterns are a second line
+/// of defence for the small
+/// server-authored summary fields that are otherwise allowed through.
 enum ChatPresentationSafety {
     static let maximumReasoningCharacters = 6_000
     static let maximumActivityDetailCharacters = 800
     static let maximumToolNameCharacters = 80
     static let maximumCachedMessageCharacters = 12_000
+    static let maximumGeneratedImageURLCharacters = 2_048
 
     private static let sensitivePatterns: [(NSRegularExpression, String)] = {
         let definitions: [(String, String)] = [
@@ -128,6 +147,54 @@ enum ChatPresentationSafety {
         return sanitized(trimmed, maximumCharacters: maximumActivityDetailCharacters)
     }
 
+    /// Create an in-memory placeholder for an image that stayed on the
+    /// authenticated gateway host. The client exchanges only the opaque tool
+    /// call ID for bytes; a gateway file path never becomes presentation data.
+    static func gatewayArtifactImage(
+        from payload: [String: Any],
+        toolName: String,
+        callID: String?
+    ) -> AssistantTurnPart.GeneratedImage? {
+        guard toolName == "image_generate", let callID, !callID.isEmpty else { return nil }
+
+        if let result = object(fromToolResult: payload["result"]) {
+            guard result["success"] as? Bool != false else { return nil }
+            for key in ["host_image", "image", "agent_visible_image"] {
+                if let path = result[key] as? String, isLocalImageArtifactPath(path) {
+                    return AssistantTurnPart.GeneratedImage(source: .gatewayArtifact, callID: callID)
+                }
+            }
+        }
+
+        if let files = payload["files_written"] as? [Any], files.contains(where: { value in
+            guard let path = value as? String else { return false }
+            return isLocalImageArtifactPath(path)
+        }) {
+            return AssistantTurnPart.GeneratedImage(source: .gatewayArtifact, callID: callID)
+        }
+        return nil
+    }
+
+    private static func isLocalImageArtifactPath(_ rawPath: String) -> Bool {
+        let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty, path.count <= 2_048,
+              path.hasPrefix("/") || path.hasPrefix("~/") || path.hasPrefix("./") || path.hasPrefix("file://")
+        else { return false }
+        let lowercase = path.lowercased()
+        return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].contains { lowercase.hasSuffix($0) }
+    }
+
+    private static func object(fromToolResult value: Any?) -> [String: Any]? {
+        if let object = value as? [String: Any] { return object }
+        guard let string = value as? String,
+              string.utf8.count <= maximumGeneratedImageURLCharacters * 2,
+              let data = string.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object
+    }
+
     /// Transport errors can embed arbitrary JSON-RPC messages, HTTP bodies,
     /// credentials, or socket diagnostics in `localizedDescription`. Chat is
     /// persisted as a presentation cache, so only caller-owned recovery copy
@@ -187,16 +254,24 @@ enum AssistantTurnReducer {
                 // A non-boolean error body is deliberately not rendered.
                 failed = payload["error"] != nil
             }
+            let callID = toolCallID(payload)
+            let name = ChatPresentationSafety.toolName(
+                (payload["name"] as? String) ?? (payload["tool"] as? String)
+            )
             return .toolCompleted(
-                callID: toolCallID(payload),
-                name: ChatPresentationSafety.toolName(
-                    (payload["name"] as? String) ?? (payload["tool"] as? String)
-                ),
+                callID: callID,
+                name: name,
                 // Only the server-authored compact summary is presentation
-                // eligible. Raw args/result/result_text never cross this seam.
+                // eligible. The sole exception is image_generate's bounded
+                // public HTTPS output, converted to a typed image value here.
                 detail: ChatPresentationSafety.activityDetail(payload["summary"] as? String),
                 failed: failed,
-                durationSeconds: (payload["duration_s"] as? NSNumber)?.doubleValue
+                durationSeconds: (payload["duration_s"] as? NSNumber)?.doubleValue,
+                generatedImage: failed ? nil : ChatPresentationSafety.gatewayArtifactImage(
+                    from: payload,
+                    toolName: name,
+                    callID: callID
+                )
             )
         case "message.complete":
             return .messageComplete(authoritativeText: gatewayEvent.payloadText)
@@ -272,7 +347,7 @@ enum AssistantTurnReducer {
                 tool.state = .running
             }
 
-        case .toolCompleted(let callID, let name, let detail, let failed, let duration):
+        case .toolCompleted(let callID, let name, let detail, let failed, let duration, let generatedImage):
             let safeName = ChatPresentationSafety.toolName(name)
             let safeDetail = ChatPresentationSafety.activityDetail(detail)
             upsertTool(
@@ -286,6 +361,9 @@ enum AssistantTurnReducer {
                 tool.detail = safeDetail ?? tool.detail
                 tool.state = failed ? .failed : .complete
                 tool.durationSeconds = duration
+            }
+            if !failed, let generatedImage {
+                appendGeneratedImage(generatedImage, to: &next.assistantParts)
             }
 
         case .messageComplete(let authoritativeText):
@@ -309,6 +387,7 @@ enum AssistantTurnReducer {
         if let index = latestPartIndex(in: parts, matching: { content in
             if case .text = content { return true }
             if case .tool = content { return false }
+            if case .generatedImage = content { return false }
             return nil
         }), case .text(let text) = parts[index].content {
             let crossesReasoning = parts[(index + 1)...].contains { part in
@@ -336,6 +415,7 @@ enum AssistantTurnReducer {
         let index = latestPartIndex(in: parts, matching: { content in
             if case .reasoning = content { return true }
             if case .tool = content { return false }
+            if case .generatedImage = content { return false }
             return nil
         })
         let current: String
@@ -438,6 +518,20 @@ enum AssistantTurnReducer {
             id: nextID(prefix: "tool", parts: parts),
             content: .tool(tool)
         ))
+    }
+
+    private static func appendGeneratedImage(
+        _ image: AssistantTurnPart.GeneratedImage,
+        to parts: inout [AssistantTurnPart]
+    ) {
+        let alreadyPresent = parts.contains { part in
+            guard case .generatedImage(let existing) = part.content else { return false }
+            if let callID = image.callID { return existing.callID == callID }
+            return existing.source == image.source
+        }
+        guard !alreadyPresent else { return }
+        let id = image.callID.map { "image:\($0)" } ?? nextID(prefix: "image", parts: parts)
+        parts.append(AssistantTurnPart(id: id, content: .generatedImage(image)))
     }
 
     private static func nextID(prefix: String, parts: [AssistantTurnPart]) -> String {
@@ -1230,6 +1324,10 @@ struct ChatPresentationCache {
                         toolState: tool.state.rawValue,
                         durationSeconds: tool.durationSeconds
                     )
+                case .generatedImage:
+                    // Image URLs may be signed/ephemeral. Keep them only in
+                    // memory; gateway transcript remains the restore authority.
+                    return nil
                 }
             }
             reversed.append(Record(
@@ -1543,6 +1641,7 @@ final class ChatViewModel {
     private let durableWorkNegotiation: () -> GatewayCapabilityNegotiation?
     private let workGatewayID: () -> String?
     private let presentationCache: ChatPresentationCache
+    private var pendingImageArtifactFetches: Set<String> = []
     private var pendingDurableBackgroundMutations: [PendingDurableBackgroundMutation] = []
     private var workSyncInFlight = false
     private var workSyncNeedsAnotherPass = false
@@ -1790,6 +1889,7 @@ final class ChatViewModel {
             for event in events {
                 handle(event)
             }
+            fetchGatewayImageArtifactsIfNeeded()
             sessionReady = true
             sessionError = nil
             unknownSendOutcome = nil
@@ -1822,6 +1922,7 @@ final class ChatViewModel {
         sessionId = nil
         sessionReady = false
         pendingEvents.removeAll()
+        pendingImageArtifactFetches.removeAll()
         clearInteractions()
         petActivity.toolRunning = false
         petActivity.reasoning = false
@@ -1882,6 +1983,7 @@ final class ChatViewModel {
             ) + live.pendingInteractions
             pendingEvents.removeAll()
             for event in events { handle(event) }
+            fetchGatewayImageArtifactsIfNeeded()
             sessionReady = true
             sessionError = nil
             unknownSendOutcome = nil
@@ -1910,6 +2012,7 @@ final class ChatViewModel {
         petTransientBeatTask?.cancel()
         petTransientBeatTask = nil
         pendingEvents.removeAll()
+        pendingImageArtifactFetches.removeAll()
         // Never retain raw background prompt text after this chat surface is
         // discarded. Durable public Job summaries remain server-authoritative.
         pendingDurableBackgroundMutations.removeAll()
@@ -2628,6 +2731,7 @@ final class ChatViewModel {
             busy = true
             updatePetSteadyFlags(for: event.type)
             foldIntoStreamingAssistant(turnEvent)
+            fetchGatewayImageArtifactIfNeeded(from: turnEvent)
 
         case "message.complete":
             busy = false
@@ -2727,6 +2831,88 @@ final class ChatViewModel {
 
         default:
             break
+        }
+    }
+
+    private func fetchGatewayImageArtifactIfNeeded(from event: AssistantTurnEvent) {
+        guard case .toolCompleted(_, _, _, false, _, let generatedImage) = event,
+              let generatedImage else {
+            return
+        }
+        fetchGatewayImageArtifactIfNeeded(generatedImage)
+    }
+
+    private func fetchGatewayImageArtifactsIfNeeded() {
+        for message in messages where message.role == .assistant {
+            for part in message.assistantParts {
+                guard case .generatedImage(let image) = part.content else { continue }
+                fetchGatewayImageArtifactIfNeeded(image)
+            }
+        }
+    }
+
+    private func fetchGatewayImageArtifactIfNeeded(_ generatedImage: AssistantTurnPart.GeneratedImage) {
+        guard case .gatewayArtifact = generatedImage.source,
+              let callID = generatedImage.callID,
+              let sessionId,
+              !pendingImageArtifactFetches.contains(callID) else {
+            return
+        }
+        guard supportsMethod("artifact.fetch") else {
+            replaceGatewayImageArtifactUnavailable(callID: callID)
+            return
+        }
+        pendingImageArtifactFetches.insert(callID)
+        let generation = bootstrapGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.pendingImageArtifactFetches.remove(callID) }
+            do {
+                let artifact = try await self.api.fetchImageArtifact(
+                    sessionId: sessionId,
+                    artifactID: callID
+                )
+                guard generation == self.bootstrapGeneration,
+                      self.sessionId == sessionId,
+                      !Task.isCancelled else { return }
+                self.replaceGatewayImageArtifact(
+                    callID: callID,
+                    data: artifact.data,
+                    mimeType: artifact.mimeType
+                )
+            } catch {
+                guard generation == self.bootstrapGeneration,
+                      self.sessionId == sessionId,
+                      !Task.isCancelled else { return }
+                self.replaceGatewayImageArtifactUnavailable(callID: callID)
+            }
+        }
+    }
+
+    private func replaceGatewayImageArtifactUnavailable(callID: String) {
+        replaceGatewayImageArtifact(callID: callID, source: .unavailable)
+    }
+
+    private func replaceGatewayImageArtifact(callID: String, data: Data, mimeType: String) {
+        replaceGatewayImageArtifact(callID: callID, source: .data(data, mimeType: mimeType))
+    }
+
+    private func replaceGatewayImageArtifact(
+        callID: String,
+        source: AssistantTurnPart.GeneratedImageSource
+    ) {
+        for messageIndex in messages.indices.reversed() {
+            guard messages[messageIndex].role == .assistant else { continue }
+            guard let partIndex = messages[messageIndex].assistantParts.firstIndex(where: { part in
+                guard case .generatedImage(let image) = part.content else { return false }
+                return image.callID == callID && image.source == .gatewayArtifact
+            }) else { continue }
+            let original = messages[messageIndex].assistantParts[partIndex]
+            messages[messageIndex].assistantParts[partIndex] = AssistantTurnPart(
+                id: original.id,
+                content: .generatedImage(.init(source: source, callID: callID))
+            )
+            return
         }
     }
 
@@ -2831,6 +3017,13 @@ final class ChatViewModel {
                         durationSeconds: nil
                     ))
                 ))
+                if ChatPresentationSafety.toolName(message.toolName) == "image_generate",
+                   let artifactID = message.imageArtifactID {
+                    appendPendingPart(AssistantTurnPart(
+                        id: nextPartID("generated-image"),
+                        content: .generatedImage(.init(source: .gatewayArtifact, callID: artifactID))
+                    ))
+                }
             case .assistant:
                 let reasoning = reasoningPart(message.reasoning)
                 if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

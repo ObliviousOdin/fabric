@@ -8,7 +8,8 @@ This skill is a derivative adaptation of:
 
 What was reused: the review methodology (deterministic file selection, rule
 resolution, delegated per-file review) and the structured finding schema
-(path, content, start/end line, category, severity).
+(path, content, start/end line, suggestion_code, existing_code). The `category`
+and `severity` gradings are Fabric additions, not upstream fields.
 
 What was changed: reimplemented natively for Fabric using local `git` and the
 `delegate_task` primitive. The upstream `ocr` Go binary is NOT used, and its

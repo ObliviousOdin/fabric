@@ -169,6 +169,7 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 |-------|-------------|------|
 | [`fabric-agent-skill-authoring`](/user-guide/skills/bundled/software-development/software-development-fabric-agent-skill-authoring) | Author governed Fabric skills and evaluation contracts. | `software-development/fabric-agent-skill-authoring` |
 | [`node-inspect-debugger`](/user-guide/skills/bundled/software-development/software-development-node-inspect-debugger) | Debug Node.js via --inspect + Chrome DevTools Protocol CLI. | `software-development/node-inspect-debugger` |
+| [`open-code-review`](/user-guide/skills/bundled/software-development/software-development-open-code-review) | Line-level AI review of a PR, branch, commit, or diff by severity. | `software-development/open-code-review` |
 | [`plan`](/user-guide/skills/bundled/software-development/software-development-plan) | Plan mode: write an actionable markdown plan to .fabric/plans/, no execution. Bite-sized tasks, exact paths, complete code. | `software-development/plan` |
 | [`python-debugpy`](/user-guide/skills/bundled/software-development/software-development-python-debugpy) | Debug Python: pdb REPL + debugpy remote (DAP). | `software-development/python-debugpy` |
 | [`requesting-code-review`](/user-guide/skills/bundled/software-development/software-development-requesting-code-review) | Pre-commit review: security scan, quality gates, auto-fix. | `software-development/requesting-code-review` |

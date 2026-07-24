@@ -1,15 +1,33 @@
 ---
-name: open-code-review
-description: Line-level AI review of a PR, branch, commit, or diff by severity.
-version: 1.0.0
-author: Fabric (adapted from alibaba/open-code-review, Apache-2.0)
-license: Apache-2.0
-platforms: [linux, macos, windows]
-metadata:
-  fabric:
-    tags: [code-review, git, pull-request, severity, structured-findings, telemetry-free]
-    related_skills: [requesting-code-review, simplify-code, github-code-review, plan]
+title: "Open Code Review — Line-level AI review of a PR, branch, commit, or diff by severity"
+sidebar_label: "Open Code Review"
+description: "Line-level AI review of a PR, branch, commit, or diff by severity"
 ---
+
+{/* This page is auto-generated from the skill's SKILL.md by website/scripts/generate-skill-docs.py. Edit the source SKILL.md, not this page. */}
+
+# Open Code Review
+
+Line-level AI review of a PR, branch, commit, or diff by severity.
+
+## Skill metadata
+
+| | |
+|---|---|
+| Source | Bundled (installed by default) |
+| Path | `skills/software-development/open-code-review` |
+| Version | `1.0.0` |
+| Author | Fabric (adapted from alibaba/open-code-review, Apache-2.0) |
+| License | Apache-2.0 |
+| Platforms | linux, macos, windows |
+| Tags | `code-review`, `git`, `pull-request`, `severity`, `structured-findings`, `telemetry-free` |
+| Related skills | [`requesting-code-review`](/user-guide/skills/bundled/software-development/software-development-requesting-code-review), [`simplify-code`](/user-guide/skills/bundled/software-development/software-development-simplify-code), [`github-code-review`](/user-guide/skills/bundled/github/github-github-code-review), [`plan`](/user-guide/skills/bundled/software-development/software-development-plan) |
+
+## Reference: full SKILL.md
+
+:::info
+The following is the complete skill definition that Fabric loads when this skill is triggered. This is what the agent sees as instructions when the skill is active.
+:::
 
 # Open Code Review (Fabric-native)
 

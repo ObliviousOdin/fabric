@@ -207,6 +207,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/bundled/creative/creative-pretext',
                     'user-guide/skills/bundled/creative/creative-sketch',
                     'user-guide/skills/bundled/creative/creative-songwriting-and-ai-music',
+                    'user-guide/skills/bundled/creative/creative-text-to-cad',
                     'user-guide/skills/bundled/creative/creative-touchdesigner-mcp',
                   ],
                 },

@@ -59,7 +59,7 @@ jobs:
 
       - name: Check deterministic v3 corpus and Python implementation
         run: |
-          uv run python scripts/generate_fabric_link_interop.py --check
+          uv run python3 scripts/generate_fabric_link_interop.py --check
           uv run pytest -q tests/fabric_link
 
       - name: Set up Rust targets

@@ -1,0 +1,28 @@
+{
+  "$comment": "Fabric-native code-review rules. Copy to <repo>/.fabric/code-review-rules.json (or ~/.fabric/code-review-rules.json for a user-global set). The upstream-compatible location <repo>/.opencodereview/rule.json with the same shape is also read if present. Each file inherits every rule whose glob matches its path, plus the built-in defaults (references/review-rules.md). A matching user rule replaces the built-in system rule for that file unless merge_system_rule is true, in which case both apply.",
+  "rules": [
+    {
+      "path": "**/*.java",
+      "rule": "Validate required parameters for null before use. Flag SQL built by string concatenation. Check thread-safety on shared mutable fields.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**/*.{ts,tsx,js,jsx}",
+      "rule": "Flag untrusted data assigned to innerHTML or dangerouslySetInnerHTML (XSS). Require error handling on await/promise chains; no empty catch.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**/*.py",
+      "rule": "Flag subprocess with shell=True, os.system, eval/exec on user input, and pickle.loads on untrusted data. Require parameterized DB queries.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**/*mapper*.xml",
+      "rule": "Check SQL for injection risks and missing closing tags."
+    },
+    {
+      "path": "**/migrations/**",
+      "rule": "Flag destructive or non-reversible schema changes and missing down-migrations."
+    }
+  ]
+}

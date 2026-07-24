@@ -1,0 +1,19 @@
+Fabric skill: open-code-review
+
+This skill is a derivative adaptation of:
+
+  open-code-review — https://github.com/alibaba/open-code-review
+  Copyright the open-code-review authors.
+  Licensed under the Apache License, Version 2.0.
+
+What was reused: the review methodology (deterministic file selection, rule
+resolution, delegated per-file review) and the structured finding schema
+(path, content, start/end line, category, severity).
+
+What was changed: reimplemented natively for Fabric using local `git` and the
+`delegate_task` primitive. The upstream `ocr` Go binary is NOT used, and its
+`internal/telemetry` (OpenTelemetry) integration is therefore absent — this
+adaptation contacts no telemetry or reporting endpoint.
+
+A copy of the Apache License, Version 2.0 is available at:
+  https://www.apache.org/licenses/LICENSE-2.0

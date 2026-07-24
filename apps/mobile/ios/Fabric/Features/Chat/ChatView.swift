@@ -325,8 +325,9 @@ private struct ChatContentView: View {
         }
         // A pushed conversation must never fall back to the system backdrop
         // (near-black in dark mode) while the transcript lays out — paint the
-        // Fabric canvas behind every state, matching the connected Home.
-        .background(FabricTheme.canvas.ignoresSafeArea())
+        // Fabric canvas (plus a decorative reactive ambient that brightens while
+        // the agent works) behind every state, matching the connected Home.
+        .background { ChatAmbientBackdrop(active: model.busy) }
         .sheet(isPresented: $showCommandCatalog) {
             CommandCatalogSheet(
                 api: model.api,
@@ -1436,6 +1437,17 @@ struct ChatExperienceDebugFixtureView: View {
                 content: .text("The app is healthy. One protected release action needs your approval.")
             ),
         ]
+        let generative = """
+        Here's the plan and this week's runs:
+
+        ```work
+        {"title":"Ship v0.4","status":"running","steps":[{"label":"Tests","state":"done"},{"label":"Deploy","state":"running"},{"label":"Announce","state":"pending"}]}
+        ```
+
+        ```chart
+        {"type":"bar","title":"Weekly runs","data":[{"label":"Mon","value":12},{"label":"Tue","value":18},{"label":"Wed","value":9},{"label":"Thu","value":21}]}
+        ```
+        """
         return [
             TranscriptMessage(role: .user, text: "Verify the iOS release and prepare TestFlight."),
             TranscriptMessage(
@@ -1443,6 +1455,9 @@ struct ChatExperienceDebugFixtureView: View {
                 text: "The app is healthy. One protected release action needs your approval.",
                 assistantParts: parts
             ),
+            // A completed assistant turn with no activity parts takes the rich
+            // document path, exercising the ```work / ```chart generative cards.
+            TranscriptMessage(role: .assistant, text: generative),
         ]
     }
 
@@ -3225,9 +3240,32 @@ private struct AssistantTranscriptView: View {
             }
             .padding(.leading, CGFloat(depth) * 12)
         case .code(let language, let text):
-            TechnicalTranscriptBlock(kind: .code(language: language), text: text)
+            codeBlock(language: language, text: text)
         case .diff(let text):
             TechnicalTranscriptBlock(kind: .diff, text: text)
+        }
+    }
+
+    /// A ```work / ```chart fence renders as a generative card; every other
+    /// fenced language falls back to the ordinary technical code block. An
+    /// unparseable spec also falls back, so the raw fence is never lost.
+    @ViewBuilder
+    private func codeBlock(language: String?, text: String) -> some View {
+        switch language?.lowercased() {
+        case "work":
+            if let spec = WorkFenceSpec.parse(text) {
+                WorkFenceCard(spec: spec)
+            } else {
+                TechnicalTranscriptBlock(kind: .code(language: language), text: text)
+            }
+        case "chart":
+            if let spec = ChartFenceSpec.parse(text) {
+                ChartFenceCard(spec: spec)
+            } else {
+                TechnicalTranscriptBlock(kind: .code(language: language), text: text)
+            }
+        default:
+            TechnicalTranscriptBlock(kind: .code(language: language), text: text)
         }
     }
 

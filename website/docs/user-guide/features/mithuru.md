@@ -10,9 +10,11 @@ shorter copy, and a voice-first path. It is available as a source preview in
 Fabric Desktop and the native iOS client.
 
 Mithuru is a presentation layer, not a second agent or account. It uses the
-active Fabric profile or paired gateway, the same conversation/session state,
-and the same authenticated prompt, approval, and attachment contracts as
-Standard Fabric.
+active Fabric profile or paired gateway and the same authenticated transport,
+prompt, approval, and attachment contracts as Standard Fabric. On Desktop it
+presents the active chat. On iOS, Mithuru keeps its own gateway-scoped durable
+conversation across Simple Mode exit and app relaunch; Standard Home can have a
+different active conversation.
 
 ## Open and leave Simple Mode
 
@@ -56,6 +58,10 @@ On Desktop, microphone audio is sent to the configured Fabric speech service
 only after the same explicit online-speech choice. Otherwise the microphone
 path fails closed to typing.
 
+The shield or **Speech privacy** control remains available after setup so online
+speech permission can be reviewed or revoked. Revocation stops active voice
+capture and later recordings fail closed rather than being uploaded.
+
 Read aloud uses the operating system's installed voices. Availability and
 pronunciation depend on the selected language and voices installed on the
 device.
@@ -71,9 +77,10 @@ Simple Mode does not weaken Fabric authorization:
 - secure prompts continue to use secure entry; and
 - normal input is disabled while a prompt or approval is pending.
 
-Before a document picker opens, Mithuru explains that the file may be sent to
+Before the document picker opens, Mithuru explains that the file may be sent to
 the paired gateway and selected AI provider. Existing capability, attachment
-size/count, upload, and receipt checks remain authoritative.
+size/count, upload, and receipt checks remain authoritative. Staged filenames
+are visible and removable before **Send**.
 
 ## Preview and release gates
 

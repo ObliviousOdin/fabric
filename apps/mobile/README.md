@@ -48,8 +48,9 @@ another trusted HTTPS tunnel for the installable browser path.
 
 The connected iOS Home tab can open **Mithuru**, a simplified Fabric experience
 for people who prefer larger controls, shorter copy, and a voice-first path.
-Mithuru reuses the current Fabric gateway, authenticated socket, authoritative
-session history, attachment RPCs, and approval/prompt interactions. It does not
+Mithuru reuses the current Fabric gateway, authenticated socket, attachment
+RPCs, and approval/prompt interactions. Its own gateway-scoped durable
+conversation is distinct from Standard Home's active conversation. It does not
 create a second pairing protocol, mobile API, agent runtime, or authorization
 boundary.
 

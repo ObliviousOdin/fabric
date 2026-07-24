@@ -108,8 +108,10 @@ authentication and loopback peer restrictions still apply.
 The native iOS preview includes **Mithuru**, a simplified Fabric Home experience
 with larger controls, one-question setup, editable dictation, read aloud, and
 Sinhala, Tamil, or Sri Lankan English presentation. It uses the same paired
-gateway and authoritative conversation as Standard Fabric; use the visible
-**Standard Fabric** action to switch back.
+gateway and authoritative RPC/security contracts as Standard Fabric. Mithuru
+keeps its own gateway-scoped conversation, while Standard Home can have a
+different active conversation; use the visible **Standard Fabric** action to
+switch back.
 
 Mithuru asks before allowing Apple online speech when on-device recognition is
 unavailable. If you decline, use text instead. Speech never submits by itself.

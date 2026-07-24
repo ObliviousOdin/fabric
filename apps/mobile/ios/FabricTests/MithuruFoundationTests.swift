@@ -29,10 +29,41 @@ final class MithuruFoundationTests: XCTestCase {
         XCTAssertFalse(MithuruPreferencesStore.load(gatewayID: "gateway-b", defaults: defaults).onboardingCompleted)
     }
 
+    func testStoredSessionIsScopedByGatewayAndRejectsInvalidValues() {
+        let suiteName = "MithuruSessionTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        MithuruPreferencesStore.saveStoredSessionID("  stored-a  ", gatewayID: "gateway-a", defaults: defaults)
+
+        XCTAssertEqual(
+            MithuruPreferencesStore.loadStoredSessionID(gatewayID: "gateway-a", defaults: defaults),
+            "stored-a"
+        )
+        XCTAssertNil(MithuruPreferencesStore.loadStoredSessionID(gatewayID: "gateway-b", defaults: defaults))
+
+        MithuruPreferencesStore.saveStoredSessionID("   ", gatewayID: "gateway-a", defaults: defaults)
+        XCTAssertNil(MithuruPreferencesStore.loadStoredSessionID(gatewayID: "gateway-a", defaults: defaults))
+    }
+
     func testCloudFallbackFailureHasNonTechnicalRecoveryCopy() {
         let issue = DeviceVoiceIssue.onDeviceSpeechUnavailable
         XCTAssertTrue(issue.title.contains("On-device"))
         XCTAssertTrue(issue.message.contains("type"))
         XCTAssertFalse(issue.message.localizedCaseInsensitiveContains("SFSpeechRecognizer"))
+    }
+
+    func testPromptAnswersAreClearedOnCancelAndRequestIdentityChange() {
+        var state = MithuruPromptAnswerState()
+        state.reset(for: "secret:first")
+        state.answer = "private-value"
+
+        XCTAssertEqual(state.consume(""), "")
+        XCTAssertEqual(state.answer, "")
+
+        state.answer = "another-private-value"
+        state.reset(for: "clarify:second")
+        XCTAssertEqual(state.answer, "")
+        XCTAssertEqual(state.identity, "clarify:second")
     }
 }

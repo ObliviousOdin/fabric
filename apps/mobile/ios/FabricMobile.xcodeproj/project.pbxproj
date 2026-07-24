@@ -66,6 +66,7 @@
 		6CCED2301EA27016EB99B29F /* gateway-capabilities-family-contradiction.json in Resources */ = {isa = PBXBuildFile; fileRef = F17BE53B7E869BFCD0B4E192 /* gateway-capabilities-family-contradiction.json */; };
 		7EC1504A5D4A2DCB0C68A626 /* FabricLinkCBOR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69763F337CAD7C0C30745B54 /* FabricLinkCBOR.swift */; };
 		7F7729C01B19DC10EC5580BF /* FabricLinkViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B215EA4517927191E2C63B /* FabricLinkViews.swift */; };
+		7FE84CD845E9408AD1F96BFA /* Mithuru.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DB739E4F19087EA97A118FF9 /* Mithuru.xcstrings */; };
 		7FF7A8AA1A3776FC6A19ED1C /* SocialArtifactTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F07F9FA4ED5269CE2CFB810 /* SocialArtifactTests.swift */; };
 		83CE958343943CCD4E93999D /* phone-audio-malformed.json in Resources */ = {isa = PBXBuildFile; fileRef = D01A9E7219419AC17A4A6616 /* phone-audio-malformed.json */; };
 		870EF1E80B8DC5766022B59D /* TranscriptArtifacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FADAA0D5A8773F7E910332D /* TranscriptArtifacts.swift */; };
@@ -250,6 +251,7 @@
 		DAD37753829FF07CF4D2C73F /* ConversationHomeDebugFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationHomeDebugFixtures.swift; sourceTree = "<group>"; };
 		DAE0684FBC3ECDCA2D85F769 /* FabricUIDebugFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricUIDebugFixtures.swift; sourceTree = "<group>"; };
 		DAF5503C200A9D187123A534 /* FabricWorkContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricWorkContract.swift; sourceTree = "<group>"; };
+		DB739E4F19087EA97A118FF9 /* Mithuru.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Mithuru.xcstrings; sourceTree = "<group>"; };
 		DE3236B367DE48627DE9B7D7 /* bootstrap-page-2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-page-2.json"; sourceTree = "<group>"; };
 		E74DD14448B2A54E9CFD93B0 /* bootstrap-page-1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-page-1.json"; sourceTree = "<group>"; };
 		E7B215EA4517927191E2C63B /* FabricLinkViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricLinkViews.swift; sourceTree = "<group>"; };
@@ -341,6 +343,7 @@
 				DFC333FB049B1632A8B75E31 /* Core */,
 				F148A092ACB997745FD341F3 /* DesignSystem */,
 				6E161508508959A1E0CCEA45 /* Features */,
+				83F6B094CC2E104A57A6A1CD /* Resources */,
 			);
 			path = Fabric;
 			sourceTree = "<group>";
@@ -442,6 +445,14 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
+		83F6B094CC2E104A57A6A1CD /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A7ECC13BAECB3AEDCE421D5B /* Localization */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		8AFD40A4723CDFBC4D64FBD6 /* Work */ = {
 			isa = PBXGroup;
 			children = (
@@ -486,6 +497,14 @@
 				72F2B280B1145468B9FCD052 /* GatewayEndpointIdentityText.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		A7ECC13BAECB3AEDCE421D5B /* Localization */ = {
+			isa = PBXGroup;
+			children = (
+				DB739E4F19087EA97A118FF9 /* Mithuru.xcstrings */,
+			);
+			path = Localization;
 			sourceTree = "<group>";
 		};
 		BDD57C95C78987B8AEDCA14F /* Artifacts */ = {
@@ -664,6 +683,8 @@
 			knownRegions = (
 				Base,
 				en,
+				si,
+				ta,
 			);
 			mainGroup = 63A40C9A5D0F942D90F1A1C6;
 			minimizedProjectReferenceProxies = 1;
@@ -685,6 +706,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				281E9F3C240B42B32A80A195 /* Assets.xcassets in Resources */,
+				7FE84CD845E9408AD1F96BFA /* Mithuru.xcstrings in Resources */,
 				0871E7FC1CABD42A8047DD87 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

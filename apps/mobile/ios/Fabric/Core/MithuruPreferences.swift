@@ -53,9 +53,35 @@ enum MithuruPreferencesStore {
 
     static func storageKey(gatewayID: String?) -> String { key(gatewayID) }
 
+    static func loadStoredSessionID(gatewayID: String?, defaults: UserDefaults = .standard) -> String? {
+        guard let value = defaults.string(forKey: sessionKey(gatewayID))?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty,
+              value.count <= 512 else { return nil }
+        return value
+    }
+
+    static func saveStoredSessionID(
+        _ sessionID: String?,
+        gatewayID: String?,
+        defaults: UserDefaults = .standard
+    ) {
+        guard let value = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty,
+              value.count <= 512 else {
+            defaults.removeObject(forKey: sessionKey(gatewayID))
+            return
+        }
+        defaults.set(value, forKey: sessionKey(gatewayID))
+    }
+
     private static func key(_ gatewayID: String?) -> String {
         let scope = gatewayID?.trimmingCharacters(in: .whitespacesAndNewlines)
         return "\(prefix):\(scope?.isEmpty == false ? scope! : "default")"
+    }
+
+    private static func sessionKey(_ gatewayID: String?) -> String {
+        "\(key(gatewayID)).session"
     }
 
     private static func normalized(_ source: MithuruPreferences) -> MithuruPreferences {

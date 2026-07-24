@@ -1,28 +1,45 @@
 import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
-/// Native, voice-first surface backed by the same gateway session and approval
+/// Native, voice-first surface backed by the same gateway transport and approval
 /// protocol as standard Fabric chat. It intentionally does not expose provider,
 /// model, token, tool, or terminal controls.
 struct MithuruRootView: View {
     @Environment(AppModel.self) private var appModel
     @State private var preferences = MithuruPreferences()
-    @State private var loadedScope: String?
+    @State private var mithuruStoredSessionId: String?
 
     var body: some View {
         Group {
-            if !preferences.onboardingCompleted {
+            if !preferences.onboardingCompleted, preferences.simpleModeEnabled {
                 MithuruOnboardingView(preferences: $preferences) {
                     preferences.onboardingCompleted = true
                     preferences.simpleModeEnabled = true
                     save()
-                }
-            } else if preferences.simpleModeEnabled {
-                MithuruConversationView(preferences: $preferences) {
+                } onExit: {
                     preferences.simpleModeEnabled = false
                     save()
                 }
+            } else if preferences.simpleModeEnabled {
+                let gatewayID = appModel.activeGatewayId
+                MithuruConversationView(
+                    preferences: $preferences,
+                    resumeStoredSessionId: mithuruStoredSessionId,
+                    onStoredSessionID: { sessionID in
+                        MithuruPreferencesStore.saveStoredSessionID(
+                            sessionID,
+                            gatewayID: gatewayID
+                        )
+                        guard appModel.activeGatewayId == gatewayID else { return }
+                        mithuruStoredSessionId = sessionID
+                    }
+                ) {
+                    preferences.simpleModeEnabled = false
+                    save()
+                }
+                .id(gatewayID ?? "default")
             } else {
                 VStack(spacing: 0) {
                     HStack {
@@ -45,8 +62,9 @@ struct MithuruRootView: View {
         }
         .dynamicTypeSize(preferences.textScale.dynamicTypeSize...)
         .task(id: appModel.activeGatewayId) {
-            guard loadedScope != appModel.activeGatewayId else { return }
-            loadedScope = appModel.activeGatewayId
+            mithuruStoredSessionId = MithuruPreferencesStore.loadStoredSessionID(
+                gatewayID: appModel.activeGatewayId
+            )
             preferences = MithuruPreferencesStore.load(gatewayID: appModel.activeGatewayId)
         }
     }
@@ -63,6 +81,7 @@ struct MithuruRootView: View {
 private struct MithuruOnboardingView: View {
     @Binding var preferences: MithuruPreferences
     let onComplete: () -> Void
+    let onExit: () -> Void
     @State private var step = 0
 
     var body: some View {
@@ -106,6 +125,9 @@ private struct MithuruOnboardingView: View {
                         .font(.headline)
                         .frame(minHeight: FabricTheme.minTarget)
                 }
+                Button(copy(.standardMode), action: onExit)
+                    .font(.headline)
+                    .frame(minHeight: FabricTheme.minTarget)
             }
             .frame(maxWidth: 680, alignment: .leading)
             .padding(24)
@@ -188,7 +210,10 @@ private struct MithuruOnboardingView: View {
 private struct MithuruConversationView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Binding var preferences: MithuruPreferences
+    let resumeStoredSessionId: String?
+    let onStoredSessionID: (String?) -> Void
     let onExit: () -> Void
 
     @State private var model: ChatViewModel?
@@ -198,8 +223,10 @@ private struct MithuruConversationView: View {
     @State private var showHelp = false
     @State private var showDocumentConsent = false
     @State private var showFileImporter = false
+    @State private var showCloudSpeechConsent = false
+    @State private var attachmentError: String?
     @State private var attachmentSequence = 0
-    @State private var promptAnswer = ""
+    @AccessibilityFocusState private var focusedInteractionIdentity: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -217,7 +244,7 @@ private struct MithuruConversationView: View {
             if model == nil {
                 let next = ChatViewModel(
                     api: appModel.api,
-                    resumeStoredSessionId: nil,
+                    resumeStoredSessionId: resumeStoredSessionId,
                     supportsMethod: { appModel.supportsGatewayMethod($0) },
                     durableWorkNegotiation: { appModel.capabilityNegotiation },
                     workGatewayID: { appModel.activeGatewayId },
@@ -230,6 +257,7 @@ private struct MithuruConversationView: View {
                 )
                 model = next
                 await next.start()
+                onStoredSessionID(next.storedSessionId)
             } else if appModel.phase == .connected {
                 await model?.resumeAfterReconnect()
             }
@@ -242,12 +270,25 @@ private struct MithuruConversationView: View {
                 model?.connectionDidClose()
             }
         }
+        .onChange(of: model?.interactionAccessibilityCue, initial: true) { _, cue in
+            guard let cue else {
+                focusedInteractionIdentity = nil
+                return
+            }
+            voice.stopAll()
+            guard UIAccessibility.isVoiceOverRunning else { return }
+            focusedInteractionIdentity = cue.identity
+            UIAccessibility.post(notification: .announcement, argument: cue.announcement)
+        }
+        .onChange(of: preferences.cloudSpeechAllowed) { _, _ in
+            voice.stopAll()
+        }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active, voice.isListening { voice.stopDictation() }
+            if phase != .active { voice.stopAll() }
         }
         .onDisappear {
-            voice.stopDictation()
-            voice.stopSpeaking()
+            voice.stopAll()
+            onStoredSessionID(model?.storedSessionId)
             model?.stop()
         }
         .alert(copy(.help), isPresented: $showHelp) {
@@ -261,10 +302,19 @@ private struct MithuruConversationView: View {
         } message: {
             Text(copy(.documentConsent))
         }
-        .alert(item: voiceIssueBinding) { issue in
+        .alert(copy(.cloudQuestion), isPresented: $showCloudSpeechConsent) {
+            Button(copy(.allowOnlineSpeech)) {
+                preferences.cloudSpeechAllowed = true
+                persistPreferences()
+            }
+            Button(copy(.cancel), role: .cancel) {}
+        } message: {
+            Text(copy(.cloudExplanation))
+        }
+        .alert(item: voiceIssueBinding) { _ in
             Alert(
-                title: Text(issue.title),
-                message: Text(issue.message),
+                title: Text(copy(.voiceIssueTitle)),
+                message: Text(copy(.voiceIssueMessage)),
                 dismissButton: .default(Text(copy(.yes))) { voice.clearIssue() }
             )
         }
@@ -293,6 +343,23 @@ private struct MithuruConversationView: View {
                 Label(preferences.locale.displayName, systemImage: "globe")
                     .frame(minHeight: FabricTheme.minTarget)
             }
+            if preferences.interactionMode == .voiceAndText {
+                Button {
+                    if preferences.cloudSpeechAllowed {
+                        preferences.cloudSpeechAllowed = false
+                        voice.stopAll()
+                        persistPreferences()
+                    } else {
+                        showCloudSpeechConsent = true
+                    }
+                } label: {
+                    Image(systemName: preferences.cloudSpeechAllowed ? "shield.checkered" : "shield")
+                        .frame(width: FabricTheme.minTarget, height: FabricTheme.minTarget)
+                }
+                .accessibilityLabel(
+                    preferences.cloudSpeechAllowed ? copy(.disableOnlineSpeech) : copy(.allowOnlineSpeech)
+                )
+            }
             Button { showHelp = true } label: {
                 Image(systemName: "questionmark.circle")
                     .frame(width: FabricTheme.minTarget, height: FabricTheme.minTarget)
@@ -312,23 +379,42 @@ private struct MithuruConversationView: View {
     private func content(_ model: ChatViewModel) -> some View {
         VStack(spacing: 0) {
             status(model)
-            transcript(model)
-            if let approval = model.pendingApproval {
-                confirmation(approval, model: model)
-            } else if let prompt = model.pendingPrompt {
-                promptCard(prompt, model: model)
+            if dynamicTypeSize.isAccessibilitySize {
+                transcript(model)
+                    .frame(minHeight: 160, maxHeight: 280)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        blockingInteraction(model)
+                        composer(model)
+                    }
+                }
+            } else {
+                transcript(model)
+                blockingInteraction(model)
+                composer(model)
             }
-            composer(model)
+        }
+    }
+
+    @ViewBuilder
+    private func blockingInteraction(_ model: ChatViewModel) -> some View {
+        if let approval = model.pendingApproval {
+            confirmation(approval, model: model)
+        } else if let prompt = model.pendingPrompt {
+            promptCard(prompt, model: model)
         }
     }
 
     private func status(_ model: ChatViewModel) -> some View {
         let status: (String, String) = {
             if model.pendingApproval != nil { return (copy(.needsConfirmation), "exclamationmark.shield") }
+            if model.sessionError != nil || model.unknownSendOutcome != nil {
+                return (copy(.connectionError), "exclamationmark.triangle")
+            }
             if voice.isListening { return (copy(.listening), "waveform") }
             if voice.isSpeaking { return (copy(.speaking), "speaker.wave.2") }
-            if model.busy { return (copy(.processing), "ellipsis") }
             if appModel.phase != .connected { return (copy(.offline), "wifi.slash") }
+            if model.busy || !model.sessionReady { return (copy(.processing), "ellipsis") }
             return (copy(.ready), "checkmark.circle")
         }()
         return Label(status.0, systemImage: status.1)
@@ -337,7 +423,7 @@ private struct MithuruConversationView: View {
             .padding(.horizontal)
             .padding(.vertical, 10)
             .background(FabricTheme.surfaceInset)
-            .accessibilityLabel("Mithuru status")
+            .accessibilityLabel(copy(.statusAccessibility))
             .accessibilityValue(status.0)
     }
 
@@ -353,7 +439,12 @@ private struct MithuruConversationView: View {
                     }
                     ForEach(model.messages) { message in
                         if !message.text.isEmpty {
-                            MithuruTranscriptRow(message: message, fallbackError: copy(.connectionError))
+                            MithuruTranscriptRow(
+                                message: message,
+                                fallbackError: copy(.connectionError),
+                                userLabel: copy(.you),
+                                assistantLabel: copy(.brand)
+                            )
                                 .id(message.id)
                         }
                     }
@@ -367,7 +458,7 @@ private struct MithuruConversationView: View {
             }
         }
         .frame(maxHeight: .infinity)
-        .accessibilityLabel("Mithuru conversation")
+        .accessibilityLabel(copy(.conversationAccessibility))
     }
 
     private func confirmation(_ approval: PendingApproval, model: ChatViewModel) -> some View {
@@ -405,51 +496,33 @@ private struct MithuruConversationView: View {
                 .buttonStyle(.bordered)
                 .frame(maxWidth: .infinity, minHeight: 52)
             }
+            .disabled(model.approvalResponseState.isSubmitting)
         }
         .padding()
         .background(FabricTheme.warning.fabricTint())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mithuru-confirmation")
+        .accessibilityFocused(
+            $focusedInteractionIdentity,
+            equals: PendingInteraction.approval(approval).identity
+        )
     }
 
     private func promptCard(_ prompt: PendingPrompt, model: ChatViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(prompt.presentationQuestion)
-                .font(.headline)
-            if prompt.isSecureEntry {
-                SecureField(copy(.typeRequest), text: $promptAnswer)
-                    .textFieldStyle(.roundedBorder)
-                    .textContentType(.password)
-                    .privacySensitive()
-            } else {
-                TextField(copy(.typeRequest), text: $promptAnswer, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...4)
-                ForEach(prompt.presentationChoices) { choice in
-                    Button(choice.label) {
-                        promptAnswer = ""
-                        Task { await model.respondToPrompt(choice.response) }
-                    }
-                    .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity, minHeight: FabricTheme.minTarget)
-                }
-            }
-            HStack {
-                Button(copy(.send)) {
-                    let answer = promptAnswer
-                    promptAnswer = ""
-                    Task { await model.respondToPrompt(answer) }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(promptAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button(copy(.cancel), role: .cancel) {
-                    Task { await model.respondToPrompt("") }
-                }
-                .buttonStyle(.bordered)
-            }
+        MithuruPromptCard(
+            prompt: prompt,
+            fieldLabel: copy(.typeRequest),
+            sendLabel: copy(.send),
+            cancelLabel: copy(.cancel),
+            submitting: model.promptResponseSubmitting
+        ) { response in
+            Task { await model.respondToPrompt(response) }
         }
-        .padding()
-        .background(FabricTheme.surfaceRaised)
+        .id(PendingInteraction.prompt(prompt).identity)
+        .accessibilityFocused(
+            $focusedInteractionIdentity,
+            equals: PendingInteraction.prompt(prompt).identity
+        )
     }
 
     private func composer(_ model: ChatViewModel) -> some View {
@@ -460,10 +533,43 @@ private struct MithuruConversationView: View {
                 .font(.title3)
                 .frame(minHeight: 54)
                 .accessibilityLabel(copy(.editTranscript))
+                .disabled(
+                    !model.sessionReady
+                        || model.unknownSendOutcome != nil
+                        || voice.dictationState.locksDraft
+                        || !appModel.supportsGatewayMethod("prompt.submit")
+                )
             if !model.pendingAttachments.isEmpty {
-                Text("\(model.pendingAttachments.count) \(copy(.chooseDocument))")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(copy(.documentsToSend))
+                        .font(.headline)
+                    ForEach(model.pendingAttachments) { attachment in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Image(systemName: attachment.kind == .image ? "photo" : "doc")
+                            Text(attachment.filename)
+                                .lineLimit(2)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button(role: .destructive) {
+                                model.removeAttachment(id: attachment.id)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .frame(width: FabricTheme.minTarget, height: FabricTheme.minTarget)
+                            }
+                            .accessibilityLabel("\(copy(.removeDocument)): \(attachment.filename)")
+                            .disabled(model.isUploadingAttachments)
+                        }
+                    }
+                }
+                .padding(10)
+                .background(FabricTheme.surfaceInset)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            if let attachmentError {
+                Text(attachmentError)
                     .font(.footnote)
-                    .foregroundStyle(FabricTheme.textMuted)
+                    .foregroundStyle(FabricTheme.danger)
+                    .accessibilityIdentifier("mithuru-attachment-error")
             }
             HStack(spacing: 12) {
                 if preferences.interactionMode == .voiceAndText {
@@ -484,7 +590,12 @@ private struct MithuruConversationView: View {
                         .frame(maxWidth: .infinity, minHeight: 56)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.busy)
+                    .disabled(
+                        model.busy
+                            || !model.sessionReady
+                            || model.unknownSendOutcome != nil
+                            || !appModel.supportsGatewayMethod("prompt.submit")
+                    )
                 }
                 Button {
                     send(model)
@@ -498,7 +609,12 @@ private struct MithuruConversationView: View {
                     (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         && model.pendingAttachments.isEmpty)
                         || model.busy
+                        || !model.sessionReady
                         || appModel.phase != .connected
+                        || model.unknownSendOutcome != nil
+                        || model.isUploadingAttachments
+                        || voice.dictationState.locksDraft
+                        || !appModel.supportsGatewayMethod("prompt.submit")
                 )
             }
             HStack(spacing: 12) {
@@ -519,12 +635,19 @@ private struct MithuruConversationView: View {
                     .buttonStyle(.bordered)
                 }
                 Button {
+                    attachmentError = nil
                     showDocumentConsent = true
                 } label: {
                     Label(copy(.explainLetter), systemImage: "doc.text.viewfinder")
                         .frame(maxWidth: .infinity, minHeight: FabricTheme.minTarget)
                 }
                 .buttonStyle(.bordered)
+                .disabled(
+                    !model.sessionReady
+                        || model.unknownSendOutcome != nil
+                        || model.isUploadingAttachments
+                        || !model.supportsAttachments
+                )
             }
             suggestedActions
             if preferences.interactionMode == .voiceAndText {
@@ -548,7 +671,7 @@ private struct MithuruConversationView: View {
                 suggestion(copy(.appointments), prompt: copy(.appointments))
             }
         }
-        .accessibilityLabel("Suggested actions")
+        .accessibilityLabel(copy(.suggestionsAccessibility))
     }
 
     private func suggestion(_ label: String, prompt: String) -> some View {
@@ -558,21 +681,36 @@ private struct MithuruConversationView: View {
     }
 
     private func send(_ model: ChatViewModel) {
+        guard !voice.dictationState.locksDraft else { return }
         let text = draft
-        draft = ""
-        dictationBase = ""
         voice.stopDictation()
-        Task { await model.send(text) }
+        Task {
+            guard await model.sendPlainPrompt(text) else { return }
+            draft = ""
+            dictationBase = ""
+            attachmentError = nil
+        }
     }
 
     private func importDocument(_ result: Result<[URL], Error>) {
-        guard case .success(let urls) = result, let url = urls.first else { return }
+        guard model?.supportsAttachments == true else {
+            attachmentError = copy(.connectionError)
+            return
+        }
+        guard case .success(let urls) = result, let url = urls.first else {
+            if case .failure = result { attachmentError = copy(.connectionError) }
+            return
+        }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         guard let reportedSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
               reportedSize <= ChatAttachmentPolicy.maximumAttachmentBytes,
               let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-              !data.isEmpty else { return }
+              !data.isEmpty else {
+            attachmentError = copy(.connectionError)
+            return
+        }
+        attachmentError = nil
         attachmentSequence += 1
         model?.stageAttachment(ChatAttachmentPolicy.attachment(
             data: data,
@@ -602,14 +740,82 @@ private struct MithuruConversationView: View {
     }
 }
 
+struct MithuruPromptAnswerState: Equatable {
+    private(set) var identity: String?
+    var answer = ""
+
+    mutating func reset(for nextIdentity: String) {
+        guard identity != nextIdentity else { return }
+        identity = nextIdentity
+        answer = ""
+    }
+
+    mutating func consume(_ response: String) -> String {
+        answer = ""
+        return response
+    }
+}
+
+private struct MithuruPromptCard: View {
+    let prompt: PendingPrompt
+    let fieldLabel: String
+    let sendLabel: String
+    let cancelLabel: String
+    let submitting: Bool
+    let onRespond: (String) -> Void
+
+    @State private var draft = MithuruPromptAnswerState()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(prompt.presentationQuestion)
+                .font(.headline)
+            if prompt.isSecureEntry {
+                SecureField(fieldLabel, text: $draft.answer)
+                    .textFieldStyle(.roundedBorder)
+                    .textContentType(.password)
+                    .privacySensitive()
+            } else {
+                TextField(fieldLabel, text: $draft.answer, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+                ForEach(prompt.presentationChoices) { choice in
+                    Button(choice.label) { submit(choice.response) }
+                        .buttonStyle(.bordered)
+                        .frame(maxWidth: .infinity, minHeight: FabricTheme.minTarget)
+                }
+            }
+            HStack {
+                Button(sendLabel) { submit(draft.answer) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(draft.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button(cancelLabel, role: .cancel) { submit("") }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .disabled(submitting)
+        .padding()
+        .background(FabricTheme.surfaceRaised)
+        .onChange(of: PendingInteraction.prompt(prompt).identity, initial: true) { _, identity in
+            draft.reset(for: identity)
+        }
+    }
+
+    private func submit(_ response: String) {
+        onRespond(draft.consume(response))
+    }
+}
+
 private struct MithuruTranscriptRow: View {
     let message: TranscriptMessage
     let fallbackError: String
+    let userLabel: String
+    let assistantLabel: String
 
     var body: some View {
         HStack {
             if message.role == .user { Spacer(minLength: 34) }
-            Text(message.role == .system ? fallbackError : message.text)
+            Text(presentedText)
                 .font(.body)
                 .textSelection(.enabled)
                 .padding(14)
@@ -618,7 +824,12 @@ private struct MithuruTranscriptRow: View {
             if message.role != .user { Spacer(minLength: 34) }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(message.role == .user ? "You" : "Mithuru")
+        .accessibilityLabel(message.role == .user ? userLabel : assistantLabel)
+        .accessibilityValue(presentedText)
+    }
+
+    private var presentedText: String {
+        message.role == .system ? fallbackError : message.text
     }
 
     private var background: Color {
@@ -641,6 +852,8 @@ struct MithuruOnboardingDebugFixtureView: View {
                 .accessibilityIdentifier("mithuru-onboarding-complete")
         } else {
             MithuruOnboardingView(preferences: $preferences) {
+                completed = true
+            } onExit: {
                 completed = true
             }
         }

@@ -1,0 +1,1414 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "allowOnce": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yes, allow once"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඔව්, මෙවර පමණක්"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ஆம், ஒருமுறை அனுமதி"
+          }
+        }
+      }
+    },
+    "allowOnlineSpeech": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow online speech"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "අන්තර්ජාල කථනයට ඉඩ දෙන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இணையப் பேச்சை அனுமதி"
+          }
+        }
+      }
+    },
+    "appointments": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check appointments"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "හමුවීම් බලන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "சந்திப்புகளைப் பார்"
+          }
+        }
+      }
+    },
+    "back": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ආපසු"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "பின்"
+          }
+        }
+      }
+    },
+    "brand": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mithuru"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මිතුරු"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "மிதுரு"
+          }
+        }
+      }
+    },
+    "cancel": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "අවලංගු කරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ரத்து"
+          }
+        }
+      }
+    },
+    "chooseDocument": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose document"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ලේඛනය තෝරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ஆவணத்தைத் தேர்ந்தெடு"
+          }
+        }
+      }
+    },
+    "cloudExplanation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you choose Yes, microphone audio may leave this iPhone for speech recognition. Fabric still sends only the text transcript to your paired gateway."
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඔව් තෝරාගත්තොත් කථනය හඳුනාගැනීමට මයික්‍රොෆෝන් හඬ මෙම iPhone එකෙන් පිටතට යා හැක. Fabric ඔබගේ gateway වෙත යවන්නේ පෙළ පමණි."
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ஆம் என்றால் பேச்சை அறிய மைக்ரோஃபோன் ஒலி இந்த iPhone-ஐ விட்டு வெளியேறலாம். Fabric உங்கள் gateway-க்கு உரையை மட்டுமே அனுப்பும்."
+          }
+        }
+      }
+    },
+    "cloudQuestion": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "May speech use Apple's online service when this iPhone cannot recognize the selected language on device?"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මෙම iPhone එකේම හඳුනාගත නොහැකි විට Apple අන්තර්ජාල කථන සේවාව භාවිතා කළ හැකිද?"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இந்த iPhone-இல் மொழியை அறிய முடியாதபோது Apple இணையப் பேச்சுச் சேவையைப் பயன்படுத்தலாமா?"
+          }
+        }
+      }
+    },
+    "confirmTitle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Please confirm"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "කරුණාකර තහවුරු කරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "உறுதிப்படுத்துங்கள்"
+          }
+        }
+      }
+    },
+    "connectionError": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I couldn't reach your Fabric. Check the connection and try again."
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඔබගේ Fabric වෙත සම්බන්ධ විය නොහැකි විය. සම්බන්ධතාව පරීක්ෂා කර නැවත උත්සාහ කරන්න."
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "உங்கள் Fabric-ஐ அணுக முடியவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயலுங்கள்."
+          }
+        }
+      }
+    },
+    "conversationAccessibility": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mithuru conversation"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මිතුරු සංවාදය"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "மிதுரு உரையாடல்"
+          }
+        }
+      }
+    },
+    "deny": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No, do not do this"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "නැහැ, මෙය නොකරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இல்லை, இதைச் செய்யாதே"
+          }
+        }
+      }
+    },
+    "disableOnlineSpeech": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn off online speech"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "අන්තර්ජාල කථනය අක්‍රිය කරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இணையப் பேச்சை நிறுத்து"
+          }
+        }
+      }
+    },
+    "documentConsent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This document may be sent to your paired Fabric gateway and the selected AI provider. Continue?"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මෙම ලේඛනය ඔබගේ Fabric gateway සහ තෝරාගත් AI සේවාව වෙත යැවිය හැක. ඉදිරියට යන්නද?"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இந்த ஆவணம் உங்கள் Fabric gateway மற்றும் தேர்ந்தெடுத்த AI சேவைக்கு அனுப்பப்படலாம். தொடரவா?"
+          }
+        }
+      }
+    },
+    "documentsToSend": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Documents to send"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "යැවීමට ඇති ලේඛන"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "அனுப்ப வேண்டிய ஆவணங்கள்"
+          }
+        }
+      }
+    },
+    "editTranscript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correct what I heard"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඇසූ දේ නිවැරදි කරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "நான் கேட்டதைத் திருத்துங்கள்"
+          }
+        }
+      }
+    },
+    "explainLetter": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explain a letter"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ලිපියක් පැහැදිලි කරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "கடிதத்தை விளக்கு"
+          }
+        }
+      }
+    },
+    "extraLarge": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra large"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඉතා විශාල"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "மிகப் பெரியது"
+          }
+        }
+      }
+    },
+    "familyPrivacy": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This choice only records that a helper is present. It does not create separate access to conversations, recordings, documents, messages, health information, or location."
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මෙම තේරීම සහායකයෙකු සිටින බව පමණක් සටහන් කරයි. එය සංවාද, හඬ, ලේඛන, පණිවිඩ, සෞඛ්‍ය තොරතුරු හෝ ස්ථානයට වෙනම ප්‍රවේශයක් ලබා නොදේ."
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இந்தத் தேர்வு உதவியாளர் இருப்பதை மட்டும் பதிவு செய்கிறது. உரையாடல்கள், குரல் பதிவுகள், ஆவணங்கள், செய்திகள், உடல்நலத் தகவல் அல்லது இருப்பிடத்திற்கு தனி அணுகலை வழங்காது."
+          }
+        }
+      }
+    },
+    "familyQuestion": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Is a family member helping with setup?"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "සැකසීමට පවුලේ කෙනෙක් උදව් කරනවාද?"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "அமைப்பில் குடும்ப உறுப்பினர் உதவுகிறாரா?"
+          }
+        }
+      }
+    },
+    "greeting": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How can I help?"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මම කෙසේ උදව් කරන්නද?"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "நான் எப்படி உதவலாம்?"
+          }
+        }
+      }
+    },
+    "help": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Help"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "උදව්"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "உதவி"
+          }
+        }
+      }
+    },
+    "helpBody": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap Talk, speak naturally, then correct the text if needed and tap Send. No wake word is used."
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "කතා කරන්න ඔබා, ස්වභාවිකව කියන්න. අවශ්‍ය නම් පෙළ නිවැරදි කර යවන්න ඔබන්න. අවදි කිරීමේ වචනයක් නැත."
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "பேசுங்கள் என்பதைத் தொட்டு இயல்பாகப் பேசுங்கள். தேவையெனில் உரையைத் திருத்தி அனுப்பு என்பதைத் தொடுங்கள். விழிப்புச் சொல் இல்லை."
+          }
+        }
+      }
+    },
+    "interactionQuestion": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Would you like to speak, type, or use both?"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඔබ කතා කිරීමටද, ටයිප් කිරීමටද, දෙකමද කැමති?"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "பேசவா, தட்டச்சு செய்யவா, இரண்டுமா?"
+          }
+        }
+      }
+    },
+    "languageQuestion": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Which language would you like?"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඔබ කැමති භාෂාව කුමක්ද?"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "எந்த மொழியை விரும்புகிறீர்கள்?"
+          }
+        }
+      }
+    },
+    "large": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Large"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "විශාල"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "பெரியது"
+          }
+        }
+      }
+    },
+    "listening": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "අසමින්"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "கேட்கிறேன்"
+          }
+        }
+      }
+    },
+    "maximum": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximum"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "උපරිම"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "அதிகபட்சம்"
+          }
+        }
+      }
+    },
+    "messageFamily": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message family"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "පවුලට පණිවිඩයක්"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "குடும்பத்துக்கு செய்தி"
+          }
+        }
+      }
+    },
+    "needsConfirmation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I need your confirmation"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඔබගේ තහවුරු කිරීම අවශ්‍යයි"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "உங்கள் உறுதிப்படுத்தல் தேவை"
+          }
+        }
+      }
+    },
+    "no": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "නැහැ"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இல்லை"
+          }
+        }
+      }
+    },
+    "normal": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "සාමාන්‍ය"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இயல்பாக"
+          }
+        }
+      }
+    },
+    "offline": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone is offline"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මෙම iPhone එක offline"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இந்த iPhone இணையமின்றி உள்ளது"
+          }
+        }
+      }
+    },
+    "openMithuru": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Mithuru"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මිතුරු විවෘත කරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "மிதுருவைத் திற"
+          }
+        }
+      }
+    },
+    "privacyCloud": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple cloud speech allowed when needed"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "අවශ්‍ය විට Apple cloud කථනයට අවසර ඇත"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "தேவைப்பட்டால் Apple cloud பேச்சுக்கு அனுமதி உண்டு"
+          }
+        }
+      }
+    },
+    "privacyLocal": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speech stays on this iPhone"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "කථනය මෙම iPhone එකේම පවතී"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "பேச்சு இந்த iPhone-இலேயே இருக்கும்"
+          }
+        }
+      }
+    },
+    "processing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working on it"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "කරමින් සිටී"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "செய்கிறேன்"
+          }
+        }
+      }
+    },
+    "readMessages": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read my messages"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මගේ පණිවිඩ කියවන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "என் செய்திகளை வாசி"
+          }
+        }
+      }
+    },
+    "ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "සූදානම්"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "தயார்"
+          }
+        }
+      }
+    },
+    "removeDocument": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove document"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ලේඛනය ඉවත් කරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ஆவணத்தை அகற்று"
+          }
+        }
+      }
+    },
+    "repeatAnswer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repeat"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "නැවත කියන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "மீண்டும் சொல்"
+          }
+        }
+      }
+    },
+    "send": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "යවන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "அனுப்பு"
+          }
+        }
+      }
+    },
+    "setReminder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set a reminder"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මතක් කිරීමක්"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "நினைவூட்டல் அமை"
+          }
+        }
+      }
+    },
+    "slow": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slow"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "සෙමින්"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "மெதுவாக"
+          }
+        }
+      }
+    },
+    "speaking": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaking"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "කතා කරමින්"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "பேசுகிறேன்"
+          }
+        }
+      }
+    },
+    "speechPrivacy": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speech privacy"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "කථන පෞද්ගලිකත්වය"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "பேச்சுத் தனியுரிமை"
+          }
+        }
+      }
+    },
+    "speechRateQuestion": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How fast should Mithuru speak?"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මිතුරු කොතරම් වේගයෙන් කතා කළ යුතුද?"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "மிதுரு எவ்வளவு வேகமாக பேச வேண்டும்?"
+          }
+        }
+      }
+    },
+    "standardMode": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard Fabric"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "සාමාන්‍ය Fabric"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "வழக்கமான Fabric"
+          }
+        }
+      }
+    },
+    "statusAccessibility": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mithuru status"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මිතුරු තත්ත්වය"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "மிதுரு நிலை"
+          }
+        }
+      }
+    },
+    "stopListening": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop listening"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඇසීම නවතන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "கேட்பதை நிறுத்து"
+          }
+        }
+      }
+    },
+    "stopSpeaking": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop speaking"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "කතා කිරීම නවතන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "பேசுவதை நிறுத்து"
+          }
+        }
+      }
+    },
+    "suggestionsAccessibility": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggested actions"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "යෝජිත ක්‍රියා"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "பரிந்துரைக்கப்பட்ட செயல்கள்"
+          }
+        }
+      }
+    },
+    "talk": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Talk"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "කතා කරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "பேசுங்கள்"
+          }
+        }
+      }
+    },
+    "textOnly": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type only"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ටයිප් කිරීම පමණයි"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "தட்டச்சு மட்டும்"
+          }
+        }
+      }
+    },
+    "textSizeQuestion": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How large should the text be?"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "අකුරු කොතරම් විශාල විය යුතුද?"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "எழுத்து எவ்வளவு பெரியதாக இருக்க வேண்டும்?"
+          }
+        }
+      }
+    },
+    "typeRequest": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type your request"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඔබේ ඉල්ලීම ටයිප් කරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "உங்கள் கோரிக்கையைத் தட்டச்சு செய்யுங்கள்"
+          }
+        }
+      }
+    },
+    "voiceAndText": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speak and type"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "කතා කර ටයිප් කරන්න"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "பேசவும் தட்டச்சு செய்யவும்"
+          }
+        }
+      }
+    },
+    "voiceIssueMessage": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can keep typing. Check iPhone speech and microphone settings before trying voice again."
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඔබට ටයිප් කළ හැක. නැවත හඬ උත්සාහ කිරීමට පෙර iPhone කථන සහ මයික්‍රොෆෝන සැකසුම් පරීක්ෂා කරන්න."
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "தொடர்ந்து தட்டச்சு செய்யலாம். குரலை மீண்டும் முயல்வதற்கு முன் iPhone பேச்சு மற்றும் ஒலிவாங்கி அமைப்புகளைச் சரிபார்க்கவும்."
+          }
+        }
+      }
+    },
+    "voiceIssueTitle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice is unavailable"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "හඬ ලබාගත නොහැක"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "குரல் கிடைக்கவில்லை"
+          }
+        }
+      }
+    },
+    "voiceUnavailable": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice is not available for this language. You can keep typing."
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මෙම භාෂාවට හඬ ලබාගත නොහැක. ඔබට ටයිප් කළ හැක."
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "இந்த மொழிக்கு குரல் கிடைக்கவில்லை. தொடர்ந்து தட்டச்சு செய்யலாம்."
+          }
+        }
+      }
+    },
+    "welcome": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome to Mithuru"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "මිතුරු වෙත සාදරයෙන් පිළිගනිමු"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "மிதுருவிற்கு வரவேற்கிறோம்"
+          }
+        }
+      }
+    },
+    "yes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yes"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඔව්"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ஆம்"
+          }
+        }
+      }
+    },
+    "you": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You"
+          }
+        },
+        "si": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ඔබ"
+          }
+        },
+        "ta": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "நீங்கள்"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

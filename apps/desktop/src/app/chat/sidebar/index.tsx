@@ -98,6 +98,7 @@ import {
 import {
   type AppView,
   ARTIFACTS_ROUTE,
+  CONNECTIONS_ROUTE,
   DESIGN_ROUTE,
   MESSAGING_ROUTE,
   SKILLS_ROUTE,
@@ -155,6 +156,7 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
   { id: 'design', label: '', icon: props => <Codicon name="symbol-color" {...props} />, route: DESIGN_ROUTE },
   { id: 'social', label: '', icon: props => <Codicon name="megaphone" {...props} />, route: SOCIAL_ROUTE },
   { id: 'messaging', label: '', icon: props => <Codicon name="comment" {...props} />, route: MESSAGING_ROUTE },
+  { id: 'connections', label: '', icon: props => <Codicon name="plug" {...props} />, route: CONNECTIONS_ROUTE },
   { id: 'artifacts', label: '', icon: props => <Codicon name="files" {...props} />, route: ARTIFACTS_ROUTE }
 ]
 

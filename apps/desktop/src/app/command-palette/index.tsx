@@ -69,6 +69,7 @@ import {
   AGENTS_ROUTE,
   ARTIFACTS_ROUTE,
   COMMAND_CENTER_ROUTE,
+  CONNECTIONS_ROUTE,
   CRON_ROUTE,
   DESIGN_ROUTE,
   MESSAGING_ROUTE,
@@ -463,6 +464,13 @@ export function CommandPalette() {
             id: 'nav-messaging',
             label: cc.nav.messaging.title,
             run: go(MESSAGING_ROUTE)
+          },
+          {
+            icon: Zap,
+            id: 'nav-connections',
+            keywords: ['connections', 'integrations', 'slack', 'github', 'discord', 'telegram', 'linear', 'tailscale'],
+            label: t.connections.title,
+            run: go(CONNECTIONS_ROUTE)
           },
           {
             action: 'nav.artifacts',

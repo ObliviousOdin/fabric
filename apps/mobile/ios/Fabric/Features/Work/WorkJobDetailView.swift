@@ -23,7 +23,8 @@ struct WorkJobDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
-                if let summary = job.summary, !summary.isEmpty {
+                if let summary = job.summary?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !summary.isEmpty {
                     Text(summary)
                         .font(.body)
                         .foregroundStyle(FabricTheme.text)

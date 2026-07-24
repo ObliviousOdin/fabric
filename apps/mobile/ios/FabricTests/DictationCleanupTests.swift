@@ -52,6 +52,13 @@ final class DictationCleanupTests: XCTestCase {
         )
     }
 
+    func testCapitalizesFirstWordAfterLeadingURL() {
+        XCTAssertEqual(
+            DictationCleanup.apply("https://example.com now"),
+            "https://example.com Now."
+        )
+    }
+
     func testPreservesBacktickCodeSpan() {
         XCTAssertEqual(
             DictationCleanup.apply("run `git Status --Short` now"),

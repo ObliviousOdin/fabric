@@ -137,7 +137,18 @@ enum DictationCleanup {
         // slot cannot hold.
         var result = ""
         var capitalizeNext = true
+        let sentinelCharacter = sentinel.first!
+        var insidePlaceholder = false
         for character in text {
+            if character == sentinelCharacter {
+                insidePlaceholder.toggle()
+                result.append(character)
+                continue
+            }
+            if insidePlaceholder {
+                result.append(character)
+                continue
+            }
             if capitalizeNext, character.isLetter {
                 result += String(character).uppercased()
                 capitalizeNext = false

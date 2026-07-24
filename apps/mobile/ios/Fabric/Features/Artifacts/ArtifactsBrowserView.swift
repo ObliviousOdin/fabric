@@ -189,7 +189,7 @@ struct ArtifactRowView: View {
             Button {
                 UIPasteboard.general.string = artifact.value
             } label: {
-                Label("Copy path", systemImage: "doc.on.doc")
+                Label("Copy value", systemImage: "doc.on.doc")
             }
             if let externalURL {
                 Button {

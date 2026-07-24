@@ -31,7 +31,7 @@ on:
         default: false
         type: boolean
       backfill_from_main:
-        description: Emergency only: repair this published tag from the reviewed main workflow
+        description: "Emergency only: repair this published tag from the reviewed main workflow"
         required: false
         default: false
         type: boolean

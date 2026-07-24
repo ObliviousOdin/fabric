@@ -12,6 +12,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DESKTOP_RELEASE = ROOT / ".github/workflows/desktop-release.yml"
@@ -36,6 +38,10 @@ class DesktopReleaseWorkflowAudit(unittest.TestCase):
             self.assertNotIn(trigger, on_block)
         self.assertIn("if: github.event_name == 'push'", self.desktop)
         self.assertIn("if: github.event_name == 'workflow_dispatch'", self.desktop)
+
+    def test_workflow_is_valid_yaml(self) -> None:
+        with DESKTOP_RELEASE.open(encoding="utf-8") as handle:
+            self.assertIsInstance(yaml.safe_load(handle), dict)
 
     def test_serial_per_tag_concurrency(self) -> None:
         self.assertIn(

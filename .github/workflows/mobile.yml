@@ -275,6 +275,7 @@ jobs:
           tests/tui_gateway/test_work_ledger_e2e.py
           tests/tui_gateway/test_work_ledger_rpc.py
           tests/test_tui_gateway_server.py
+          tests/scripts/test_ios_project_generation.py
           -q
 
       - name: Audit public release workflow surface

@@ -345,6 +345,27 @@ def test_release_workflow_keeps_required_smoke_contexts_on_prs():
     assert "needs.smoke-candidate.result == 'success'" in alpha
 
 
+def test_release_smoke_install_uses_bash_on_every_runner():
+    workflow = Path(".github/workflows/release-channels.yml").read_text(
+        encoding="utf-8"
+    )
+
+    smoke_start = workflow.index("\n  smoke-candidate:")
+    smoke_end = workflow.index("\n  smoke-macos-pr-context:", smoke_start)
+    smoke = workflow[smoke_start:smoke_end]
+    install_start = smoke.index(
+        "- name: Install the built package and matching native companion"
+    )
+    install_end = smoke.index(
+        "- name: Smoke the installed command and onboarding imports",
+        install_start,
+    )
+    install = smoke[install_start:install_end]
+
+    assert "shell: bash" in install
+    assert "python - <<'PY'" in install
+
+
 def test_promotion_dispatches_desktop_release_after_publish():
     workflow = Path(".github/workflows/release-channels.yml").read_text(
         encoding="utf-8"

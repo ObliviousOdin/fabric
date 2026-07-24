@@ -30,6 +30,12 @@ ios_dir="$repo_root/apps/mobile/ios"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+# macOS exposes its temporary root through /var, which is a symlink to
+# /private/var. Cargo and proc-macro helpers canonicalize that prefix
+# differently; mixing the logical and physical paths makes UniFFI's Askama
+# templates resolve beneath a duplicated /private/var path. Keep every Rust
+# bootstrap path physical from the start.
+work="$(cd "$work" && pwd -P)"
 
 if [ -n "${FABRIC_XCODEGEN_BIN:-}" ]; then
   xcodegen_bin="$FABRIC_XCODEGEN_BIN"
@@ -204,7 +210,7 @@ chmod 700 "$rustup_init"
 export CARGO_HOME="$work/cargo"
 export RUSTUP_HOME="$work/rustup"
 export PATH="$CARGO_HOME/bin:$PATH"
-"$rustup_init" -y --profile minimal --default-toolchain none
+"$rustup_init" -y --profile minimal --default-toolchain none --no-modify-path
 "$repo_root/apps/fabric-link-core/apple/build-xcframework.sh"
 
 "$xcodegen_bin" generate \

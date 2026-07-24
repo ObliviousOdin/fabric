@@ -81,6 +81,7 @@ struct SettingsExperienceContent: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
                 serverSection
+                fabricLinkSection
                 personalizationSection
                 permissionsSection
                 aboutSection
@@ -174,6 +175,22 @@ struct SettingsExperienceContent: View {
                 Divider().overlay(FabricTheme.border)
                 SettingsStatusHeader(status: presentation.execution)
             }
+        }
+    }
+
+    private var fabricLinkSection: some View {
+        SettingsExperienceSection(title: "Fabric Link") {
+            NavigationLink {
+                FabricLinkMachinesView()
+            } label: {
+                SettingsNavigationRow(
+                    title: "Linked machines",
+                    detail: "Dispatch Work or open an exact `/remote` session with device-key E2EE",
+                    systemImage: "lock.shield.fill"
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Manage end-to-end encrypted machine access without social login")
         }
     }
 

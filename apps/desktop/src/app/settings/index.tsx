@@ -14,6 +14,7 @@ import {
   Globe,
   Info,
   KeyRound,
+  Link,
   RefreshCw,
   Settings2,
   Upload,
@@ -34,6 +35,7 @@ import { ConfigSettings } from './config-settings'
 import { SECTIONS } from './constants'
 import { GatewaySettings } from './gateway-settings'
 import { KEYS_VIEWS, KeysSettings, type KeysView } from './keys-settings'
+import { LinkSettings } from './link-settings'
 import { NotificationsSettings } from './notifications-settings'
 import { PROVIDER_VIEWS, ProvidersSettings, type ProviderView } from './providers-settings'
 import { SessionsSettings } from './sessions-settings'
@@ -43,6 +45,7 @@ const SETTINGS_VIEWS: readonly SettingsViewId[] = [
   ...SECTIONS.map(s => `config:${s.id}` as SettingsViewId),
   'providers',
   'gateway',
+  'link',
   'keys',
   'notifications',
   'sessions',
@@ -184,6 +187,13 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
       onSelect: () => setActiveView('gateway')
     },
     {
+      active: activeView === 'link',
+      icon: Link,
+      id: 'link',
+      label: 'Fabric Link',
+      onSelect: () => setActiveView('link')
+    },
+    {
       active: activeView === 'keys',
       children: [
         {
@@ -266,6 +276,8 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             <AboutSettings />
           ) : activeView === 'gateway' ? (
             <GatewaySettings />
+          ) : activeView === 'link' ? (
+            <LinkSettings />
           ) : activeView.startsWith('config:') ? (
             <ConfigSettings
               activeSectionId={activeView.slice('config:'.length)}

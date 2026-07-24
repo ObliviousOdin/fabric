@@ -1,0 +1,181 @@
+name: Fabric Link interoperability
+
+on:
+  pull_request:
+    paths:
+      - "apps/fabric-link-core/**"
+      - "apps/mobile/android/gradle/wrapper/**"
+      - "apps/mobile/android/gradlew"
+      - "fabric_link/**"
+      - "scripts/generate_fabric_link_interop.py"
+      - "tests/fabric_link/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/fabric-link.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/fabric-link-core/**"
+      - "apps/mobile/android/gradle/wrapper/**"
+      - "apps/mobile/android/gradlew"
+      - "fabric_link/**"
+      - "scripts/generate_fabric_link_interop.py"
+      - "tests/fabric_link/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/fabric-link.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fabric-link-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Python, Rust, Kotlin, and browser WASM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Install pinned protocol test dependencies
+        run: >-
+          python3 -m pip install
+          --disable-pip-version-check
+          cbor2==6.1.3
+          cryptography==48.0.1
+          pytest==9.0.3
+
+      - name: Check deterministic v3 corpus and Python implementation
+        run: |
+          python3 scripts/generate_fabric_link_interop.py --check
+          python3 -m pytest -q tests/fabric_link
+
+      - name: Set up Rust targets
+        run: |
+          rustup component add clippy
+          rustup target add wasm32-unknown-unknown
+
+      - name: Test and lint the shared cryptographic core
+        working-directory: apps/fabric-link-core
+        run: |
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Validate pinned Gradle wrapper
+        working-directory: apps/mobile/android
+        run: |
+          printf '%s  %s\n' \
+            '498495120a03b9a6ab5d155f5de3c8f0d986a449153702fb80fc80e134484f17' \
+            'gradle/wrapper/gradle-wrapper.jar' | sha256sum --check
+          grep -qx \
+            'distributionSha256Sum=d725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab' \
+            gradle/wrapper/gradle-wrapper.properties
+
+      - name: Verify generated Python and Kotlin bindings
+        working-directory: apps/fabric-link-core
+        run: bash bindings-smoke/verify.sh
+
+      - name: Build and smoke the Linux native companion wheel
+        working-directory: apps/fabric-link-core/python
+        run: bash verify-wheel.sh
+
+      - name: Build browser WASM boundary
+        working-directory: apps/fabric-link-core
+        run: |
+          cargo install wasm-bindgen-cli --version 0.2.126 --locked
+          cargo build --locked --target wasm32-unknown-unknown
+          wasm-bindgen \
+            --target web \
+            --out-dir target/browser \
+            --out-name fabric_link_core \
+            target/wasm32-unknown-unknown/debug/fabric_link_core.wasm
+
+      - name: Verify browser crypto and protected persistence
+        working-directory: apps/fabric-link-core
+        run: node browser-harness/run.mjs
+
+  swift:
+    name: Generated Swift binding
+    if: github.event_name != 'pull_request'
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Verify generated Python, Swift, and Kotlin bindings
+        working-directory: apps/fabric-link-core
+        run: bash bindings-smoke/verify.sh
+
+      - name: Build and smoke the macOS native companion wheel
+        working-directory: apps/fabric-link-core/python
+        run: bash verify-wheel.sh
+
+  windows:
+    name: Native companion wheel
+    if: github.event_name != 'pull_request'
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Build and smoke the Windows native companion wheel
+        shell: bash
+        working-directory: apps/fabric-link-core/python
+        run: bash verify-wheel.sh

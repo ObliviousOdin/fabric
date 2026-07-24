@@ -32,6 +32,7 @@ struct AddGatewayView: View {
     @State private var probing = false
     @State private var probeFence = GatewayEndpointRequestFence()
     @State private var showScanner = false
+    @State private var linkPairing: FabricLinkPairing?
 
     private enum ProviderDiscoveryOutcome: Equatable {
         case available
@@ -116,6 +117,9 @@ struct AddGatewayView: View {
                     }
                 }
             )
+        }
+        .sheet(item: $linkPairing) { pairing in
+            FabricLinkPairingView(pairing: pairing)
         }
     }
 
@@ -281,6 +285,11 @@ struct AddGatewayView: View {
 
     private func handleScan(_ raw: String) -> PairingScannerDisposition {
         switch appModel.pairingOutcome(for: .scan(raw)) {
+        case .link(let pairing):
+            credentialState.scannedGatewayID = nil
+            notice = nil
+            linkPairing = pairing
+            return .accepted
         case .invalid:
             credentialState.scannedGatewayID = nil
             let message = "That isn’t a Fabric pairing code. Show a new code with `fabric mobile`, then scan again."

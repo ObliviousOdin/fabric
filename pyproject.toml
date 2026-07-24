@@ -90,6 +90,9 @@ dependencies = [
   # cryptography is pulled in transitively by PyJWT[crypto]; pin it explicitly
   # so the WeCom/Weixin crypto paths can't drift below the CVE-fixed floor.
   "cryptography==48.0.1",  # GHSA-537c-gmf6-5ccf
+  # Fabric Link wire payloads use strict deterministic CBOR. Declare this as
+  # core instead of relying on the optional Modal backend to pull it in.
+  "cbor2==6.1.3",
   # Windows has no IANA tzdata shipped with the OS, so Python's ``zoneinfo``
   # (PEP 615) raises ``ZoneInfoNotFoundError`` for every non-UTC timezone
   # out of the box.  ``tzdata`` ships the Olson database as a data package
@@ -162,6 +165,11 @@ piper = ["piper-tts==1.4.2"]
 modal = ["modal==1.3.4"]
 daytona = ["daytona==0.155.0"]
 hindsight = ["hindsight-client==0.6.1"]
+# Fabric Link desktop controllers retain opaque MLS private state only in the
+# operating system's credential vault. The runtime rejects non-OS keyring
+# backends; this package provides the Keychain / Credential Locker / Secret
+# Service / KWallet bridge without making it a dependency of every install.
+link = ["keyring==25.7.0"]
 dev = ["debugpy==1.8.20", "pytest==9.0.3", "pytest-asyncio==1.3.0", "mcp==1.28.1", "starlette==1.3.1", "ty==0.0.21", "ruff==0.15.10", "setuptools==83.0.0"]  # starlette/pytest/MCP: current OSV-fixed floors; setuptools: GHSA-h35f-9h28-mq5c sdist exclusion fix
 messaging = ["python-telegram-bot[webhooks]==22.6", "discord.py==2.7.1", "davey==0.1.4", "pynacl==1.6.2", "aiohttp==3.14.1", "brotlicffi==1.2.0.1", "slack-bolt==1.27.0", "slack-sdk==3.40.1", "qrcode==7.4.2"]  # PyNaCl explicit: discord.py[voice] caps <1.6 despite the OSV-fixed 1.6.2 remaining API-compatible
 cron = []  # croniter is now a core dependency; this extra kept for back-compat
@@ -302,6 +310,7 @@ all = [
   # where the user is expected to have a toolchain available.
   "fabric-agent[cron]",
   "fabric-agent[cli]",
+  "fabric-agent[link]",
   "fabric-agent[pty]",
   "fabric-agent[mcp]",
   "fabric-agent[homeassistant]",
@@ -322,6 +331,7 @@ py-modules = ["run_agent", "model_tools", "toolsets", "batch_runner", "trajector
 [tool.setuptools.package-data]
 agent = ["pet/assets/**/*"]
 fabric_cli = ["web_dist/**/*", "mobile_web_dist/**/*", "tui_dist/**/*"]
+fabric_link = ["fixtures/*.json"]
 gateway = ["assets/**/*"]
 plugins = [
   # A plugin is a complete runtime package: Python, manifests, dashboard
@@ -342,7 +352,7 @@ plugins = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["agent", "agent.*", "tools", "tools.*", "fabric_cli", "fabric_cli.*", "gateway", "gateway.*", "tui_gateway", "tui_gateway.*", "cron", "cron.*", "acp_adapter", "plugins", "plugins.*", "providers", "providers.*"]
+include = ["agent", "agent.*", "tools", "tools.*", "fabric_cli", "fabric_cli.*", "fabric_link", "fabric_link.*", "gateway", "gateway.*", "tui_gateway", "tui_gateway.*", "cron", "cron.*", "acp_adapter", "plugins", "plugins.*", "providers", "providers.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

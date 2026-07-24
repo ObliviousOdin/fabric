@@ -90,6 +90,17 @@ describe('desktop slash command curation', () => {
     expect(isDesktopSlashCommand('/reset')).toBe(true)
   })
 
+  it('surfaces Remote Control and keeps its aliases executable but hidden', () => {
+    expect(resolveDesktopCommand('/remote')?.surface).toEqual({ kind: 'exec' })
+    expect(resolveDesktopCommand('/remote')?.args).toBe(true)
+    expect(resolveDesktopCommand('/remote-control')?.surface).toEqual({ kind: 'exec' })
+    expect(resolveDesktopCommand('/rc')?.surface).toEqual({ kind: 'exec' })
+    expect(isDesktopSlashSuggestion('/remote')).toBe(true)
+    expect(isDesktopSlashSuggestion('/remote-control')).toBe(false)
+    expect(isDesktopSlashSuggestion('/rc')).toBe(false)
+    expect(isDesktopSlashCommand('/rc')).toBe(true)
+  })
+
   it('filters built-in catalog noise but keeps skill / quick-command extensions', () => {
     const filtered = filterDesktopCommandsCatalog({
       categories: [

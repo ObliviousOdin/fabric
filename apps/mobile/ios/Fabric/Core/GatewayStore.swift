@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 
 enum GatewayStoreError: LocalizedError, Equatable {
@@ -392,5 +393,183 @@ enum GatewayStore {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
         ] as CFDictionary)
+    }
+}
+
+/// Errors surfaced when a paired Link controller's opaque MLS state cannot be
+/// protected or released. The state is deliberately separate from saved
+/// gateway credentials: it grants machine-control authority, not just a
+/// gateway HTTP session.
+enum LinkControllerStoreError: LocalizedError, Equatable {
+    case stateStorageUnavailable
+    case stateRemovalUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .stateStorageUnavailable:
+            return "Couldn't access protected Fabric Link state. Unlock this device and try again."
+        case .stateRemovalUnavailable:
+            return "Couldn't remove protected Fabric Link state. Unlock this device and try again."
+        }
+    }
+}
+
+/// Device-local storage for one paired Link controller's opaque MLS state.
+///
+/// The opaque state contains the controller's private MLS material. It never
+/// enters UserDefaults, gateway metadata, app logs, or an app-managed file.
+/// Every access requires the current device owner through the Keychain's
+/// user-presence access-control flag, and `ThisDeviceOnly` prevents migration
+/// to another device through backups or sync.
+enum LinkControllerStore {
+    private static let keychainService = "io.github.obliviousodin.fabric.link.controller.v1"
+    private static let accountPrefix = "link-controller-"
+    // OpenMLS state plus a crash-safe encrypted outbox can briefly exceed the
+    // bare MLS snapshot size. Keep this aligned with the controller bundle's
+    // 20 MiB hard ceiling; larger records fail closed before Keychain access.
+    private static let maxStateBytes = 20 * 1024 * 1024
+    private static let authorizationContexts = AuthorizationContextCache()
+
+    static func load(controllerID: String) throws -> Data? {
+        var query = authorizedCredentialQuery(
+            controllerID: controllerID,
+            reason: "Authenticate to access Fabric Link"
+        )
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = item as? Data else {
+            throw LinkControllerStoreError.stateStorageUnavailable
+        }
+        guard !data.isEmpty, data.count <= maxStateBytes else {
+            throw LinkControllerStoreError.stateStorageUnavailable
+        }
+        return data
+    }
+
+    static func save(_ opaqueState: Data, controllerID: String) throws {
+        guard !opaqueState.isEmpty, opaqueState.count <= maxStateBytes else {
+            throw LinkControllerStoreError.stateStorageUnavailable
+        }
+        let query = credentialQuery(controllerID: controllerID)
+        var accessControlError: Unmanaged<CFError>?
+        guard let accessControl = SecAccessControlCreateWithFlags(
+            nil,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            .userPresence,
+            &accessControlError
+        ) else {
+            throw LinkControllerStoreError.stateStorageUnavailable
+        }
+
+        var addQuery = query
+        addQuery[kSecValueData as String] = opaqueState
+        addQuery[kSecAttrAccessControl as String] = accessControl
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        let status: OSStatus
+        if addStatus == errSecDuplicateItem {
+            // Existing controller items were created with the same access
+            // control; only replace their opaque state after user presence.
+            let authorizedQuery = authorizedCredentialQuery(
+                controllerID: controllerID,
+                reason: "Authenticate to update Fabric Link"
+            )
+            status = SecItemUpdate(
+                authorizedQuery as CFDictionary,
+                [kSecValueData as String: opaqueState] as CFDictionary
+            )
+        } else {
+            status = addStatus
+        }
+        guard status == errSecSuccess else {
+            throw LinkControllerStoreError.stateStorageUnavailable
+        }
+    }
+
+    static func remove(controllerID: String) throws {
+        let query = authorizedCredentialQuery(
+            controllerID: controllerID,
+            reason: "Authenticate to remove Fabric Link"
+        )
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw LinkControllerStoreError.stateRemovalUnavailable
+        }
+        authorizationContexts.invalidate(controllerID: controllerID)
+    }
+
+    /// Re-lock all controller authority when the app leaves the foreground.
+    ///
+    /// A single authenticated context is deliberately reused while the app is
+    /// active so polling a live session does not present a biometric prompt
+    /// for every MLS state update. It never survives a background transition.
+    static func lock() {
+        authorizationContexts.invalidateAll()
+    }
+
+    private static func credentialQuery(controllerID: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: accountPrefix + validatedControllerID(controllerID),
+        ]
+    }
+
+    private static func authorizedCredentialQuery(
+        controllerID: String,
+        reason: String
+    ) -> [String: Any] {
+        var query = credentialQuery(controllerID: controllerID)
+        let context = authorizationContexts.context(
+            controllerID: validatedControllerID(controllerID),
+            reason: reason
+        )
+        query[kSecUseAuthenticationContext as String] = context
+        return query
+    }
+
+    private static func validatedControllerID(_ controllerID: String) -> String {
+        precondition(
+            !controllerID.isEmpty && controllerID.count <= 128
+                && controllerID.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-") },
+            "Invalid Fabric Link controller identifier"
+        )
+        return controllerID
+    }
+
+    private final class AuthorizationContextCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var contexts: [String: LAContext] = [:]
+
+        func context(controllerID: String, reason: String) -> LAContext {
+            lock.lock()
+            defer { lock.unlock() }
+            if let existing = contexts[controllerID] {
+                return existing
+            }
+            let context = LAContext()
+            context.localizedReason = reason
+            context.touchIDAuthenticationAllowableReuseDuration = 300
+            contexts[controllerID] = context
+            return context
+        }
+
+        func invalidate(controllerID: String) {
+            lock.lock()
+            let context = contexts.removeValue(forKey: controllerID)
+            lock.unlock()
+            context?.invalidate()
+        }
+
+        func invalidateAll() {
+            lock.lock()
+            let current = Array(contexts.values)
+            contexts.removeAll(keepingCapacity: false)
+            lock.unlock()
+            current.forEach { $0.invalidate() }
+        }
     }
 }

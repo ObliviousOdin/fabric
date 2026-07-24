@@ -26,6 +26,14 @@ struct GatewayListView: View {
             }
             .toolbarBackground(FabricTheme.canvas, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink {
+                        FabricLinkMachinesView()
+                    } label: {
+                        Label("Fabric Link machines", systemImage: "lock.shield")
+                    }
+                    .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
+                }
                 if !appModel.gateways.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {

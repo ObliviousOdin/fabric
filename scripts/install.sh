@@ -1344,6 +1344,44 @@ setup_venv() {
     log_success "Virtual environment ready (Python $PYTHON_VERSION)"
 }
 
+install_bundled_link_core() {
+    local wheel="${FABRIC_LINK_CORE_WHEEL:-}"
+    local expected_sha="${FABRIC_LINK_CORE_SHA256:-}"
+    if [ -z "$wheel" ] && [ -z "$expected_sha" ]; then
+        return 0
+    fi
+    if [ -z "$wheel" ] || [ -z "$expected_sha" ]; then
+        log_error "Packaged Fabric Link core metadata is incomplete."
+        return 1
+    fi
+    if [ ! -f "$wheel" ] || [ -L "$wheel" ]; then
+        log_error "Packaged Fabric Link core wheel is missing or unsafe: $wheel"
+        return 1
+    fi
+    if ! [[ "$expected_sha" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        log_error "Packaged Fabric Link core checksum is invalid."
+        return 1
+    fi
+
+    local core_python
+    if [ "$USE_VENV" = true ]; then
+        core_python="$INSTALL_DIR/venv/bin/python"
+    else
+        core_python="$PYTHON_PATH"
+    fi
+    if [ ! -x "$core_python" ]; then
+        log_error "Python is unavailable for Fabric Link core installation."
+        return 1
+    fi
+    log_info "Installing the verified Fabric Link native core..."
+    if ! "$core_python" -m fabric_cli.main link core install \
+        --wheel "$wheel" --sha256 "$expected_sha"; then
+        log_error "The packaged Fabric Link native core failed verification."
+        return 1
+    fi
+    log_success "Fabric Link native core verified"
+}
+
 install_deps() {
     log_info "Installing dependencies..."
 
@@ -1408,6 +1446,7 @@ install_deps() {
         log_info "Termux note: matrix e2ee and local faster-whisper extras are excluded from .[termux-all] due to upstream Android wheel/toolchain blockers."
         log_info "Termux note: browser/WhatsApp tooling is not installed by default; see the Termux guide for optional follow-up steps."
 
+        install_bundled_link_core || exit 1
         log_success "All dependencies installed"
         return 0
     fi
@@ -1484,6 +1523,7 @@ install_deps() {
         # gracefully when stdout/stderr aren't terminals.
         if UV_PROJECT_ENVIRONMENT="$INSTALL_DIR/venv" $UV_CMD sync --extra all --locked; then
             log_success "Main package installed (hash-verified via uv.lock)"
+            install_bundled_link_core || exit 1
             log_success "All dependencies installed"
             return 0
         fi
@@ -1595,6 +1635,7 @@ PY
 
     log_success "Main package installed"
 
+    install_bundled_link_core || exit 1
     log_success "All dependencies installed"
 }
 

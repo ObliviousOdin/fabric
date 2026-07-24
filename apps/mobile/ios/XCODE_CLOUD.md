@@ -39,6 +39,12 @@ edits the tracked `project.yml`.
 - **Xcode Cloud owns signing.** Certificates, profiles, and your Apple team are
   held by Xcode Cloud through your Apple account — so no signing material lives
   in git, matching this repo's "no secrets in CI" posture.
+- **The Fabric Link core is reproducible.** The post-clone hook downloads a
+  checksum-pinned `rustup-init` into its private temporary directory, installs
+  the Rust version pinned by `apps/fabric-link-core/apple/build-xcframework.sh`,
+  and builds the iOS device/simulator XCFramework from the committed
+  `Cargo.lock`. Generated native artifacts remain ignored and never masquerade
+  as reviewed source.
 
 ## Prerequisites
 
@@ -47,6 +53,12 @@ edits the tracked `project.yml`.
   manage Xcode Cloud).
 - A Mac with Xcode 16 or newer.
 - XcodeGen for the one-time local setup: `brew install xcodegen`.
+- Rustup for local Fabric Link builds. The checked-in Apple build recipe pins
+  the Rust version and installs only its required iOS targets:
+
+  ```bash
+  ./apps/fabric-link-core/apple/build-xcframework.sh
+  ```
 
 ## Step 1 — Regenerate the bootstrap project
 
@@ -54,6 +66,7 @@ Xcode Cloud needs the project present before it can start a build or run
 `ci_post_clone.sh`. Generate the portable bootstrap from the manifest:
 
 ```bash
+./apps/fabric-link-core/apple/build-xcframework.sh
 cd apps/mobile/ios
 xcodegen generate
 open FabricMobile.xcodeproj
@@ -228,6 +241,9 @@ value matches the merged `main` SHA and copy both into `IOS_RELEASES.md`.
 - **`ci_post_clone.sh` didn't run.** Make sure it is executable and located in
   `apps/mobile/ios/ci_scripts/`, beside `FabricMobile.xcodeproj`, as Xcode Cloud
   requires.
+- **`FabricLinkCoreFFI.xcframework` is missing locally.** Run
+  `./apps/fabric-link-core/apple/build-xcframework.sh` from the repository root,
+  then regenerate the Xcode project. Xcode Cloud runs this recipe automatically.
 
 ## Not using Xcode Cloud?
 

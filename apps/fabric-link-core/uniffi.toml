@@ -1,0 +1,10 @@
+[bindings.kotlin]
+package_name = "com.fabric.link.core"
+cdylib_name = "fabric_link_core"
+
+[bindings.python]
+cdylib_name = "fabric_link_core"
+
+[bindings.swift]
+cdylib_name = "fabric_link_core"
+module_name = "FabricLinkCore"

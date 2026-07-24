@@ -119,6 +119,12 @@ class TestResolveCommand:
         assert topic.name == "topic"
         assert "topic" in GATEWAY_KNOWN_COMMANDS
 
+    def test_remote_is_local_surface_command_not_messaging_command(self):
+        remote = resolve_command("remote")
+        assert remote is not None
+        assert remote.cli_only is True
+        assert all(name != "remote" for name, _description in telegram_bot_commands())
+
     def test_leading_slash_stripped(self):
         assert resolve_command("/help").name == "help"
         assert resolve_command("/bg").name == "background"

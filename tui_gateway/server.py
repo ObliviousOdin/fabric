@@ -6,6 +6,7 @@ import contextvars
 import copy
 import hashlib
 import hmac
+import ipaddress
 import inspect
 import json
 import logging
@@ -144,6 +145,14 @@ if _EARLY_NETWORK_BOOTSTRAP_PERMITTED:
         pass
 
 from tui_gateway.render import make_stream_renderer, render_diff, render_message
+from tui_gateway.session_event_hub import (
+    SessionEventHub,
+    SessionNotPublishedError,
+    SnapshotRequiredError,
+    SubscriberAlreadyAttachedError,
+    TransportAlreadyAttachedError,
+)
+from tui_gateway.session_input_arbiter import InputReceipt, SessionInputArbiter
 
 _sessions: dict[str, dict] = {}
 _methods: dict[str, callable] = {}
@@ -210,6 +219,12 @@ _LONG_HANDLERS = frozenset({
     "job.create",
     "job.cancel",
     "job.sync",
+    "link.controller.dispatch",
+    "link.controller.enrollment.finish",
+    "link.controller.enrollment.start",
+    "link.controller.forget",
+    "link.controller.invoke",
+    "link.controller.list",
     "prompt.background",
     "memory.status",
     "model.disconnect",
@@ -686,6 +701,21 @@ def _finalize_session(session: dict | None, end_reason: str = "tui_close") -> No
     if not session or session.get("_finalized"):
         return
     session["_finalized"] = True
+    # A published Remote Control stream is subordinate to the owning live
+    # session. Closing the owner invalidates the publication generation and
+    # independently detaches every subscriber before agent teardown.
+    try:
+        event_hub = session.get("event_hub")
+        if event_hub is not None:
+            try:
+                from fabric_link.runtime import unpublish_link_session
+
+                unpublish_link_session(str(event_hub.session_id))
+            except Exception:
+                logger.debug("Fabric Link runtime teardown failed", exc_info=True)
+            event_hub.disable_remote()
+    except Exception:
+        logger.debug("session event hub teardown failed", exc_info=True)
     profile_tokens = None
     home_token = None
     profile_home = session.get("profile_home")
@@ -941,6 +971,99 @@ def _ws_session_is_orphaned(session: dict | None) -> bool:
     return session.get("transport") is _detached_ws_transport
 
 
+def _request_transport() -> Transport:
+    """Return the transport authenticated by the current local RPC boundary."""
+    return current_transport() or _stdio_transport
+
+
+def _remote_rpc_is_local() -> bool:
+    """Fail closed for WebSocket peers outside the loopback interface."""
+    transport = _request_transport()
+    if not hasattr(transport, "peer_host"):
+        return True
+    peer_host = getattr(transport, "peer_host", None)
+    if not peer_host:
+        return False
+    normalized = str(peer_host).strip().strip("[]").split("%", 1)[0]
+    if normalized.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _remote_local_only_error(rid) -> dict | None:
+    if _remote_rpc_is_local():
+        return None
+    return _err(
+        rid,
+        4031,
+        "Remote Control attach is local-only until the encrypted relay is enabled",
+    )
+
+
+def _ensure_remote_session_runtime(sid: str, session: dict) -> SessionEventHub:
+    """Install the per-session publication and input runtime exactly once."""
+    hub = session.get("event_hub")
+    if hub is None:
+        hub = SessionEventHub(
+            sid,
+            session.get("transport") or _request_transport(),
+            fence_lock=session["history_lock"],
+        )
+        session["event_hub"] = hub
+    if session.get("input_arbiter") is None:
+        session["input_arbiter"] = SessionInputArbiter()
+    session.setdefault("input_payloads", {})
+    session.setdefault("remote_lock", threading.RLock())
+    session.setdefault("remote_subscribers", {})
+    return hub
+
+
+def _rebind_session_owner(session: dict, transport: Transport) -> None:
+    """Rebind only the existing owner path, never an attached subscriber."""
+    hub = session.get("event_hub")
+    if hub is not None:
+        hub.rebind_owner(transport)
+    session["transport"] = transport
+
+
+def _request_is_session_owner(session: dict) -> bool:
+    transport = _request_transport()
+    hub = session.get("event_hub")
+    if hub is not None:
+        return hub.owns_transport(transport)
+    return session.get("transport") is transport
+
+
+def _published_owner_rebind_error(rid, session: dict, transport: Transport) -> dict | None:
+    """Keep an unrelated local client from replacing a live published owner."""
+    hub = session.get("event_hub")
+    if hub is None or not hub.published or hub.owns_transport(transport):
+        return None
+    owner = hub.owner_transport
+    if owner is _detached_ws_transport or _transport_is_dead(owner):
+        return None
+    return _err(
+        rid,
+        4091,
+        "session has a live published owner; use session.attach",
+    )
+
+
+def _detach_remote_transport(session: dict, transport: Transport) -> str | None:
+    """Detach a disconnected subscriber without disturbing the owner."""
+    hub = session.get("event_hub")
+    if hub is None:
+        return None
+    subscriber_id = hub.detach_transport(transport)
+    if subscriber_id is not None:
+        with session.get("remote_lock") or _sessions_lock:
+            session.get("remote_subscribers", {}).pop(subscriber_id, None)
+    return subscriber_id
+
+
 def _schedule_ws_orphan_reap(sid: str) -> None:
     """After a grace window, reap session ``sid`` iff it's still orphaned.
 
@@ -988,7 +1111,11 @@ def _close_sessions_for_transport(
 
     Returns ``(reaped, detached)`` counts for disconnect-path observability."""
     with _sessions_lock:
-        owned = [(sid, s) for sid, s in _sessions.items() if s.get("transport") is transport]
+        snapshot = list(_sessions.items())
+        owned = [(sid, s) for sid, s in snapshot if s.get("transport") is transport]
+    for _sid, session in snapshot:
+        if session.get("transport") is not transport:
+            _detach_remote_transport(session, transport)
     reaped = 0
     detached = 0
     for sid, session in owned:
@@ -999,7 +1126,11 @@ def _close_sessions_for_transport(
             # Point detached sessions at the drop sentinel (NOT real stdio) so
             # _ws_session_is_orphaned recognizes them and the grace-reap can
             # actually fire; a standalone `fabric --tui` keeps real _stdio.
-            session["transport"] = _detached_ws_transport
+            hub = session.get("event_hub")
+            if hub is not None:
+                hub.disable_remote()
+                session.get("remote_subscribers", {}).clear()
+            _rebind_session_owner(session, _detached_ws_transport)
             detached += 1
             try:
                 _schedule_ws_orphan_reap(sid)
@@ -1488,17 +1619,43 @@ def write_json(obj: dict) -> bool:
     """
     if obj.get("method") == "event":
         sid = ((obj.get("params") or {}).get("session_id")) or ""
-        if sid and (t := (_sessions.get(sid) or {}).get("transport")) is not None:
-            return t.write(obj)
+        if sid:
+            session = _sessions.get(sid) or {}
+            if (event_hub := session.get("event_hub")) is not None:
+                return event_hub.emit(obj)
+            if (t := session.get("transport")) is not None:
+                return t.write(obj)
 
     return (current_transport() or _stdio_transport).write(obj)
 
 
 def _emit(event: str, sid: str, payload: dict | None = None):
-    params = {"type": event, "session_id": sid}
-    if payload is not None:
-        params["payload"] = payload
-    write_json({"jsonrpc": "2.0", "method": "event", "params": params})
+    from fabric_cli.remote_control import publication_event
+
+    write_json(publication_event(event, sid, payload))
+
+
+def _mutate_and_emit(
+    event: str,
+    sid: str,
+    payload: dict | None,
+    mutation,
+) -> bool:
+    """Fence one snapshot-visible mutation with its matching event."""
+    from fabric_cli.remote_control import publication_event
+
+    session = _sessions.get(sid) or {}
+    hub = session.get("event_hub")
+    if hub is not None:
+        return hub.mutate_and_emit(
+            lambda: (
+                mutation(),
+                publication_event(event, sid, payload),
+            )[1]
+        )
+    mutation()
+    result = _emit(event, sid, payload)
+    return True if result is None else bool(result)
 
 
 def _emit_approval_request(sid: str, data: dict | None) -> None:
@@ -1889,6 +2046,267 @@ def _(rid, params: dict) -> dict:
             },
         )
     return _ok(rid, auth_context.public_projection())
+
+
+def _link_controller_local_error(rid) -> dict | None:
+    transport = _request_transport()
+    auth_context = current_auth_context()
+    # Stdio is process-local and has no WebSocket authentication context.
+    if not hasattr(transport, "peer_host") and auth_context is None:
+        return None
+    # A loopback socket is not sufficient authority: when Fabric sits behind a
+    # local reverse proxy, an ordinary provider-authenticated Dashboard user
+    # also appears to come from 127.0.0.1. Only the legacy session token used by
+    # a direct local Desktop/Dashboard backend may open the controller vault.
+    if (
+        _remote_rpc_is_local()
+        and auth_context is not None
+        and auth_context.auth_kind == "legacy_token"
+    ):
+        return None
+    return _err(
+        rid,
+        4031,
+        "Fabric Link controller management is available only in a local app",
+    )
+
+
+def _link_controller_failure(rid, exc: Exception) -> dict:
+    code = str(getattr(exc, "code", "") or exc.__class__.__name__).strip()
+    if not code or len(code) > 128 or not all(
+        character.isalnum() or character in "._-" for character in code
+    ):
+        code = "link_controller_unavailable"
+    return _err(rid, 5036, f"Fabric Link controller failed: {code}")
+
+
+@method("link.controller.list")
+def _(rid, params: dict) -> dict:
+    del params
+    if local_error := _link_controller_local_error(rid):
+        return local_error
+    try:
+        from fabric_link.controller_manager import list_controller_profiles
+
+        return _ok(rid, {"controllers": list_controller_profiles()})
+    except Exception as exc:
+        return _link_controller_failure(rid, exc)
+
+
+@method("link.controller.enrollment.start")
+def _(rid, params: dict) -> dict:
+    if local_error := _link_controller_local_error(rid):
+        return local_error
+    pairing_url = params.get("pairing_url")
+    label = params.get("label", "Fabric Desktop")
+    raw_grants = params.get("grants", ["observe", "chat", "dispatch"])
+    if (
+        not isinstance(pairing_url, str)
+        or not 1 <= len(pairing_url) <= 8192
+        or not isinstance(label, str)
+        or not 1 <= len(label.strip()) <= 96
+        or not isinstance(raw_grants, list)
+        or not raw_grants
+        or not all(isinstance(grant, str) for grant in raw_grants)
+    ):
+        return _err(rid, 4002, "invalid Fabric Link pairing parameters")
+    try:
+        from fabric_link.controller_manager import start_controller_pairing
+
+        result = start_controller_pairing(
+            pairing_url=pairing_url,
+            label=" ".join(label.split()),
+            platform="desktop",
+            requested_grants=tuple(raw_grants),
+        )
+        return _ok(rid, result.to_dict())
+    except Exception as exc:
+        return _link_controller_failure(rid, exc)
+
+
+@method("link.controller.enrollment.finish")
+def _(rid, params: dict) -> dict:
+    if local_error := _link_controller_local_error(rid):
+        return local_error
+    controller_id = params.get("controller_id")
+    timeout = params.get("timeout_seconds", 300)
+    if (
+        not isinstance(controller_id, str)
+        or not 1 <= len(controller_id) <= 128
+        or isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not 1 <= float(timeout) <= 300
+    ):
+        return _err(rid, 4002, "invalid Fabric Link enrollment wait")
+    try:
+        from fabric_link.controller_manager import finish_controller_pairing
+
+        return _ok(
+            rid,
+            finish_controller_pairing(
+                controller_id=controller_id,
+                timeout_seconds=float(timeout),
+            ),
+        )
+    except Exception as exc:
+        return _link_controller_failure(rid, exc)
+
+
+@method("link.controller.forget")
+def _(rid, params: dict) -> dict:
+    if local_error := _link_controller_local_error(rid):
+        return local_error
+    controller_id = params.get("controller_id")
+    if not isinstance(controller_id, str) or not 1 <= len(controller_id) <= 128:
+        return _err(rid, 4002, "invalid Fabric Link controller id")
+    try:
+        from fabric_link.controller_manager import forget_controller_profile
+
+        forget_controller_profile(controller_id)
+        return _ok(rid, {"forgotten": True, "controller_id": controller_id})
+    except Exception as exc:
+        return _link_controller_failure(rid, exc)
+
+
+def _link_controller_invocation_params(rid, params: dict):
+    controller_id = params.get("controller_id")
+    method_name = params.get("method")
+    method_params = params.get("params", {})
+    timeout = params.get("timeout_seconds", 120)
+    if (
+        not isinstance(controller_id, str)
+        or not 1 <= len(controller_id) <= 128
+        or not isinstance(method_name, str)
+        or not method_name
+        or not isinstance(method_params, dict)
+        or isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not 1 <= float(timeout) <= 300
+    ):
+        return None, _err(rid, 4002, "invalid Fabric Link invocation")
+    from fabric_link.capabilities import LINK_REMOTE_METHODS
+
+    if method_name not in LINK_REMOTE_METHODS:
+        return None, _err(rid, 4030, "Fabric Link method is not reviewed")
+    return (
+        (controller_id, method_name, method_params, float(timeout)),
+        None,
+    )
+
+
+@method("link.controller.invoke")
+def _(rid, params: dict) -> dict:
+    if local_error := _link_controller_local_error(rid):
+        return local_error
+    invocation, error = _link_controller_invocation_params(rid, params)
+    if error:
+        return error
+    try:
+        from fabric_link.controller_manager import invoke_controller
+
+        controller_id, method_name, method_params, timeout = invocation
+        return _ok(
+            rid,
+            {
+                "response": invoke_controller(
+                    profile_reference=controller_id,
+                    method=method_name,
+                    params=method_params,
+                    timeout_seconds=timeout,
+                )
+            },
+        )
+    except Exception as exc:
+        return _link_controller_failure(rid, exc)
+
+
+@method("link.controller.dispatch")
+def _(rid, params: dict) -> dict:
+    if local_error := _link_controller_local_error(rid):
+        return local_error
+    controller_id = params.get("controller_id")
+    prompt = params.get("prompt")
+    title = params.get("title", "Dispatched from Fabric Desktop")
+    timeout = params.get("timeout_seconds", 120)
+    idempotency_key = params.get("idempotency_key")
+    if (
+        not isinstance(controller_id, str)
+        or not 1 <= len(controller_id) <= 128
+        or not isinstance(prompt, str)
+        or not 1 <= len(prompt.strip()) <= 200_000
+        or not isinstance(title, str)
+        or not 1 <= len(title.strip()) <= 200
+        or isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not 1 <= float(timeout) <= 300
+        or (
+            idempotency_key is not None
+            and (
+                not isinstance(idempotency_key, str)
+                or not 1 <= len(idempotency_key) <= 128
+            )
+        )
+    ):
+        return _err(rid, 4002, "invalid Fabric Link dispatch")
+    try:
+        from fabric_link.controller_manager import dispatch_controller_work
+
+        return _ok(
+            rid,
+            {
+                "response": dispatch_controller_work(
+                    profile_reference=controller_id,
+                    prompt=prompt,
+                    title=title,
+                    timeout_seconds=float(timeout),
+                    idempotency_key=idempotency_key,
+                )
+            },
+        )
+    except Exception as exc:
+        return _link_controller_failure(rid, exc)
+
+
+@method("events.poll")
+def _(rid, params: dict) -> dict:
+    """Drain a bounded event page from a transport that explicitly supports it.
+
+    Ordinary stdio and WebSocket transports do not implement this method. The
+    Fabric Link broker provides the bounded queue so remote controllers can
+    follow an exact published session without replacing its owner transport.
+    """
+
+    transport = _request_transport()
+    poll_events = getattr(transport, "poll_events", None)
+    if not callable(poll_events):
+        return _err(rid, 4032, "event polling is unavailable on this transport")
+    raw_after = params.get("after_event_seq", 0)
+    raw_limit = params.get("limit", 100)
+    raw_wait_ms = params.get("wait_ms", 0)
+    if (
+        isinstance(raw_after, bool)
+        or not isinstance(raw_after, int)
+        or raw_after < 0
+        or isinstance(raw_limit, bool)
+        or not isinstance(raw_limit, int)
+        or not 1 <= raw_limit <= 200
+        or isinstance(raw_wait_ms, bool)
+        or not isinstance(raw_wait_ms, int)
+        or not 0 <= raw_wait_ms <= 25_000
+    ):
+        return _err(rid, 4002, "invalid event poll bounds")
+    try:
+        page = poll_events(
+            after_event_seq=raw_after,
+            limit=raw_limit,
+            wait_ms=raw_wait_ms,
+        )
+    except Exception:
+        logger.warning("bounded event poll failed")
+        return _err(rid, 5036, "event poll unavailable")
+    if not isinstance(page, dict):
+        return _err(rid, 5036, "event poll unavailable")
+    return _ok(rid, page)
 
 
 def _normalize_request(req: Any) -> tuple[Any, str, dict] | dict:
@@ -2724,12 +3142,15 @@ def _clear_session_context(tokens: list) -> None:
 def _block(event: str, sid: str, payload: dict, timeout: int = 300) -> str:
     rid = uuid.uuid4().hex
     ev = threading.Event()
-    with _prompt_lock:
-        _pending[rid] = (sid, ev)
-        payload["request_id"] = rid
-        _pending_prompt_payloads[rid] = (event, dict(payload))
+    payload["request_id"] = rid
+
+    def register_prompt() -> None:
+        with _prompt_lock:
+            _pending[rid] = (sid, ev)
+            _pending_prompt_payloads[rid] = (event, dict(payload))
+
     try:
-        _emit(event, sid, payload)
+        _mutate_and_emit(event, sid, payload, register_prompt)
         ev.wait(timeout=timeout)
     finally:
         with _prompt_lock:
@@ -2799,10 +3220,6 @@ def _block_user_attention(
                 _answers[request_id] = ""
                 entry[1].set()
 
-    with _prompt_lock:
-        _pending[request_id] = (sid, wait_event)
-        _pending_prompt_payloads[request_id] = (event, dict(outgoing))
-
     service = None
     attention = None
     post_create_abort = False
@@ -2821,21 +3238,20 @@ def _block_user_attention(
         )
         outgoing["attention_id"] = attention["attention_id"]
         outgoing["attention_version"] = attention["version"]
-        with _prompt_lock:
-            _pending_prompt_payloads[request_id] = (event, dict(outgoing))
-        with _work_attention_lock:
-            _work_attention_by_request[(sid, request_id)] = {
-                "attention_id": attention["attention_id"],
-                "kind": kind,
-                "version": attention["version"],
-            }
-        _emit_work_changed(
-            sid,
-            service,
-            attention_id=str(attention["attention_id"]),
-        )
+
+        def register_attention() -> None:
+            with _prompt_lock:
+                _pending[request_id] = (sid, wait_event)
+                _pending_prompt_payloads[request_id] = (event, dict(outgoing))
+            with _work_attention_lock:
+                _work_attention_by_request[(sid, request_id)] = {
+                    "attention_id": attention["attention_id"],
+                    "kind": kind,
+                    "version": attention["version"],
+                }
+
         try:
-            _emit(event, sid, outgoing)
+            _mutate_and_emit(event, sid, outgoing, register_attention)
         except Exception:
             # work.db + work.changed are authoritative.  A disconnected legacy
             # transport must not abort the live waiter: a reconnecting client
@@ -2846,6 +3262,11 @@ def _block_user_attention(
                 sid,
                 exc_info=True,
             )
+        _emit_work_changed(
+            sid,
+            service,
+            attention_id=str(attention["attention_id"]),
+        )
         wait_event.wait(timeout=timeout)
     except Exception as exc:
         logger.error(
@@ -5905,7 +6326,7 @@ def _init_session(
             "agent": agent,
             "session_key": key,
             "history": history,
-            "history_lock": threading.Lock(),
+            "history_lock": threading.RLock(),
             "history_version": 0,
             "inflight_turn": None,
             "created_at": now,
@@ -6521,7 +6942,7 @@ def _(rid, params: dict) -> dict:
             "edit_snapshots": {},
             "explicit_cwd": explicit_cwd,
             "history": history,
-            "history_lock": threading.Lock(),
+            "history_lock": threading.RLock(),
             "history_version": 0,
             "image_counter": 0,
             "cwd": resolved_cwd,
@@ -6794,7 +7215,7 @@ def _deferred_session_record(
         "edit_snapshots": {},
         "explicit_cwd": False,
         "history": history,
-        "history_lock": threading.Lock(),
+        "history_lock": threading.RLock(),
         "history_version": 0,
         "image_counter": 0,
         "inflight_turn": None,
@@ -6990,13 +7411,16 @@ def _(rid, params: dict) -> dict:
             with contextlib.suppress(Exception):
                 db.close()
 
-    def _reuse_live_payload(sid: str, session: dict) -> dict:
+    def _reuse_live_response(sid: str, session: dict) -> dict:
+        transport = current_transport() or _stdio_transport
+        if owner_error := _published_owner_rebind_error(rid, session, transport):
+            return owner_error
         payload = _live_session_payload(
             sid,
             session,
             cols=cols,
             touch=True,
-            transport=current_transport() or _stdio_transport,
+            transport=transport,
         )
         payload["resumed"] = target
         # A lazy watch session never owns a run loop, so its payload's running
@@ -7005,7 +7429,7 @@ def _(rid, params: dict) -> dict:
         if session.get("agent") is None and _child_run_active(target, profile_home):
             payload["running"] = True
             payload["status"] = "streaming"
-        return payload
+        return _ok(rid, payload)
 
     # A newly-created composer is deliberately not persisted until its first
     # prompt, but native clients can leave that composer and reopen it from
@@ -7015,7 +7439,7 @@ def _(rid, params: dict) -> dict:
         live = _find_live_session_by_key(target, profile_home=profile_home)
         if live is not None:
             _close_lookup_db()
-            return _ok(rid, _reuse_live_payload(*live))
+            return _reuse_live_response(*live)
 
     found = db.get_session(target)
     if not found:
@@ -7071,7 +7495,7 @@ def _(rid, params: dict) -> dict:
         live = _find_live_session_by_key(target, profile_home=profile_home)
         if live is not None:
             _close_lookup_db()
-            return _ok(rid, _reuse_live_payload(*live))
+            return _reuse_live_response(*live)
 
     # Lazy/watch resume: register the live session WITHOUT building an agent.
     # Used by the desktop's subagent windows — the child runs inside the
@@ -7320,12 +7744,19 @@ def _(rid, params: dict) -> dict:
                     profile_home=profile_home,
                 )
             other_sid, other_session = live
+            transport = current_transport() or _stdio_transport
+            if owner_error := _published_owner_rebind_error(
+                rid,
+                other_session,
+                transport,
+            ):
+                return owner_error
             payload = _live_session_payload(
                 other_sid,
                 other_session,
                 cols=cols,
                 touch=True,
-                transport=current_transport() or _stdio_transport,
+                transport=transport,
             )
             payload["resumed"] = target
             return _ok(rid, payload)
@@ -7795,7 +8226,7 @@ def _live_session_payload(
         if cols is not None:
             session["cols"] = cols
         if transport is not None:
-            session["transport"] = transport
+            _rebind_session_owner(session, transport)
         if touch:
             session["last_active"] = time.time()
         history = list(session.get("display_history_prefix") or []) + list(
@@ -7819,6 +8250,262 @@ def _live_session_payload(
     if inflight:
         payload["inflight"] = inflight
     return payload
+
+
+def _remote_identifier(value: Any, *, field: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError(f"{field} is required")
+    if len(normalized) > 128:
+        raise ValueError(f"{field} is too long")
+    if not all(char.isalnum() or char in "._:-" for char in normalized):
+        raise ValueError(f"{field} contains unsupported characters")
+    return normalized
+
+
+def _remote_session_status(sid: str, session: dict) -> dict:
+    hub = session.get("event_hub")
+    if hub is None:
+        return {
+            "attached_controllers": [],
+            "event_seq": 0,
+            "generation": None,
+            "owner": _request_is_session_owner(session),
+            "published": False,
+            "session_id": sid,
+            "session_key": _session_lookup_key(session, fallback=sid),
+            "subscriber_id": None,
+        }
+    subscriber_id = hub.subscriber_for_transport(_request_transport())
+    live_ids = set(hub.subscriber_ids)
+    with session.get("remote_lock") or _sessions_lock:
+        subscribers = session.get("remote_subscribers", {})
+        for stale_id in set(subscribers) - live_ids:
+            subscribers.pop(stale_id, None)
+    return {
+        "attached_controllers": sorted(live_ids),
+        "event_seq": hub.sequence,
+        "generation": hub.generation,
+        "owner": hub.owns_transport(_request_transport()),
+        "published": hub.published,
+        "session_id": sid,
+        "session_key": _session_lookup_key(session, fallback=sid),
+        "subscriber_id": subscriber_id,
+        "link": dict(session.get("link_runtime_status") or {}),
+    }
+
+
+@method("session.publish")
+def _(rid, params: dict) -> dict:
+    """Publish one idle live session to authenticated local attach clients."""
+    if local_error := _remote_local_only_error(rid):
+        return local_error
+    sid = str(params.get("session_id") or "")
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    if not _request_is_session_owner(session):
+        return _err(rid, 4030, "only the live session owner can publish it")
+    with session["history_lock"]:
+        if session.get("running"):
+            return _err(rid, 4009, "session busy — publish after the turn finishes")
+        if session.get("_finalized"):
+            return _err(rid, 4001, "session is closing")
+        hub = _ensure_remote_session_runtime(sid, session)
+        generation = hub.enable_remote()
+    try:
+        from fabric_link.runtime import publish_link_session
+
+        link_status = publish_link_session(sid)
+    except Exception as exc:
+        hub.disable_remote(close_transports=False)
+        code = str(getattr(exc, "code", "link_broker_unavailable"))
+        return _err(rid, 5036, f"Fabric Link unavailable: {code}")
+    session["link_runtime_status"] = link_status
+    status = _remote_session_status(sid, session)
+    status["generation"] = generation
+    status["link"] = link_status
+    return _ok(rid, status)
+
+
+@method("session.unpublish")
+def _(rid, params: dict) -> dict:
+    """Withdraw a local publication and detach every remote controller."""
+    if local_error := _remote_local_only_error(rid):
+        return local_error
+    sid = str(params.get("session_id") or "")
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    if not _request_is_session_owner(session):
+        return _err(rid, 4030, "only the live session owner can unpublish it")
+    hub = session.get("event_hub")
+    if hub is None:
+        return _ok(rid, _remote_session_status(sid, session))
+    arbiter = session.get("input_arbiter")
+    if session.get("running") or (arbiter is not None and arbiter.active is not None):
+        return _err(rid, 4009, "session busy — unpublish after queued input finishes")
+    detached = hub.disable_remote(close_transports=False)
+    try:
+        from fabric_link.runtime import unpublish_link_session
+
+        unpublish_link_session(sid)
+    except Exception:
+        logger.debug("Fabric Link unpublish failed", exc_info=True)
+    session.pop("link_runtime_status", None)
+    with session.get("remote_lock") or _sessions_lock:
+        session.get("remote_subscribers", {}).clear()
+    status = _remote_session_status(sid, session)
+    status["detached_controllers"] = list(detached)
+    return _ok(rid, status)
+
+
+@method("session.remote_status")
+def _(rid, params: dict) -> dict:
+    """Return publication state to the owner or an attached controller."""
+    if local_error := _remote_local_only_error(rid):
+        return local_error
+    sid = str(params.get("session_id") or "")
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    hub = session.get("event_hub")
+    request_transport = _request_transport()
+    if not _request_is_session_owner(session) and (
+        hub is None or hub.subscriber_for_transport(request_transport) is None
+    ):
+        return _err(rid, 4030, "transport is not attached to this live session")
+    return _ok(rid, _remote_session_status(sid, session))
+
+
+@method("session.attach")
+def _(rid, params: dict) -> dict:
+    """Attach a local controller without replacing the live owner transport."""
+    if local_error := _remote_local_only_error(rid):
+        return local_error
+    sid = str(params.get("session_id") or "")
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    try:
+        controller_id = _remote_identifier(
+            params.get("controller_id"),
+            field="controller_id",
+        )
+    except ValueError as exc:
+        return _err(rid, 4002, str(exc))
+    transport = _request_transport()
+    hub = session.get("event_hub")
+    if hub is None or not hub.published:
+        return _err(rid, 4040, "session is not published")
+    if hub.owns_transport(transport):
+        return _err(rid, 4091, "owner transport cannot attach as a controller")
+    generation = str(params.get("generation") or "").strip() or None
+    raw_after = params.get("after_event_seq")
+    try:
+        after_event_seq = int(raw_after) if raw_after is not None else None
+    except (TypeError, ValueError):
+        return _err(rid, 4002, "after_event_seq must be an integer")
+    try:
+        result = hub.attach(
+            controller_id,
+            transport,
+            lambda: _live_session_payload(sid, session),
+            generation=generation,
+            after_event_seq=after_event_seq,
+        )
+    except SessionNotPublishedError:
+        return _err(rid, 4040, "session is not published")
+    except SnapshotRequiredError as exc:
+        return _err(
+            rid,
+            4092,
+            str(exc),
+            {"fresh_attach_required": True},
+        )
+    except (SubscriberAlreadyAttachedError, TransportAlreadyAttachedError) as exc:
+        return _err(rid, 4091, str(exc))
+    with session.get("remote_lock") or _sessions_lock:
+        session.setdefault("remote_subscribers", {})[controller_id] = transport
+    return _ok(
+        rid,
+        {
+            "generation": result.generation,
+            "resumed": result.resumed,
+            "session_id": sid,
+            "snapshot": result.snapshot,
+            "snapshot_seq": result.snapshot_seq,
+        },
+    )
+
+
+@method("session.detach")
+def _(rid, params: dict) -> dict:
+    """Detach only the controller bound to the current local transport."""
+    if local_error := _remote_local_only_error(rid):
+        return local_error
+    sid = str(params.get("session_id") or "")
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    hub = session.get("event_hub")
+    if hub is None:
+        return _ok(rid, {"detached": False, "session_id": sid})
+    transport = _request_transport()
+    subscriber_id = hub.subscriber_for_transport(transport)
+    if subscriber_id is None:
+        return _err(rid, 4030, "transport is not attached to this live session")
+    supplied_id = str(params.get("controller_id") or "").strip()
+    if supplied_id and supplied_id != subscriber_id:
+        return _err(rid, 4030, "controller identity does not match transport")
+    detached = hub.detach(subscriber_id)
+    with session.get("remote_lock") or _sessions_lock:
+        session.get("remote_subscribers", {}).pop(subscriber_id, None)
+    return _ok(
+        rid,
+        {
+            "controller_id": subscriber_id,
+            "detached": detached,
+            "session_id": sid,
+        },
+    )
+
+
+@method("session.input.submit")
+def _(rid, params: dict) -> dict:
+    """Submit one attributed turn from the controller on this transport."""
+    if local_error := _remote_local_only_error(rid):
+        return local_error
+    sid = str(params.get("session_id") or "")
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    hub = _published_session_hub(session)
+    if hub is None:
+        return _err(rid, 4040, "session is not published")
+    transport = _request_transport()
+    controller_id = hub.subscriber_for_transport(transport)
+    if controller_id is None:
+        return _err(rid, 4030, "transport is not attached to this live session")
+    supplied_controller = str(params.get("controller_id") or "").strip()
+    if supplied_controller and supplied_controller != controller_id:
+        return _err(rid, 4030, "controller identity does not match transport")
+    try:
+        request_id = _remote_identifier(
+            params.get("request_id"),
+            field="request_id",
+        )
+    except ValueError as exc:
+        return _err(rid, 4002, str(exc))
+    return _submit_published_input(
+        rid,
+        sid,
+        session,
+        controller_id=controller_id,
+        request_id=request_id,
+        text=params.get("text", ""),
+        origin="remote",
+    )
 
 
 @method("session.active_list")
@@ -7871,6 +8558,9 @@ def _(rid, params: dict) -> dict:
     if err:
         return err
     assert session is not None
+    transport = current_transport() or _stdio_transport
+    if owner_error := _published_owner_rebind_error(rid, session, transport):
+        return owner_error
 
     return _ok(
         rid,
@@ -7878,7 +8568,7 @@ def _(rid, params: dict) -> dict:
             sid,
             session,
             touch=True,
-            transport=current_transport() or _stdio_transport,
+            transport=transport,
         ),
     )
 
@@ -10233,6 +10923,290 @@ def _(rid, params: dict) -> dict:
 # ── Methods: prompt ──────────────────────────────────────────────────
 
 
+def _input_receipt_payload(receipt: InputReceipt, *, origin: str | None = None) -> dict:
+    payload = {
+        "controller_id": receipt.controller_id,
+        "ordinal": receipt.ordinal,
+        "original_state": receipt.original_state,
+        "reason": receipt.reason,
+        "request_id": receipt.request_id,
+        "state": receipt.state,
+    }
+    if origin:
+        payload["origin"] = origin
+    return payload
+
+
+def _emit_input_receipt(
+    sid: str,
+    receipt: InputReceipt,
+    *,
+    origin: str | None = None,
+) -> None:
+    _emit(
+        "input.receipt",
+        sid,
+        _input_receipt_payload(receipt, origin=origin),
+    )
+
+
+def _published_session_hub(session: dict) -> SessionEventHub | None:
+    hub = session.get("event_hub")
+    return hub if hub is not None and hub.published else None
+
+
+def _launch_published_input(
+    rid,
+    sid: str,
+    session: dict,
+    receipt: InputReceipt,
+) -> None:
+    """Launch the arbiter's active request on the session's one live agent."""
+    key = (receipt.controller_id, receipt.request_id)
+    payload = session.get("input_payloads", {}).get(key)
+    if payload is None:
+        raise RuntimeError("accepted input payload is missing")
+    text = payload["text"]
+    truncate_user_ordinal = payload.get("truncate_before_user_ordinal")
+
+    with session["history_lock"]:
+        if session.get("running"):
+            raise RuntimeError("input arbiter accepted while session was already running")
+        if session.get("lazy") and _child_run_active(
+            str(session.get("session_key") or ""),
+            session.get("profile_home"),
+        ):
+            raise RuntimeError("subagent still running — wait for it to finish")
+        if truncate_user_ordinal is not None:
+            ordinal = int(truncate_user_ordinal)
+            history = session.get("history", [])
+            user_indices = [
+                i for i, message in enumerate(history)
+                if message.get("role") == "user"
+            ]
+            if ordinal < 0 or ordinal >= len(user_indices):
+                raise RuntimeError("target user message is no longer in session history")
+            truncated = history[: user_indices[ordinal]]
+            session["history"] = truncated
+            session["history_version"] = int(session.get("history_version", 0)) + 1
+            if (db := _get_db()) is not None:
+                try:
+                    db.replace_messages(session["session_key"], truncated)
+                except Exception as exc:
+                    print(
+                        f"[tui_gateway] session.input.submit: "
+                        f"replace_messages failed: {exc}",
+                        file=sys.stderr,
+                    )
+        session["running"] = True
+        session["_turn_cancel_requested"] = False
+        session["last_active"] = time.time()
+
+    _ensure_session_db_row(session)
+    _persist_branch_seed(session)
+    _start_agent_build(sid, session)
+
+    def run_after_agent_ready() -> None:
+        err = _wait_agent(session, rid)
+        if err:
+            _emit(
+                "error",
+                sid,
+                {
+                    "message": err.get("error", {}).get(
+                        "message", "agent initialization failed"
+                    )
+                },
+            )
+            with session["history_lock"]:
+                session["running"] = False
+                _clear_inflight_turn(session)
+            _complete_published_input(sid, session, key)
+            return
+        with session["history_lock"]:
+            if session.get("_turn_cancel_requested") or not session.get("running"):
+                session["running"] = False
+                _clear_inflight_turn(session)
+                _complete_published_input(sid, session, key)
+                return
+        _run_prompt_submit(
+            rid,
+            sid,
+            session,
+            text,
+            input_key=key,
+            input_attribution=_input_receipt_payload(
+                receipt,
+                origin=payload.get("origin"),
+            ),
+        )
+
+    run_thread = threading.Thread(target=run_after_agent_ready, daemon=True)
+    session["_run_thread"] = run_thread
+    run_thread.start()
+
+
+def _complete_published_input(
+    sid: str,
+    session: dict,
+    key: tuple[str, str],
+) -> bool:
+    """Release one input slot and launch its deterministic successor."""
+    arbiter = session.get("input_arbiter")
+    if arbiter is None:
+        return False
+    payloads = session.get("input_payloads", {})
+    completed_payload = payloads.get(key) or {}
+    try:
+        promoted = arbiter.complete(
+            controller_id=key[0],
+            request_id=key[1],
+        )
+    except ValueError:
+        logger.exception("remote input completion lost active receipt")
+        return False
+    completed = arbiter.receipt(controller_id=key[0], request_id=key[1])
+    payloads.pop(key, None)
+    if completed is not None:
+        _emit_input_receipt(
+            sid,
+            completed,
+            origin=completed_payload.get("origin"),
+        )
+    if promoted is None:
+        return False
+    promoted_payload = payloads.get(
+        (promoted.controller_id, promoted.request_id),
+        {},
+    )
+    _emit_input_receipt(
+        sid,
+        promoted,
+        origin=promoted_payload.get("origin"),
+    )
+    try:
+        _launch_published_input(
+            f"remote-{promoted.request_id}",
+            sid,
+            session,
+            promoted,
+        )
+    except Exception as exc:
+        _emit("error", sid, {"message": str(exc)})
+        with session["history_lock"]:
+            session["running"] = False
+            _clear_inflight_turn(session)
+        return _complete_published_input(
+            sid,
+            session,
+            (promoted.controller_id, promoted.request_id),
+        )
+    return True
+
+
+def _submit_published_input(
+    rid,
+    sid: str,
+    session: dict,
+    *,
+    controller_id: str,
+    request_id: str,
+    text: Any,
+    origin: str,
+    truncate_user_ordinal: Any = None,
+) -> dict:
+    """Claim, attribute, and schedule one user turn through the session arbiter."""
+    hub = _published_session_hub(session)
+    if hub is None:
+        return _err(rid, 4040, "session is not published")
+    if not isinstance(text, str) or not text.strip():
+        return _err(rid, 4002, "text is required")
+    if truncate_user_ordinal is not None:
+        try:
+            truncate_user_ordinal = int(truncate_user_ordinal)
+        except (TypeError, ValueError):
+            return _err(
+                rid,
+                4004,
+                "truncate_before_user_ordinal must be an integer",
+            )
+
+    arbiter = session.get("input_arbiter")
+    if arbiter is None:
+        return _err(rid, 5000, "session input arbiter is unavailable")
+    receipt = arbiter.submit(
+        controller_id=controller_id,
+        request_id=request_id,
+        payload=text,
+    )
+    key = (controller_id, request_id)
+    if receipt.state in {"accepted", "queued"}:
+        session.setdefault("input_payloads", {})[key] = {
+            "origin": origin,
+            "text": text,
+            "truncate_before_user_ordinal": truncate_user_ordinal,
+        }
+    _emit_input_receipt(sid, receipt, origin=origin)
+
+    if receipt.state == "accepted":
+        try:
+            _launch_published_input(rid, sid, session, receipt)
+        except Exception as exc:
+            _emit("error", sid, {"message": str(exc)})
+            with session["history_lock"]:
+                session["running"] = False
+                _clear_inflight_turn(session)
+            _complete_published_input(sid, session, key)
+            return _err(rid, 4009, str(exc))
+    elif receipt.state == "queued":
+        if _load_busy_input_mode() != "queue":
+            agent = session.get("agent")
+            if agent is not None and hasattr(agent, "interrupt"):
+                try:
+                    agent.interrupt()
+                except Exception:
+                    pass
+    elif receipt.state == "rejected":
+        return _err(
+            rid,
+            4093,
+            receipt.reason or "input rejected",
+            {"receipt": _input_receipt_payload(receipt, origin=origin)},
+        )
+
+    return _ok(
+        rid,
+        {
+            "receipt": _input_receipt_payload(receipt, origin=origin),
+            "status": (
+                "streaming"
+                if receipt.state == "accepted"
+                else receipt.original_state or receipt.state
+            ),
+        },
+    )
+
+
+def _submit_published_internal_input(
+    sid: str,
+    session: dict,
+    *,
+    text: str,
+    origin: str,
+    request_id: str | None = None,
+) -> dict:
+    request_id = request_id or f"{origin}-{uuid.uuid4().hex}"
+    return _submit_published_input(
+        request_id,
+        sid,
+        session,
+        controller_id="fabric-system",
+        request_id=request_id,
+        text=text,
+        origin=origin,
+    )
+
+
 @method("prompt.submit")
 def _(rid, params: dict) -> dict:
     sid, text = params.get("session_id", ""), params.get("text", "")
@@ -10240,11 +11214,40 @@ def _(rid, params: dict) -> dict:
     session, err = _sess_nowait(params, rid)
     if err:
         return err
+    request_transport = _request_transport()
+    hub = session.get("event_hub")
+    if hub is not None:
+        if not hub.owns_transport(request_transport):
+            return _err(
+                rid,
+                4030,
+                "attached controllers must use session.input.submit",
+            )
+        if hub.published:
+            try:
+                request_id = _remote_identifier(
+                    params.get("request_id") or rid or uuid.uuid4().hex,
+                    field="request_id",
+                )
+            except ValueError as exc:
+                return _err(rid, 4002, str(exc))
+            return _submit_published_input(
+                rid,
+                sid,
+                session,
+                controller_id="owner",
+                request_id=request_id,
+                text=text,
+                origin="owner",
+                truncate_user_ordinal=truncate_user_ordinal,
+            )
     # Re-bind to the current client transport for this request. This keeps
     # streaming events on the active websocket even if an earlier disconnect
     # or fallback moved the session transport to stdio.
-    if (t := current_transport()) is not None:
+    if hub is None and (t := current_transport()) is not None:
         session["transport"] = t
+    else:
+        t = None
     with session["history_lock"]:
         if session.get("running"):
             # Don't reject a mid-turn prompt — queue it (and, by default,
@@ -10618,6 +11621,20 @@ def _notification_poller_loop(
             _emit("status.update", sid, {"kind": "process", "text": text})
             _emitted.add(_dedup_key)
 
+        if _published_session_hub(session) is not None:
+            stable_id = hashlib.sha256(repr(_dedup_key).encode()).hexdigest()
+            response = _submit_published_internal_input(
+                sid,
+                session,
+                text=text,
+                origin="notification",
+                request_id=f"notification-{stable_id}",
+            )
+            if response.get("error"):
+                process_registry.completion_queue.put(evt)
+                time.sleep(0.25)
+            continue
+
         _requeued = False
         with session["history_lock"]:
             if session.get("running"):
@@ -10684,6 +11701,20 @@ def _notification_poller_loop(
         if _dedup_key not in _emitted:
             _emit("status.update", sid, {"kind": "process", "text": text})
             _emitted.add(_dedup_key)
+
+        if _published_session_hub(session) is not None:
+            stable_id = hashlib.sha256(repr(_dedup_key).encode()).hexdigest()
+            response = _submit_published_internal_input(
+                sid,
+                session,
+                text=text,
+                origin="notification",
+                request_id=f"notification-{stable_id}",
+            )
+            if response.get("error"):
+                process_registry.completion_queue.put(evt)
+                break
+            continue
 
         with session["history_lock"]:
             if session.get("running"):
@@ -10767,21 +11798,38 @@ def _start_notification_poller(sid: str, session: dict) -> threading.Event:
     return stop
 
 
-def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
+def _run_prompt_submit(
+    rid,
+    sid: str,
+    session: dict,
+    text: Any,
+    *,
+    input_key: tuple[str, str] | None = None,
+    input_attribution: dict | None = None,
+) -> None:
     with session["history_lock"]:
         history = list(session["history"])
         history_version = int(session.get("history_version", 0))
         images = list(session.get("attached_images", []))
         session["attached_images"] = []
-        if not isinstance(session.get("inflight_turn"), dict):
-            _start_inflight_turn(session, text)
     agent = session["agent"]
     if hasattr(agent, "clear_interrupt"):
         try:
             agent.clear_interrupt()
         except Exception:
             pass
-    _emit("message.start", sid)
+    start_payload = (
+        {"input": dict(input_attribution)}
+        if input_attribution is not None
+        else None
+    )
+
+    def _start_turn_mutation() -> None:
+        with session["history_lock"]:
+            if not isinstance(session.get("inflight_turn"), dict):
+                _start_inflight_turn(session, text)
+
+    _mutate_and_emit("message.start", sid, start_payload, _start_turn_mutation)
 
     def run():
         approval_token = None
@@ -10910,12 +11958,20 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                     run_message = _enrich_with_attached_images(prompt, images)
 
             def _stream(delta):
-                with session["history_lock"]:
-                    _append_inflight_delta(session, delta)
                 payload = {"text": delta}
                 if streamer and (r := streamer.feed(delta)) is not None:
                     payload["rendered"] = r
-                _emit("message.delta", sid, payload)
+
+                def _append_delta_mutation() -> None:
+                    with session["history_lock"]:
+                        _append_inflight_delta(session, delta)
+
+                _mutate_and_emit(
+                    "message.delta",
+                    sid,
+                    payload,
+                    _append_delta_mutation,
+                )
 
             run_kwargs = {
                 "conversation_history": list(history),
@@ -10970,45 +12026,10 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                     session["model_override"] = _restore
 
             last_reasoning = None
-            status_note = None
-            history_persisted = False
+            result_messages = None
             if isinstance(result, dict):
                 if isinstance(result.get("messages"), list):
-                    with session["history_lock"]:
-                        current_version = int(session.get("history_version", 0))
-                        if current_version == history_version:
-                            session["history"] = result["messages"]
-                            session["history_version"] = history_version + 1
-                            history_persisted = True
-                        else:
-                            # History mutated externally during the turn
-                            # (undo/compress/retry/rollback now guard on
-                            # session.running, but this is the defensive
-                            # backstop for any path that slips past).
-                            # Surface the desync rather than silently
-                            # dropping the agent's output — the UI can
-                            # show the response and warn that it was
-                            # not persisted.
-                            print(
-                                f"[tui_gateway] prompt.submit: history_version mismatch "
-                                f"(expected={history_version} current={current_version}) — "
-                                f"agent output NOT written to session history",
-                                file=sys.stderr,
-                            )
-                            status_note = (
-                                "History changed during this turn — the response above is visible "
-                                "but was not saved to session history."
-                            )
-
-                # If auto-compression fired inside run_conversation(), agent.session_id
-                # may have rotated. Sync session_key before downstream title/goal/finalize
-                # handling uses it. Preserve pending_title (user intent) so it can be
-                # applied to the continuation. Restart slash worker so subsequent
-                # worker-backed commands (/title etc.) target the live session.
-                # Fix for #20001.
-                _sync_session_key_after_compress(
-                    sid, session, clear_pending_title=False, restart_slash_worker=True,
-                )
+                    result_messages = result["messages"]
 
                 raw = result.get("final_response", "")
                 status = (
@@ -11039,19 +12060,60 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                 "text": raw,
                 "usage": _get_usage(agent),
                 "status": status,
-                "history_persisted": history_persisted,
+                "history_persisted": False,
             }
             if last_reasoning:
                 payload["reasoning"] = last_reasoning
-            if status_note:
-                payload["warning"] = status_note
             rendered = render_message(raw, cols)
             if rendered:
                 payload["rendered"] = rendered
-            with session["history_lock"]:
-                payload["history_version"] = int(session.get("history_version", 0))
-                _clear_inflight_turn(session)
-            _emit("message.complete", sid, payload)
+
+            def _complete_turn_mutation() -> None:
+                with session["history_lock"]:
+                    current_version = int(session.get("history_version", 0))
+                    if result_messages is not None:
+                        if current_version == history_version:
+                            session["history"] = result_messages
+                            session["history_version"] = history_version + 1
+                            payload["history_persisted"] = True
+                        else:
+                            # This is the defensive backstop for any history
+                            # mutator that slips past the running-session guards.
+                            print(
+                                f"[tui_gateway] prompt.submit: history_version mismatch "
+                                f"(expected={history_version} current={current_version}) — "
+                                f"agent output NOT written to session history",
+                                file=sys.stderr,
+                            )
+                            payload["warning"] = (
+                                "History changed during this turn — the response above "
+                                "is visible but was not saved to session history."
+                            )
+                    payload["history_version"] = int(
+                        session.get("history_version", 0)
+                    )
+                    _clear_inflight_turn(session)
+
+            _mutate_and_emit(
+                "message.complete",
+                sid,
+                payload,
+                _complete_turn_mutation,
+            )
+
+            # If auto-compression fired inside run_conversation(), agent.session_id
+            # may have rotated. Sync session_key before downstream title/goal/finalize
+            # handling uses it. Preserve pending_title (user intent) so it can be
+            # applied to the continuation. Restart slash worker so subsequent
+            # worker-backed commands (/title etc.) target the live session.
+            # Fix for #20001.
+            if isinstance(result, dict):
+                _sync_session_key_after_compress(
+                    sid,
+                    session,
+                    clear_pending_title=False,
+                    restart_slash_worker=True,
+                )
 
             # ── /goal continuation (Ralph-style loop) ─────────────────
             # After every TUI turn, if a /goal is active, ask the judge
@@ -11226,10 +12288,20 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
             if final_info is not None:
                 _emit("session.info", sid, final_info)
 
+        if input_key is not None and _complete_published_input(
+            sid,
+            session,
+            input_key,
+        ):
+            return
+
         # A user prompt that arrived mid-turn (interrupt + queue) wins over
         # every auto follow-up below — drain it first and skip them this cycle;
         # the goal judge / notifications re-evaluate at the end of that turn.
-        if _drain_queued_prompt(rid, sid, session):
+        if (
+            _published_session_hub(session) is None
+            and _drain_queued_prompt(rid, sid, session)
+        ):
             return
 
         # Chain a goal-continuation turn if the judge said so. We do
@@ -11239,6 +12311,20 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
         # prompt.submit sets running=True under the history_lock and
         # we check that guard before re-firing.
         if goal_followup:
+            if _published_session_hub(session) is not None:
+                response = _submit_published_internal_input(
+                    sid,
+                    session,
+                    text=goal_followup,
+                    origin="goal",
+                )
+                if not response.get("error"):
+                    return
+                logger.warning(
+                    "published goal continuation dispatch failed: %s",
+                    response.get("error", {}).get("message", "unknown error"),
+                )
+                return
             with session["history_lock"]:
                 if session.get("running"):
                     # User already sent something — their turn wins,
@@ -11272,6 +12358,20 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                 session_key=session.get("session_key", ""),
                 owns_event=lambda e: _session_owns_notification_event(sid, session, e),
             ):
+                if _published_session_hub(session) is not None:
+                    dedup_key = _notification_event_dedup_key(_evt)
+                    stable_id = hashlib.sha256(repr(dedup_key).encode()).hexdigest()
+                    response = _submit_published_internal_input(
+                        sid,
+                        session,
+                        text=synth,
+                        origin="notification",
+                        request_id=f"notification-{stable_id}",
+                    )
+                    if response.get("error"):
+                        process_registry.completion_queue.put(_evt)
+                        break
+                    continue
                 with session["history_lock"]:
                     if session.get("running"):
                         process_registry.completion_queue.put(_evt)
@@ -15440,6 +16540,47 @@ def _resolve_name(name: str) -> str:
         return name
 
 
+def _remote_command_response(rid, sid: str, arg: str) -> dict:
+    """Execute `/remote` in the live gateway process, never a slash worker."""
+    action = str(arg or "").strip().lower()
+    if action in {"", "on", "publish", "start"}:
+        response = _methods["session.publish"](rid, {"session_id": sid})
+    elif action in {"off", "unpublish", "stop"}:
+        response = _methods["session.unpublish"](rid, {"session_id": sid})
+    elif action in {"status", "show"}:
+        response = _methods["session.remote_status"](rid, {"session_id": sid})
+    else:
+        return _err(rid, 4004, "usage: /remote [on|off|status]")
+    if response.get("error"):
+        return response
+    status = dict(response.get("result") or {})
+    if status.get("published"):
+        attached = len(status.get("attached_controllers") or [])
+        noun = "controller" if attached == 1 else "controllers"
+        output = "\n".join(
+            [
+                "Remote Control is on for this exact live session.",
+                f"Session: {status.get('session_id')}",
+                f"Generation: {status.get('generation')}",
+                f"Attached: {attached} {noun}",
+                (
+                    "Paired Fabric Link controllers can attach through the "
+                    "end-to-end encrypted relay."
+                    if (status.get("link") or {}).get("active")
+                    else "Local authenticated gateway clients can attach now. "
+                    "Enable Fabric Link and configure a relay for internet access."
+                ),
+            ]
+        )
+    else:
+        detached = len(status.get("detached_controllers") or [])
+        output = (
+            f"Remote Control is off. Detached {detached} "
+            f"{'controller' if detached == 1 else 'controllers'}."
+        )
+    return _ok(rid, {"output": output, "remote": status})
+
+
 @method("command.dispatch")
 @_runtime_profile_scoped_command_dispatch
 def _(rid, params: dict) -> dict:
@@ -15450,6 +16591,14 @@ def _(rid, params: dict) -> dict:
     session = _sessions.get(params.get("session_id", ""))
     if params.get("session_id") and session is None and name in {"goal", "undo"}:
         return _err(rid, 4001, "no active session")
+    if name == "remote":
+        if session is None:
+            return _err(rid, 4001, "no active session")
+        return _remote_command_response(
+            rid,
+            str(params.get("session_id") or ""),
+            arg,
+        )
 
     qcmds = _load_cfg().get("quick_commands", {})
     if name in qcmds:
@@ -16772,6 +17921,13 @@ def _(rid, params: dict) -> dict:
                 "arg": _cmd_arg,
                 "session_id": params.get("session_id", ""),
             },
+        )
+
+    if _resolve_name(_cmd_base) == "remote":
+        return _remote_command_response(
+            rid,
+            str(params.get("session_id") or ""),
+            _cmd_arg,
         )
 
     # /stop must execute in this process, where the live profile/session map is

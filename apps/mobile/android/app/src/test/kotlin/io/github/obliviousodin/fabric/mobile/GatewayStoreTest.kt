@@ -1,8 +1,11 @@
 package io.github.obliviousodin.fabric.mobile
 
 import io.github.obliviousodin.fabric.mobile.core.SavedGateway
+import io.github.obliviousodin.fabric.mobile.core.LinkControllerStore
+import java.lang.reflect.InvocationTargetException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class GatewayStoreTest {
@@ -22,5 +25,20 @@ class GatewayStoreTest {
 
         assertEquals(first, same)
         assertNotEquals(first, differentPort)
+    }
+
+    @Test
+    fun linkControllerStoreRejectsUnsafeFileIdentifiers() {
+        val validate = LinkControllerStore::class.java.getDeclaredMethod(
+            "validateControllerId",
+            String::class.java,
+        ).apply { isAccessible = true }
+
+        listOf("", "../state", "state/path", "state path").forEach { controllerId ->
+            val thrown = assertThrows(InvocationTargetException::class.java) {
+                validate.invoke(LinkControllerStore, controllerId)
+            }
+            check(thrown.cause is IllegalArgumentException)
+        }
     }
 }

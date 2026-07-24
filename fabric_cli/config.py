@@ -942,6 +942,14 @@ def _ensure_fabric_home_managed(home: Path):
 # =============================================================================
 
 DEFAULT_CONFIG = {
+    "link": {
+        "enabled": False,
+        "relay_url": "",
+        "default_grants": ["observe", "chat", "dispatch"],
+        "enrollment_ttl_seconds": 300,
+        "request_ttl_seconds": 300,
+        "stale_device_days": 30,
+    },
     "capabilities": {
         # Curated setup/runtime catalogs. Set enabled=false to expose every
         # registered integration, or set an individual list to null to expose

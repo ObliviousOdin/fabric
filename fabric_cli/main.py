@@ -307,6 +307,7 @@ from fabric_cli.subcommands.pairing import build_pairing_parser
 from fabric_cli.subcommands.plugins import build_plugins_parser
 from fabric_cli.subcommands.mcp import build_mcp_parser
 from fabric_cli.subcommands.claw import build_claw_parser
+from fabric_cli.subcommands.link import build_link_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -12478,7 +12479,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "computer-use",
         "config", "console", "cron", "curator", "dashboard", "serve", "mobile", "debug", "disk", "doctor",
         "dump", "fallback", "gateway", "hooks", "import", "insights",
-        "gui", "desktop", "kanban", "logout", "logs", "loom", "lsp", "mcp", "memory", "migrate", "moa",
+        "gui", "desktop", "kanban", "link", "logout", "logs", "loom", "lsp", "mcp", "memory", "migrate", "moa",
         "journey", "memory-graph", "learning",
         "model", "monitor", "top", "ollama", "pairing", "pets", "plugins", "portal", "postinstall", "profile",
         "project", "proxy",
@@ -13117,6 +13118,15 @@ def cmd_claw(args):
     claw_command(args)
 
 
+def cmd_link(args):
+    from fabric_link.cli import link_command
+
+    exit_code = link_command(args)
+    if exit_code:
+        raise SystemExit(exit_code)
+    return 0
+
+
 def main():
     """Main entry point for Fabric CLI."""
     # Cosmetic: make the process show up as 'fabric' instead of 'python3.11'
@@ -13429,6 +13439,11 @@ def main():
     # loom command  (parser built in fabric_cli/subcommands/loom.py)
     # =========================================================================
     build_loom_parser(subparsers, cmd_loom=cmd_loom)
+
+    # =========================================================================
+    # link command
+    # =========================================================================
+    build_link_parser(subparsers, cmd_link=cmd_link)
 
     # =========================================================================
     # webhook command  (parser built in fabric_cli/subcommands/webhook.py)

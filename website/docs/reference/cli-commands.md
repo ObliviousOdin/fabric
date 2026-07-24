@@ -280,6 +280,39 @@ Subcommands:
 See [LSP — Semantic Diagnostics](/user-guide/features/lsp) for
 the full guide, supported languages, and configuration knobs.
 
+## `fabric link`
+
+```bash
+fabric link <subcommand>
+```
+
+Manage end-to-end encrypted, device-paired access to Fabric machines without
+social login or an inbound machine port.
+
+| Subcommand | Description |
+| --- | --- |
+| `core status` | Verify the platform-native OpenMLS companion. |
+| `core install --from-source` | Build and install the pinned companion from a Fabric checkout. |
+| `core install --wheel PATH --sha256 DIGEST` | Install a matching release wheel after manifest verification. |
+| `setup [--relay ORIGIN]` | Initialize the machine identity and enable Link. |
+| `enable` / `disable` | Change networking state without deleting identity or pairings. |
+| `status [--json]` | Show host identity, relay, devices, and cleanup state. |
+| `pair mobile\|desktop\|web` | Print a short-lived v3 QR/link and approve one controller locally. |
+| `devices [--json]` | List controller IDs, fingerprints, grants, and revocation state. |
+| `grant DEVICE ...` | Replace one controller's machine-local grants. |
+| `revoke DEVICE` | Deny locally first, then remove MLS and relay authority. |
+| `controller pair URL` | Pair this Terminal as a controller for another machine. |
+| `controller list` | List machines controlled by this Terminal/Desktop backend. |
+| `dispatch CONTROLLER PROMPT` | Create separate durable Work on a paired machine. |
+| `call CONTROLLER METHOD` | Invoke one reviewed Link RPC, subject to the host grant. |
+| `host [--once]` | Run the outbound-only broker in the foreground. |
+| `service install\|start\|stop\|restart\|status\|uninstall` | Manage the always-available current-user broker. |
+| `relay serve` | Run the blind reference relay behind a TLS reverse proxy. |
+| `reset --confirm FINGERPRINT` | Destroy this host identity after uninstalling its service. |
+
+See [Fabric Link](/user-guide/fabric-link) for the Terminal, Desktop, iOS,
+relay, `/remote`, Dispatch, revocation, and recovery walkthrough.
+
 ## `fabric mobile`
 
 ```bash

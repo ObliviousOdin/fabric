@@ -6,6 +6,10 @@ description: "Use Fabric's native macOS, Windows, and Linux app for chat, provid
 
 # Fabric Desktop
 
+To pair Desktop directly with one or more machines, dispatch durable Work, or
+attach to an exact session published with `/remote`, see
+[Fabric Link](./fabric-link.md).
+
 Fabric Desktop brings chat, projects, model controls, memory, and skills into
 one app. It uses the same profile as the CLI, TUI, web dashboard, API, and
 messaging gateway, so your provider accounts, sessions, and approvals carry

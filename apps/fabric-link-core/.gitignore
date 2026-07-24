@@ -1,0 +1,10 @@
+/target/
+/python/build/
+/python/dist/
+/python/*.egg-info/
+/python/src/*.egg-info/
+/bindings-smoke/kotlin/.gradle/
+/bindings-smoke/kotlin/.kotlin/
+/bindings-smoke/kotlin/build/
+/apple/Artifacts/
+/apple/Sources/FabricLinkCore/FabricLinkCore.swift

@@ -20,6 +20,9 @@ REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 IGNORED_BUILD_FILES = frozenset({".gitignore"})
 WEB_DIST_INDEX = "fabric_cli/web_dist/index.html"
 WEB_DIST_ASSET_PREFIX = "fabric_cli/web_dist/assets/"
+FABRIC_AGENT_NAME = "fabric-agent"
+FABRIC_LINK_CORE_NAME = "fabric-link-core"
+LINK_CORE_PLATFORMS = ("linux", "macos", "windows")
 
 
 class CandidateError(ValueError):
@@ -34,17 +37,17 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _metadata_version(text: str, *, artifact: Path) -> str:
-    matches = re.findall(r"(?m)^Version:\s*(\S+)\s*$", text)
+def _metadata_field(text: str, field: str, *, artifact: Path) -> str:
+    matches = re.findall(rf"(?m)^{re.escape(field)}:\s*(\S+)\s*$", text)
     if len(matches) != 1:
         raise CandidateError(
-            f"{artifact.name}: expected one package Version field, found {len(matches)}"
+            f"{artifact.name}: expected one package {field} field, found {len(matches)}"
         )
     return matches[0]
 
 
-def artifact_version(path: Path) -> str:
-    """Read the embedded package version from a wheel or source archive."""
+def _metadata_texts(path: Path) -> list[str]:
+    """Read all authoritative metadata records from one Python artifact."""
     try:
         if path.name.endswith(".whl"):
             with zipfile.ZipFile(path) as archive:
@@ -63,7 +66,7 @@ def artifact_version(path: Path) -> str:
                         f"{path.name}: expected one wheel METADATA file, "
                         f"found {len(metadata_files)}"
                     )
-                metadata = archive.read(metadata_files[0]).decode("utf-8")
+                return [archive.read(metadata_files[0]).decode("utf-8")]
         elif path.name.endswith(".tar.gz"):
             with tarfile.open(path, mode="r:gz") as archive:
                 metadata_files = [
@@ -86,18 +89,8 @@ def artifact_version(path: Path) -> str:
                         raise CandidateError(
                             f"{path.name}: could not read {member.name}"
                         )
-                    embedded_metadata.append((member, extracted.read().decode("utf-8")))
-                embedded_versions = {
-                    _metadata_version(text, artifact=path)
-                    for _member, text in embedded_metadata
-                }
-                if len(embedded_versions) != 1:
-                    raise CandidateError(
-                        f"{path.name}: embedded PKG-INFO versions disagree"
-                    )
-                metadata = next(
-                    text for member, text in embedded_metadata if member == canonical[0]
-                )
+                    embedded_metadata.append(extracted.read().decode("utf-8"))
+                return embedded_metadata
         else:
             raise CandidateError(f"unsupported release artifact: {path.name}")
     except CandidateError:
@@ -105,7 +98,26 @@ def artifact_version(path: Path) -> str:
     except (OSError, UnicodeDecodeError, tarfile.TarError, zipfile.BadZipFile) as exc:
         raise CandidateError(f"could not read release artifact {path.name}") from exc
 
-    return _metadata_version(metadata, artifact=path)
+
+def _normalize_project_name(value: str) -> str:
+    return re.sub(r"[-_.]+", "-", value).lower()
+
+
+def artifact_identity(path: Path) -> tuple[str, str]:
+    """Return the normalized project name and version embedded in ``path``."""
+    metadata = _metadata_texts(path)
+    names = {_normalize_project_name(_metadata_field(text, "Name", artifact=path)) for text in metadata}
+    versions = {_metadata_field(text, "Version", artifact=path) for text in metadata}
+    if len(names) != 1:
+        raise CandidateError(f"{path.name}: embedded package names disagree")
+    if len(versions) != 1:
+        raise CandidateError(f"{path.name}: embedded package versions disagree")
+    return names.pop(), versions.pop()
+
+
+def artifact_version(path: Path) -> str:
+    """Read the embedded package version from a wheel or source archive."""
+    return artifact_identity(path)[1]
 
 
 def _validate_web_dist(path: Path) -> None:
@@ -158,14 +170,85 @@ def _validate_identity(source_sha: str, repository: str) -> None:
         raise CandidateError("repository must use owner/name form")
 
 
-def _package_artifacts(dist_dir: Path) -> list[Path]:
+def _wheel_platform(path: Path) -> str:
+    if not path.name.endswith(".whl"):
+        raise CandidateError(f"not a wheel: {path.name}")
+    parts = path.name.removesuffix(".whl").rsplit("-", 3)
+    if len(parts) != 4:
+        raise CandidateError(f"invalid wheel filename: {path.name}")
+    return parts[-1].lower()
+
+
+def _link_core_platform(path: Path) -> str | None:
+    platform = _wheel_platform(path)
+    if platform.startswith("macosx_"):
+        return "macos"
+    if platform.startswith("win_"):
+        return "windows"
+    if (
+        platform.startswith("linux_")
+        or platform.startswith("manylinux")
+        or platform.startswith("musllinux")
+    ):
+        return "linux"
+    return None
+
+
+def _package_artifacts(
+    dist_dir: Path,
+    *,
+    require_link_core: bool,
+) -> tuple[list[Path], tuple[str, ...]]:
+    """Validate the release family and return every artifact in it.
+
+    The universal Fabric package is intentionally still one wheel plus one
+    source archive.  When Link is enabled for a release, its native companion
+    is a separate, exact three-platform wheel family; source fallback is never
+    accepted for Link crypto.
+    """
     wheels = sorted(dist_dir.glob("*.whl"))
     source_archives = sorted(dist_dir.glob("*.tar.gz"))
-    if len(wheels) != 1 or len(source_archives) != 1:
+    agent_wheels: list[Path] = []
+    link_core_wheels: list[Path] = []
+    for wheel in wheels:
+        project_name, _version = artifact_identity(wheel)
+        if project_name == FABRIC_AGENT_NAME:
+            agent_wheels.append(wheel)
+        elif project_name == FABRIC_LINK_CORE_NAME:
+            link_core_wheels.append(wheel)
+        else:
+            raise CandidateError(f"unsupported release wheel project: {wheel.name}")
+
+    if len(agent_wheels) != 1 or len(source_archives) != 1:
         raise CandidateError(
-            "candidate must contain exactly one wheel and one source distribution"
+            "candidate must contain exactly one Fabric wheel and one source distribution"
         )
-    return [*wheels, *source_archives]
+    source_name, _source_version = artifact_identity(source_archives[0])
+    if source_name != FABRIC_AGENT_NAME:
+        raise CandidateError("candidate source distribution must package fabric-agent")
+    if _wheel_platform(agent_wheels[0]) != "any":
+        raise CandidateError("Fabric wheel must remain universal (platform tag any)")
+
+    if not require_link_core:
+        if link_core_wheels:
+            raise CandidateError("candidate includes Link wheels without Link release manifest")
+        return [*agent_wheels, *source_archives], ()
+
+    if len(link_core_wheels) != len(LINK_CORE_PLATFORMS):
+        raise CandidateError(
+            "Link release candidate must contain one native wheel for each supported platform"
+        )
+    platforms: list[str] = []
+    for wheel in link_core_wheels:
+        platform = _link_core_platform(wheel)
+        if platform is None:
+            raise CandidateError(f"unsupported Fabric Link wheel platform: {wheel.name}")
+        platforms.append(platform)
+    if tuple(sorted(platforms)) != LINK_CORE_PLATFORMS:
+        raise CandidateError(
+            "Link release candidate must contain exactly Linux, macOS, and Windows wheels"
+        )
+    return [*agent_wheels, *source_archives, *link_core_wheels], tuple(sorted(platforms))
 
 
 def _write_outputs(values: dict[str, str], output_path: Path | None = None) -> None:
@@ -186,21 +269,26 @@ def create_candidate(
     source_sha: str,
     repository: str,
     output_path: Path | None = None,
+    require_link_core: bool = False,
 ) -> dict:
     """Write a manifest and checksum file for freshly built artifacts."""
     _validate_identity(source_sha, repository)
     version = _project_version(project_root)
-    artifacts = _package_artifacts(dist_dir)
+    artifacts, link_core_platforms = _package_artifacts(
+        dist_dir,
+        require_link_core=require_link_core,
+    )
 
     rows = []
     for artifact in artifacts:
-        embedded_version = artifact_version(artifact)
+        project_name, embedded_version = artifact_identity(artifact)
         if embedded_version != version:
             raise CandidateError(
                 f"{artifact.name}: embedded version {embedded_version!r} "
                 f"does not match project version {version!r}"
             )
-        _validate_web_dist(artifact)
+        if project_name == FABRIC_AGENT_NAME:
+            _validate_web_dist(artifact)
         rows.append({
             "name": artifact.name,
             "sha256": _sha256(artifact),
@@ -215,6 +303,8 @@ def create_candidate(
         "version": version,
         "artifacts": rows,
     }
+    if require_link_core:
+        manifest["link_core"] = {"platforms": list(link_core_platforms)}
     manifest_path = dist_dir / "release-manifest.json"
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -260,9 +350,24 @@ def verify_candidate(
     version = manifest.get("version")
     if not isinstance(version, str) or not version:
         raise CandidateError("manifest version must be a non-empty string")
+    raw_link_core = manifest.get("link_core")
+    if raw_link_core is None:
+        require_link_core = False
+    elif (
+        not isinstance(raw_link_core, dict)
+        or set(raw_link_core) != {"platforms"}
+        or raw_link_core.get("platforms") != list(LINK_CORE_PLATFORMS)
+    ):
+        raise CandidateError("manifest Link companion platform set is invalid")
+    else:
+        require_link_core = True
+
     rows = manifest.get("artifacts")
-    if not isinstance(rows, list) or len(rows) != 2:
-        raise CandidateError("manifest must describe exactly two package artifacts")
+    expected_rows = 2 + (len(LINK_CORE_PLATFORMS) if require_link_core else 0)
+    if not isinstance(rows, list) or len(rows) != expected_rows:
+        raise CandidateError(
+            f"manifest must describe exactly {expected_rows} package artifacts"
+        )
 
     try:
         actual_files = {
@@ -274,7 +379,6 @@ def verify_candidate(
         raise CandidateError(f"candidate directory is unavailable: {dist_dir}") from exc
     described_files: set[str] = set()
     expected_checksums: list[str] = []
-    suffixes: set[str] = set()
     for row in rows:
         if not isinstance(row, dict):
             raise CandidateError("manifest artifact rows must be objects")
@@ -283,11 +387,7 @@ def verify_candidate(
             raise CandidateError("manifest artifact names must be plain file names")
         if name in described_files:
             raise CandidateError(f"duplicate manifest artifact: {name}")
-        if name.endswith(".whl"):
-            suffixes.add("wheel")
-        elif name.endswith(".tar.gz"):
-            suffixes.add("sdist")
-        else:
+        if not (name.endswith(".whl") or name.endswith(".tar.gz")):
             raise CandidateError(f"unsupported manifest artifact: {name}")
 
         artifact = dist_dir / name
@@ -298,17 +398,21 @@ def verify_candidate(
             raise CandidateError(f"checksum mismatch for {name}")
         if row.get("size") != artifact.stat().st_size:
             raise CandidateError(f"size mismatch for {name}")
-        if artifact_version(artifact) != version:
+        project_name, embedded_version = artifact_identity(artifact)
+        if embedded_version != version:
             raise CandidateError(f"embedded version mismatch for {name}")
-        _validate_web_dist(artifact)
+        if project_name == FABRIC_AGENT_NAME:
+            _validate_web_dist(artifact)
 
         described_files.add(name)
         expected_checksums.append(f"{digest}  {name}\n")
 
-    if suffixes != {"wheel", "sdist"}:
-        raise CandidateError(
-            "manifest must contain one wheel and one source distribution"
-        )
+    _artifacts, link_core_platforms = _package_artifacts(
+        dist_dir,
+        require_link_core=require_link_core,
+    )
+    if require_link_core and tuple(raw_link_core["platforms"]) != link_core_platforms:
+        raise CandidateError("manifest Link companion platforms do not match artifacts")
     allowed_files = described_files | {"release-manifest.json", "SHA256SUMS"}
     if actual_files != allowed_files:
         extras = sorted(actual_files - allowed_files)
@@ -343,6 +447,7 @@ def _parser() -> argparse.ArgumentParser:
         subparser.add_argument("--output", type=Path)
         if command == "create":
             subparser.add_argument("--project-root", type=Path, default=Path("."))
+            subparser.add_argument("--require-link-core", action="store_true")
     return parser
 
 
@@ -356,6 +461,7 @@ def main(argv: list[str] | None = None) -> int:
                 source_sha=args.source_sha,
                 repository=args.repository,
                 output_path=args.output,
+                require_link_core=args.require_link_core,
             )
         else:
             manifest = verify_candidate(

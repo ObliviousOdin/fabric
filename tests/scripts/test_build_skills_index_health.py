@@ -62,8 +62,13 @@ def _install_fake_sources(monkeypatch, *, github_count, claude_count=40,
     )
     monkeypatch.setattr(build_mod, "batch_resolve_paths", lambda skills, auth: skills)
     monkeypatch.setattr(
+        build_mod,
+        "crawl_curated_taps",
+        lambda auth, github_source: [],
+    )
+    monkeypatch.setattr(
         build_mod, "GitHubAuth",
-        lambda: types.SimpleNamespace(auth_method=lambda: "token", get_headers=lambda: {}),
+        lambda: types.SimpleNamespace(auth_method=lambda: "token"),
     )
 
 

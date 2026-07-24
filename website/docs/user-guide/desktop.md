@@ -260,6 +260,11 @@ when it is initiated from a visual catalog.
 
 The update action follows the app's install channel:
 
+Packaged Desktop has its own semantic app version, separate from the calendar
+version used for Fabric releases. That installer version advances whenever the
+Desktop package inputs change, so an installer can be identified independently
+of the GitHub release date.
+
 - a packaged release checks the official
   `desktop-release-manifest.json`, and **Update now** opens the matching
   installer download;

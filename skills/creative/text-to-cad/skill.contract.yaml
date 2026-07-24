@@ -1,0 +1,81 @@
+schema_version: 1
+identity:
+  name: text-to-cad
+  version: 1.0.0
+  owner: Fabric
+  license: MIT
+compatibility:
+  fabric: ">=0.21,<1"
+  hosts: [fabric]
+  models: ["*"]
+  platforms: [linux, macos, windows]
+routing:
+  triggers:
+    - design or model a mechanical part from a description
+    - produce STEP, STL, 3MF, or GLB files for printing or machining
+    - measure or validate an existing STEP or STL file
+  non_triggers:
+    - render concept art or photorealistic images
+    - animate a 3D scene or explainer video
+    - plan manufacturing, tooling, or production beyond the part
+  requires: []
+  conflicts: []
+  precedence: 80
+interface:
+  inputs:
+    - name: request
+      type: text
+      required: true
+      description: Part description with dimensions, or a reference image or drawing.
+  outputs:
+    - name: cad_artifacts
+      type: object
+      required: true
+      description: A build123d generator plus validated STEP and secondary exports with snapshots.
+permissions:
+  toolsets_required: [file, terminal]
+  files:
+    - scope: workspace
+      access: read_write
+    - scope: skill
+      access: read
+    - scope: temp
+      access: read_write
+  network:
+    - host: pypi.org
+      methods: [GET]
+    - host: files.pythonhosted.org
+      methods: [GET]
+    - host: api.zoo.dev
+      methods: [GET, POST]
+  secrets: [ZOO_API_TOKEN]
+  actions:
+    reversible: [create_skill_venv, generate_cad_artifacts]
+    approval_required: [cloud_generation]
+    prohibited: [core_lockfile_mutation, system_python_install]
+sources:
+  - url: https://github.com/earthtojake/text-to-cad
+    retrieved_at: "2026-07-24"
+    ttl_days: 180
+  - url: https://build123d.readthedocs.io/en/latest/
+    retrieved_at: "2026-07-24"
+    ttl_days: 180
+  - url: https://zoo.dev/docs/developer-tools/tutorials/text-to-cad
+    retrieved_at: "2026-07-24"
+    ttl_days: 180
+budgets:
+  context_tokens: 14000
+  wall_seconds: 1800
+  tool_calls: 80
+outcomes:
+  primary: validated_cad_artifacts_exported
+  guardrails:
+    - step_is_primary_artifact
+    - geometry_validated_before_delivery
+    - dependencies_stay_in_skill_venv
+    - snapshot_reviewed_against_brief
+evals:
+  suite: evals/cases.yaml
+limitations:
+  - Geometry validation is numeric (volume, bbox, validity); it does not prove fit against mating parts.
+  - Cloud fallback output is mesh-derived and not parameter-editable.

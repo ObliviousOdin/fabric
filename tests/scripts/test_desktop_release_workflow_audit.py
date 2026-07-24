@@ -23,15 +23,19 @@ class DesktopReleaseWorkflowAudit(unittest.TestCase):
         self.desktop = DESKTOP_RELEASE.read_text(encoding="utf-8")
         self.channels = RELEASE_CHANNELS.read_text(encoding="utf-8")
 
-    def test_dispatched_only_never_on_push_or_release(self) -> None:
-        # Our own releases are made with GITHUB_TOKEN and cannot fire release:.
-        # Scope the check to the `on:` block so header comments/names don't match.
+    def test_only_a_scoped_push_registers_the_manual_workflow(self) -> None:
+        # A workflow-file-only push registers the manual trigger on GitHub; all
+        # packaging jobs remain gated to workflow_dispatch below.
         on_block = self.desktop[
             self.desktop.index("\non:") : self.desktop.index("\npermissions:")
         ]
         self.assertIn("workflow_dispatch:", on_block)
-        for trigger in ("push:", "pull_request:", "release:", "schedule:"):
+        self.assertIn("push:\n    branches: [main]", on_block)
+        self.assertIn("- .github/workflows/desktop-release.yml", on_block)
+        for trigger in ("pull_request:", "release:", "schedule:"):
             self.assertNotIn(trigger, on_block)
+        self.assertIn("if: github.event_name == 'push'", self.desktop)
+        self.assertIn("if: github.event_name == 'workflow_dispatch'", self.desktop)
 
     def test_serial_per_tag_concurrency(self) -> None:
         self.assertIn(

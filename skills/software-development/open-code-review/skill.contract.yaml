@@ -1,0 +1,71 @@
+schema_version: 1
+identity:
+  name: open-code-review
+  version: 1.0.0
+  owner: Fabric
+  license: Apache-2.0
+compatibility:
+  fabric: ">=0.19,<1"
+  hosts: [fabric]
+  models: ["*"]
+  platforms: [linux, macos, windows]
+routing:
+  triggers:
+    - review a pull request, branch range, or commit for issues
+    - produce line-level code-review findings grouped by severity
+    - review a git diff and optionally fix the findings
+  non_triggers:
+    - run a pre-commit pass/fail gate on my own uncommitted work
+    - simplify or clean up my recent changes
+    - post inline review comments onto a GitHub pull request via the API
+    - answer a one-off question with no code to review
+  requires: []
+  conflicts: []
+  precedence: 60
+interface:
+  inputs:
+    - name: target
+      type: text
+      required: false
+      description: What to review — a branch/PR, a commit hash, or the working copy (default).
+    - name: business_context
+      type: text
+      required: false
+      description: Optional requirement/background context passed to each reviewer.
+  outputs:
+    - name: review_report
+      type: object
+      required: true
+      description: Findings tagged with category and severity, grouped High/Medium.
+permissions:
+  toolsets_required: [terminal, file, search, delegation]
+  files:
+    - scope: workspace
+      access: read_write
+    - scope: skill
+      access: read
+  network: []
+  secrets: []
+  actions:
+    reversible: [generate_review_report]
+    approval_required: [apply_code_fix]
+    prohibited: [auto_commit_without_confirmation, external_telemetry_emission]
+sources:
+  - url: https://github.com/alibaba/open-code-review
+    retrieved_at: "2026-07-24"
+    ttl_days: 180
+budgets:
+  context_tokens: 16000
+  wall_seconds: 1200
+  tool_calls: 80
+outcomes:
+  primary: severity_graded_review_report_delivered
+  guardrails:
+    - fixes_applied_only_on_explicit_request
+    - no_external_binary_or_telemetry_endpoint_contacted
+    - range_mode_diffs_from_merge_base
+evals:
+  suite: evals/cases.yaml
+limitations:
+  - Model-based execution and outcome lift are measured by the eval runner, not this manifest.
+  - Review quality depends on the provider the user configured; this skill adds no model of its own.

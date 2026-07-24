@@ -44,6 +44,16 @@ speech service. Raw microphone buffers are streamed only into the Apple Speech
 request, are not written to disk by Fabric, and are never sent through Fabric's
 JSON-RPC gateway.
 
+`DeviceVoiceController.toggleDictation` accepts an `allowCloudFallback` policy.
+Standard Chat preserves its existing Apple Speech behavior. Mithuru passes its
+explicit setup choice: when online speech is not allowed and the selected
+locale has no on-device recognizer, dictation stops with recovery copy and the
+editable text composer remains available. There is no silent cloud fallback.
+
+Mithuru read-aloud supplies its selected locale and speed to the same native
+synthesizer. A user-selected installed iOS voice still takes precedence; no
+Fabric TTS RPC is introduced.
+
 The existing gateway `voice.record` / `voice.tts` behavior is intentionally not
 called by the iOS app: those operations record from and play on the **gateway
 host**, not the iPhone. `GatewayAPI.swift` keeps that boundary explicit.

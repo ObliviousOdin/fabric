@@ -156,6 +156,39 @@ follow-up; TOTP is the pragmatic first factor that ships today.
   visible "remote control active" state, an idle kill-switch) before it's
   safe to offer. It's a deliberate future item, not an oversight.
 
+## Mithuru security boundary
+
+Mithuru is a presentation layer over the existing authenticated Fabric mobile
+client. It does not add a pairing scheme, credential scope, gateway RPC, model
+tool, or server-side authorization rule. The existing gateway remains the
+authority for capabilities, exact pending interactions, and mutation receipts.
+
+- Spoken text is never treated as authorization. A recognized transcript stays
+  editable and is submitted only after the user taps Send.
+- Consequential actions use the existing `approval.request` and
+  `approval.respond` flow. Mithuru offers Allow once or Deny; it does not infer
+  confirmation from “yes,” silence, or background speech.
+- Clarification choices return the server's exact response value. Sudo and
+  secret prompts use secure entry and are not read aloud.
+- On iOS, on-device Apple recognition is preferred. If it is unavailable,
+  Apple online recognition is blocked unless the user explicitly opted in
+  during Mithuru setup. Fabric does not write raw microphone buffers to disk or
+  send them through its gateway.
+- Desktop microphone audio is sent to the configured Fabric speech service only
+  after the same explicit online-speech choice; otherwise the microphone path
+  fails closed to typing.
+- A document disclosure appears before picking a file. Existing capability,
+  size/count, upload, provider, and receipt checks remain authoritative.
+- Device-local Mithuru preferences are scoped by Fabric profile on desktop and
+  saved gateway on iOS. The family-helper preference grants no conversation or
+  data access.
+
+Prompt wording, localized copy, and client-side presentation checks are not
+security boundaries. Any future external action, reminder mutation, cloud voice
+provider, caregiver access, or new mobile RPC must be implemented and reviewed
+through the existing capability and authenticated gateway contracts before the
+UI claims it exists.
+
 ## Summary
 
 | You want | Do this | Safe? |

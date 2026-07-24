@@ -103,6 +103,28 @@ authentication and loopback peer restrictions still apply.
 
 ## Native preview clients
 
+### Mithuru simplified experience on iOS
+
+The native iOS preview includes **Mithuru**, a simplified Fabric Home experience
+with larger controls, one-question setup, editable dictation, read aloud, and
+Sinhala, Tamil, or Sri Lankan English presentation. It uses the same paired
+gateway and authoritative conversation as Standard Fabric; use the visible
+**Standard Fabric** action to switch back.
+
+Mithuru asks before allowing Apple online speech when on-device recognition is
+unavailable. If you decline, use text instead. Speech never submits by itself.
+The app also asks before opening a document picker, and existing gateway
+approvals still require explicit in-app Allow once or Deny review. A family
+setup preference changes only the setup presentation and grants no access to
+conversations or private data.
+
+The Sinhala and Tamil implementation copy still requires native-language and
+physical-device accessibility review. Mithuru is therefore source-preview
+functionality, not an App Store availability claim.
+
+See [Mithuru Simple Mode](./features/mithuru.md) for setup, privacy, approval,
+and release-gate details across Desktop and iOS.
+
 From a source checkout, `--install auto` installs and launches a debug client
 only when exactly one eligible attached phone is unambiguous:
 

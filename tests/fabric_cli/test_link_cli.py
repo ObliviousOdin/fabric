@@ -232,6 +232,102 @@ def test_pair_without_configured_relay_fails_before_native_load(
     assert "relay_not_configured" in capsys.readouterr().out
 
 
+def test_manual_file_pairing_does_not_connect_to_the_relay(
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    request_path = tmp_path / "request.cbor"
+    response_path = tmp_path / "response.cbor"
+    request_path.write_bytes(b"encrypted-request")
+
+    class OfflineStore:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def machine_identity(self):
+            return Namespace(fingerprint="AA:BB:CC")
+
+    class OfflinePayload:
+        handle = b"h" * 32
+        expires_at = NOW + 300
+
+        def to_url(self):
+            return "fabric-link-v3://pair#offline"
+
+    class OfflineEnrollmentManager:
+        def __init__(self, *, store, core):
+            assert isinstance(store, OfflineStore)
+            assert core == "native-core"
+
+        def open_pairing(self, **_kwargs):
+            return OfflinePayload()
+
+        def receive_request(self, encrypted_request, *, now):
+            assert encrypted_request == b"encrypted-request"
+            assert isinstance(now, int)
+            return Namespace(
+                controller_name="Test phone",
+                platform="ios",
+                device_fingerprint="11:22:33",
+                short_auth_string="alpha beta gamma",
+                requested_grants=("observe", "chat"),
+            )
+
+        def approve(self, **_kwargs):
+            return b"encrypted-response"
+
+        def deny(self, **_kwargs):
+            raise AssertionError("valid manual pairing must not be denied")
+
+    monkeypatch.setattr("fabric_link.cli.LinkDeviceStore", OfflineStore)
+    monkeypatch.setattr(
+        "fabric_link.cli.EnrollmentManager",
+        OfflineEnrollmentManager,
+    )
+    monkeypatch.setattr(
+        "fabric_link.cli.load_openmls_core",
+        lambda: "native-core",
+    )
+    monkeypatch.setattr(
+        "fabric_link.cli._link_config",
+        lambda: (
+            {},
+            {
+                "relay_url": "wss://relay.example/link",
+                "enrollment_ttl_seconds": 300,
+            },
+        ),
+    )
+    monkeypatch.setattr("fabric_link.cli._render_qr", lambda _value: None)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "yes")
+    monkeypatch.setattr(
+        "fabric_link.cli.LinkRelayClient",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("manual file pairing must not contact the relay")
+        ),
+    )
+
+    result = link_command(
+        Namespace(
+            link_action="pair",
+            request_file=str(request_path),
+            response_file=str(response_path),
+            grants="observe,chat",
+            relay="",
+            controller="mobile",
+            name="",
+        )
+    )
+
+    assert result == 0
+    assert response_path.read_bytes() == b"encrypted-response"
+    assert "Controller paired" in capsys.readouterr().out
+
+
 def test_private_response_write_is_owner_only_and_never_overwrites(tmp_path):
     path = tmp_path / "response.cbor"
     _private_exclusive_write(path, b"encrypted")

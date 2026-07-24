@@ -231,11 +231,21 @@ class PersistentLinkController:
                 now=now,
             )
 
-    def encrypt_request(self, request: LinkRequest) -> PendingControllerRequest:
+    def encrypt_request(
+        self,
+        request: LinkRequest,
+        *,
+        now: int | None = None,
+    ) -> PendingControllerRequest:
         with self._lock:
             profile = self._active_profile()
+            current_time = int(time.time()) if now is None else now
             bundle = self._profiles.load_secret(self.controller_id)
             pending = bundle.pending_application
+            if pending is not None and pending.expires_at <= current_time:
+                bundle = replace(bundle, pending_application=None)
+                self._profiles.store_secret(self.controller_id, bundle)
+                pending = None
             if pending is not None:
                 if pending.request_id != request.request_id:
                     raise LinkControllerError("controller_request_in_flight")

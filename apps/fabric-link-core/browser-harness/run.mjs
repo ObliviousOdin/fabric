@@ -167,7 +167,10 @@ async function runChrome(binary, url, profileDir) {
     }
     return result.text
   } finally {
-    child.kill('SIGKILL')
+    if (child.exitCode === null && child.signalCode === null) {
+      const closed = new Promise(resolve => child.once('close', resolve))
+      if (child.kill('SIGKILL')) await closed
+    }
   }
 }
 
@@ -231,5 +234,10 @@ try {
   console.log(result)
 } finally {
   await new Promise(resolve => server.close(resolve))
-  await rm(profileDir, { recursive: true, force: true })
+  await rm(profileDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  })
 }

@@ -482,20 +482,10 @@ def _pair_manual(args: Namespace) -> int:
             ttl_seconds=ttl,
         )
         pairing_url = payload.to_url()
-        identity = store.machine_identity()
-        # Register proof-of-possession for the random route before revealing
-        # the QR. This closes the otherwise-small first-registration race in
-        # which someone who saw the QR could reach a fresh relay first.
-        with LinkRelayClient(
-            relay_origin=relay,
-            authentication_factory=lambda challenge: create_host_authentication(
-                machine_identity=identity,
-                challenge=challenge,
-                relay_origin=relay,
-                now=int(time.time()),
-            ),
-        ):
-            pass
+        # The explicit file path is the relay-outage fallback. Do not connect
+        # here: the host proves possession of the route identity when its
+        # broker next authenticates, while enrollment records travel only
+        # through the operator-selected request and response files.
         print(f"\n  Fabric Link v3 pairing ({args.controller})")
         print(f"  Machine fingerprint: {store.machine_identity().fingerprint}")
         print(f"  Maximum grants: {','.join(grants)}")

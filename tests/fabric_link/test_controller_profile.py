@@ -106,12 +106,17 @@ def make_active_profile(tmp_path):
     return profiles, vault, profile
 
 
-def request(request_id: bytes = b"q" * 16) -> LinkRequest:
+def request(
+    request_id: bytes = b"q" * 16,
+    *,
+    issued_at: int = NOW + 2,
+    expires_at: int = NOW + 60,
+) -> LinkRequest:
     return LinkRequest(
         request_id=request_id,
         idempotency_key=b"i" * 16,
-        issued_at=NOW + 2,
-        expires_at=NOW + 60,
+        issued_at=issued_at,
+        expires_at=expires_at,
         method="job.create",
         params_cbor=canonical_dumps({"prompt": "ship it"}),
     )
@@ -184,13 +189,13 @@ def test_persistent_controller_retries_one_ciphertext_and_commits_response_state
         core=FakeCore(),  # type: ignore[arg-type]
         controller_id=profile.controller_id,
     )
-    first = controller.encrypt_request(request())
-    retried = controller.encrypt_request(request())
+    first = controller.encrypt_request(request(), now=NOW + 2)
+    retried = controller.encrypt_request(request(), now=NOW + 2)
 
     assert retried == first
     assert profiles.load_secret(profile.controller_id).opaque_state == b"stateE"
     with pytest.raises(LinkControllerError, match="controller_request_in_flight"):
-        controller.encrypt_request(request(b"x" * 16))
+        controller.encrypt_request(request(b"x" * 16), now=NOW + 2)
 
     response = LinkResponse(
         request_id=b"q" * 16,
@@ -221,9 +226,35 @@ def test_pending_request_can_only_be_abandoned_after_its_expiry(tmp_path):
         core=FakeCore(),  # type: ignore[arg-type]
         controller_id=profile.controller_id,
     )
-    controller.encrypt_request(request())
+    controller.encrypt_request(request(), now=NOW + 2)
 
     assert controller.abandon_expired_request(now=NOW + 59) is False
     assert controller.abandon_expired_request(now=NOW + 61) is True
     assert profiles.load_secret(profile.controller_id).pending_application is None
+    profiles.close()
+
+
+def test_expired_pending_request_is_cleared_before_a_fresh_retry(tmp_path):
+    profiles, _vault, profile = make_active_profile(tmp_path)
+    controller = PersistentLinkController(
+        profiles=profiles,
+        core=FakeCore(),  # type: ignore[arg-type]
+        controller_id=profile.controller_id,
+    )
+    controller.encrypt_request(request(), now=NOW + 2)
+
+    fresh = controller.encrypt_request(
+        request(
+            b"x" * 16,
+            issued_at=NOW + 61,
+            expires_at=NOW + 120,
+        ),
+        now=NOW + 61,
+    )
+
+    assert fresh.request_id == b"x" * 16
+    bundle = profiles.load_secret(profile.controller_id)
+    assert bundle.opaque_state == b"stateEE"
+    assert bundle.pending_application is not None
+    assert bundle.pending_application.request_id == b"x" * 16
     profiles.close()

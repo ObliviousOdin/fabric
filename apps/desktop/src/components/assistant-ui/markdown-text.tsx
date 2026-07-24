@@ -645,8 +645,8 @@ function MarkdownTextSurface({ containerClassName, containerProps }: MarkdownTex
           <td className={cn('px-2.5 py-1.5 align-top text-[0.8125rem] leading-snug', className)} {...props} />
         ),
         img: MarkdownImage,
-        // ```mermaid / ```svg fences route to their lazy renderers; every other
-        // language falls back to the Shiki-highlighted code block.
+        // ```diff / ```mermaid / ```svg fences route to their lazy renderers;
+        // every other language falls back to the Shiki-highlighted code block.
         SyntaxHighlighter: (props: SyntaxHighlighterProps) => (
           <RichCodeBlock
             code={props.code}

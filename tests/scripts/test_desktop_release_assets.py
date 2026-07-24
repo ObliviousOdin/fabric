@@ -469,8 +469,10 @@ def test_resolve_binds_dispatched_sha_and_gates_packaging(monkeypatch):
         repository=REPOSITORY,
         tag=TAG,
         github_sha=tag_sha,
+        github_ref=f"refs/tags/{TAG}",
         desktop_version=DESKTOP_VERSION,
         force_rebuild=False,
+        allow_main_backfill=False,
     )
 
     assert result == {
@@ -496,8 +498,33 @@ def test_resolve_rejects_wrong_dispatched_sha(monkeypatch):
             repository=REPOSITORY,
             tag=TAG,
             github_sha="d" * 40,
+            github_ref=f"refs/tags/{TAG}",
             desktop_version=DESKTOP_VERSION,
             force_rebuild=False,
+            allow_main_backfill=False,
+        )
+
+
+def test_resolve_rejects_non_tag_dispatch_without_backfill(monkeypatch):
+    _fake_gh(
+        monkeypatch,
+        {
+            f"releases/tags/{TAG}": json.dumps({"draft": False, "prerelease": False}),
+            f"git/ref/tags/{TAG}": json.dumps(
+                {"object": {"sha": "c" * 40, "type": "commit"}}
+            ),
+        },
+    )
+
+    with pytest.raises(dra.DesktopAssetError, match="is not refs/tags"):
+        dra.resolve_release(
+            repository=REPOSITORY,
+            tag=TAG,
+            github_sha="c" * 40,
+            github_ref="refs/heads/main",
+            desktop_version=DESKTOP_VERSION,
+            force_rebuild=False,
+            allow_main_backfill=False,
         )
 
 
@@ -512,8 +539,59 @@ def test_resolve_rejects_draft_release(monkeypatch):
             repository=REPOSITORY,
             tag=TAG,
             github_sha="c" * 40,
+            github_ref=f"refs/tags/{TAG}",
             desktop_version=DESKTOP_VERSION,
             force_rebuild=False,
+            allow_main_backfill=False,
+        )
+
+
+def test_resolve_allows_explicit_main_backfill(monkeypatch):
+    tag_sha = "c" * 40
+    _fake_gh(
+        monkeypatch,
+        {
+            f"releases/tags/{TAG}": json.dumps({"draft": False, "prerelease": False}),
+            f"git/ref/tags/{TAG}": json.dumps(
+                {"object": {"sha": tag_sha, "type": "commit"}}
+            ),
+            "releases?per_page=": "",
+        },
+    )
+
+    result = dra.resolve_release(
+        repository=REPOSITORY,
+        tag=TAG,
+        github_sha="d" * 40,
+        github_ref="refs/heads/main",
+        desktop_version=DESKTOP_VERSION,
+        force_rebuild=False,
+        allow_main_backfill=True,
+    )
+
+    assert result["source_sha"] == tag_sha
+
+
+def test_resolve_rejects_main_backfill_from_another_ref(monkeypatch):
+    _fake_gh(
+        monkeypatch,
+        {
+            f"releases/tags/{TAG}": json.dumps({"draft": False, "prerelease": False}),
+            f"git/ref/tags/{TAG}": json.dumps(
+                {"object": {"sha": "c" * 40, "type": "commit"}}
+            ),
+        },
+    )
+
+    with pytest.raises(dra.DesktopAssetError, match="only allowed"):
+        dra.resolve_release(
+            repository=REPOSITORY,
+            tag=TAG,
+            github_sha="d" * 40,
+            github_ref="refs/heads/release-repair",
+            desktop_version=DESKTOP_VERSION,
+            force_rebuild=False,
+            allow_main_backfill=True,
         )
 
 

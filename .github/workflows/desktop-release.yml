@@ -24,6 +24,11 @@ on:
         required: false
         default: false
         type: boolean
+      backfill_from_main:
+        description: Emergency only: repair this published tag from the reviewed main workflow
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -45,12 +50,13 @@ jobs:
       desktop_version: ${{ steps.resolve.outputs.desktop_version }}
       should_package: ${{ steps.resolve.outputs.should_package }}
     steps:
-      # Dispatched at ref: <tag>, so github.sha is the tag commit; resolve asserts
-      # the release exists, is non-draft/non-prerelease, and that its tag commit
-      # equals github.sha before anything is packaged (the wrong-commit stamp
-      # guard).
+      # Normal releases are dispatched at ref: <tag>, so github.sha is the tag
+      # commit. The sole exception is an explicitly requested backfill from the
+      # protected main branch after a reviewed workflow repair; the package source
+      # still comes from the immutable release tag in either case.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -59,14 +65,29 @@ jobs:
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          python scripts/ci/desktop_release_assets.py resolve
-          --repository "${{ github.repository }}"
-          --tag "${{ inputs.release_tag }}"
-          --github-sha "${{ github.sha }}"
-          --desktop-package apps/desktop/package.json
-          ${{ inputs.force_rebuild && '--force-rebuild' || '' }}
-          --output "$GITHUB_OUTPUT"
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          BACKFILL_FROM_MAIN: ${{ inputs.backfill_from_main }}
+        run: |
+          set -euo pipefail
+          git fetch --force --no-tags origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          release_package="${RUNNER_TEMP}/release-desktop-package.json"
+          git show "${RELEASE_TAG}:apps/desktop/package.json" > "$release_package"
+          args=(
+            python scripts/ci/desktop_release_assets.py resolve
+            --repository "${{ github.repository }}"
+            --tag "$RELEASE_TAG"
+            --github-sha "${{ github.sha }}"
+            --github-ref "${{ github.ref }}"
+            --desktop-package "$release_package"
+            --output "$GITHUB_OUTPUT"
+          )
+          if [[ "$BACKFILL_FROM_MAIN" == "true" ]]; then
+            args+=(--allow-main-backfill)
+          fi
+          if [[ "${{ inputs.force_rebuild }}" == "true" ]]; then
+            args+=(--force-rebuild)
+          fi
+          "${args[@]}"
 
   package:
     name: Package release ${{ matrix.label }}
@@ -129,12 +150,12 @@ jobs:
             [[ "$asset_id" =~ ^[0-9]+$ ]]
             gh api \
               --header "Accept: application/octet-stream" \
-              "/repos/${{ github.repository }}/releases/assets/${asset_id}" \
+              "repos/${{ github.repository }}/releases/assets/${asset_id}" \
               > "${download_dir}/${asset_name}"
           done < <(
             gh api \
               --header "Accept: application/vnd.github+json" \
-              "/repos/${{ github.repository }}/releases/tags/${{ inputs.release_tag }}" \
+              "repos/${{ github.repository }}/releases/tags/${{ inputs.release_tag }}" \
               --jq '.assets[]
                 | select(
                     .name == "release-manifest.json"

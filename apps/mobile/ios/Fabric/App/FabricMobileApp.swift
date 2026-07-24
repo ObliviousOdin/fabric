@@ -94,6 +94,8 @@ struct RootView: View {
 enum ConnectedAppTab: String {
     case home
     case sessions
+    case work
+    case artifacts
     case social
     case settings
 }
@@ -110,48 +112,99 @@ private struct ConnectedAppShellView: View {
     @Environment(AppModel.self) private var appModel
     @AppStorage(ConnectedAppShellSelection.storageKey)
     private var selectedTab = ConnectedAppTab.home.rawValue
+    @AppStorage(ConnectedAppTabPreferences.storageKey)
+    private var hiddenTabsRaw = ""
+
+    private var availability: ConnectedAppTabAvailability {
+        ConnectedAppTabAvailability.resolve(negotiation: appModel.capabilityNegotiation)
+    }
+
+    private var visibleTabs: [ConnectedAppTab] {
+        ConnectedAppTabPolicy.visibleTabs(
+            hidden: ConnectedAppTabPreferences.parse(hiddenTabsRaw),
+            availability: availability
+        )
+    }
+
+    // Present the resolved selection so a persisted tab that is now hidden or
+    // unavailable falls back to Home instead of selecting a tag with no tab.
+    private var selectionBinding: Binding<String> {
+        Binding(
+            get: {
+                ConnectedAppTabPolicy.resolvedSelection(
+                    stored: selectedTab,
+                    visible: visibleTabs
+                )
+            },
+            set: { selectedTab = $0 }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             if appModel.phase != .connected {
                 ConnectionRecoveryBanner()
             }
-            TabView(selection: $selectedTab) {
+            TabView(selection: selectionBinding) {
                 NavigationStack {
                     ConversationHomeView()
                 }
                 .tag(ConnectedAppTab.home.rawValue)
                 .tabItem {
-                    Label("Home", systemImage: "sparkles")
+                    Label(ConnectedAppTab.home.tabTitle, systemImage: ConnectedAppTab.home.tabSystemImage)
                 }
-                .accessibilityIdentifier("app-tab-home")
+                .accessibilityIdentifier(ConnectedAppTab.home.tabAccessibilityIdentifier)
 
                 NavigationStack {
                     SessionListView()
                 }
                 .tag(ConnectedAppTab.sessions.rawValue)
                 .tabItem {
-                    Label("Sessions", systemImage: "bubble.left.and.bubble.right")
+                    Label(ConnectedAppTab.sessions.tabTitle, systemImage: ConnectedAppTab.sessions.tabSystemImage)
                 }
-                .accessibilityIdentifier("app-tab-sessions")
+                .accessibilityIdentifier(ConnectedAppTab.sessions.tabAccessibilityIdentifier)
 
-                NavigationStack {
-                    SocialStudioView()
+                if visibleTabs.contains(.work) {
+                    NavigationStack {
+                        WorkBoardView()
+                    }
+                    .tag(ConnectedAppTab.work.rawValue)
+                    .tabItem {
+                        Label(ConnectedAppTab.work.tabTitle, systemImage: ConnectedAppTab.work.tabSystemImage)
+                    }
+                    .accessibilityIdentifier(ConnectedAppTab.work.tabAccessibilityIdentifier)
                 }
-                .tag(ConnectedAppTab.social.rawValue)
-                .tabItem {
-                    Label("Social", systemImage: "megaphone")
+
+                if visibleTabs.contains(.artifacts) {
+                    NavigationStack {
+                        ArtifactsBrowserView()
+                    }
+                    .tag(ConnectedAppTab.artifacts.rawValue)
+                    .tabItem {
+                        Label(ConnectedAppTab.artifacts.tabTitle, systemImage: ConnectedAppTab.artifacts.tabSystemImage)
+                    }
+                    .accessibilityIdentifier(ConnectedAppTab.artifacts.tabAccessibilityIdentifier)
                 }
-                .accessibilityIdentifier("app-tab-social")
+
+                if visibleTabs.contains(.social) {
+                    NavigationStack {
+                        SocialStudioView()
+                    }
+                    .tag(ConnectedAppTab.social.rawValue)
+                    .tabItem {
+                        Label(ConnectedAppTab.social.tabTitle, systemImage: ConnectedAppTab.social.tabSystemImage)
+                    }
+                    .accessibilityIdentifier(ConnectedAppTab.social.tabAccessibilityIdentifier)
+                }
 
                 NavigationStack {
                     SettingsRootView()
                 }
                 .tag(ConnectedAppTab.settings.rawValue)
                 .tabItem {
-                    Label("Settings", systemImage: "gearshape")
+                    Label(ConnectedAppTab.settings.tabTitle, systemImage: ConnectedAppTab.settings.tabSystemImage)
                 }
-                .accessibilityIdentifier("app-tab-settings")
+                .accessibilityIdentifier(ConnectedAppTab.settings.tabAccessibilityIdentifier)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

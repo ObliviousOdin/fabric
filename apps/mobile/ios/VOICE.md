@@ -13,6 +13,17 @@ separate from gateway-host voice operations.
   **Stop speaking**. `AVSpeechSynthesizer` reads the answer prose with an
   installed iPhone voice; technical code/diff blocks are announced but not
   spelled character by character.
+- **Clean up:** the composer's **Clean up** button applies a deterministic,
+  on-device text transform (`Fabric/Core/DictationCleanup.swift`) to the current
+  draft — removing filler words, collapsing repeated words, and tidying
+  whitespace, sentence casing, and terminal punctuation. It runs only when the
+  user taps it, never automatically, and never calls a model or the gateway; a
+  dictated transcript can never silently become an agent request through it.
+  URLs and backtick code spans are preserved verbatim. A toggle in Settings →
+  Voice hides the button. Model-backed server transcription (uploading a bounded
+  recording to the gateway's existing `/api/audio/transcribe`) is a separate,
+  not-yet-implemented step; until it lands, no phone audio leaves the device and
+  the privacy boundary below is unchanged.
 - **Voice settings:** Settings → Voice lists installed system voices and offers
   a local preview. Enhanced/premium voices remain managed by iOS.
 - **Permissions:** Microphone and Speech Recognition are requested just in time

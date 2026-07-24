@@ -24,6 +24,10 @@ struct AssistantTurnPart: Identifiable, Equatable {
         var detail: String?
         var state: State
         var durationSeconds: Double?
+        /// Live-only stream of recent progress lines, rendered as a mini
+        /// terminal on the card. Bounded and never persisted to the
+        /// presentation cache (it defaults to empty on restore).
+        var log: [String] = []
     }
 
     /// A generated image's renderable source. Images are either opaque gateway
@@ -329,6 +333,7 @@ enum AssistantTurnReducer {
                 tool.callID = callID ?? tool.callID
                 tool.name = safeName
                 tool.detail = safeDetail ?? tool.detail
+                if let safeDetail { appendLog(safeDetail, to: &tool.log) }
                 tool.state = .running
             }
 
@@ -344,6 +349,7 @@ enum AssistantTurnReducer {
                 tool.callID = callID ?? tool.callID
                 tool.name = safeName
                 tool.detail = safeDetail ?? tool.detail
+                if let safeDetail { appendLog(safeDetail, to: &tool.log) }
                 tool.state = .running
             }
 
@@ -508,6 +514,18 @@ enum AssistantTurnReducer {
         )
         update(&tool)
         appendTool(tool, to: &parts)
+    }
+
+    static let maximumToolLogLines = 6
+
+    /// Append one progress line to a tool's live log, de-duplicating an
+    /// immediately repeated line and keeping only the most recent lines.
+    private static func appendLog(_ line: String, to log: inout [String]) {
+        guard log.last != line else { return }
+        log.append(line)
+        if log.count > maximumToolLogLines {
+            log.removeFirst(log.count - maximumToolLogLines)
+        }
     }
 
     private static func appendTool(
@@ -1640,6 +1658,10 @@ final class ChatViewModel {
     private let operations: ChatGatewayOperations
     private let durableWorkNegotiation: () -> GatewayCapabilityNegotiation?
     private let workGatewayID: () -> String?
+    /// Publish the runtime session + server-issued Work identity so the shared
+    /// Work board can sync against this session. Additive: it never changes this
+    /// chat's own durable-work handling.
+    private let onWorkIdentity: (String, FabricWorkSessionIdentity) -> Void
     private let presentationCache: ChatPresentationCache
     private var pendingImageArtifactFetches: Set<String> = []
     private var pendingDurableBackgroundMutations: [PendingDurableBackgroundMutation] = []
@@ -1678,6 +1700,7 @@ final class ChatViewModel {
         supportsMethod: @escaping (String) -> Bool,
         durableWorkNegotiation: @escaping () -> GatewayCapabilityNegotiation? = { nil },
         workGatewayID: @escaping () -> String? = { nil },
+        onWorkIdentity: @escaping (String, FabricWorkSessionIdentity) -> Void = { _, _ in },
         presentationCache: ChatPresentationCache = ChatPresentationCache(),
         operations: ChatGatewayOperations? = nil
     ) {
@@ -1686,6 +1709,7 @@ final class ChatViewModel {
         self.supportsMethod = supportsMethod
         self.durableWorkNegotiation = durableWorkNegotiation
         self.workGatewayID = workGatewayID
+        self.onWorkIdentity = onWorkIdentity
         self.presentationCache = presentationCache
         self.operations = operations ?? .live(api: api)
     }
@@ -1730,7 +1754,10 @@ final class ChatViewModel {
         return true
     }
 
-    private func installWorkIdentity(_ identity: FabricWorkSessionIdentity?) {
+    private func installWorkIdentity(
+        _ identity: FabricWorkSessionIdentity?,
+        sessionId explicitSessionId: String? = nil
+    ) {
         // A gateway profile change is a new Work namespace. Do not show or
         // refresh Job IDs that were learned under the previous one.
         if workIdentity?.profileID != identity?.profileID {
@@ -1742,6 +1769,13 @@ final class ChatViewModel {
             pendingDurableBackgroundMutations.removeAll()
         }
         workIdentity = identity
+        // Start/resume assign `sessionId` only after installing the identity, so
+        // let those callers pass the freshly negotiated id explicitly. Otherwise
+        // the shared Work board never receives this session's context until an
+        // unrelated session.info happens to replay.
+        if let identity, let resolvedSessionId = explicitSessionId ?? sessionId {
+            onWorkIdentity(resolvedSessionId, identity)
+        }
     }
 
     private func mergeUsage(from payload: [String: Any]) {
@@ -1870,7 +1904,7 @@ final class ChatViewModel {
                 return
             }
             storedSessionId = durableId
-            installWorkIdentity(live.workIdentity)
+            installWorkIdentity(live.workIdentity, sessionId: live.sessionId)
             if let seeded = live.usage {
                 usage = usage?.merging(seeded) ?? seeded
             }
@@ -1971,7 +2005,7 @@ final class ChatViewModel {
             clearInteractions()
             statusLine = nil
             self.storedSessionId = durableId
-            installWorkIdentity(live.workIdentity)
+            installWorkIdentity(live.workIdentity, sessionId: live.sessionId)
             if let seeded = live.usage {
                 usage = usage?.merging(seeded) ?? seeded
             }

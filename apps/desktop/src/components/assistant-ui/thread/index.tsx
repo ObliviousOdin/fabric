@@ -8,6 +8,7 @@ import {
   ResponseLoadingIndicator
 } from '@/components/assistant-ui/thread/status'
 import { SystemMessage } from '@/components/assistant-ui/thread/system-message'
+import { ThreadAmbient } from '@/components/assistant-ui/thread/thread-ambient'
 import { ThreadTimeline } from '@/components/assistant-ui/thread/timeline'
 import { type RestoreMessageTarget } from '@/components/assistant-ui/thread/types'
 import { UserEditComposer } from '@/components/assistant-ui/thread/user-edit-composer'
@@ -96,6 +97,7 @@ export const Thread: FC<{
 
   return (
     <div className="relative grid h-full min-h-0 max-w-full grid-rows-[minmax(0,1fr)] overflow-hidden bg-transparent contain-[layout_paint]">
+      <ThreadAmbient />
       <ThreadMessageList
         clampToComposer={clampToComposer}
         components={messageComponents}

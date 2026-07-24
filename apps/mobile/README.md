@@ -153,6 +153,16 @@ Legacy fallback is permitted only when the capability is absent; a timeout or
 typed failure from a durable mutation is never retried through
 `prompt.background`.
 
+iOS now also carries a native **Work board** — a phone kanban (Needs
+attention / Active / Done) rendered from the `FabricWorkInboxSections`
+projection, with a job detail sheet offering cancel and simple
+approval-style Attention responses. It is fail-closed exactly like the
+transport: the **Work** tab is absent unless capability negotiation
+advertises the complete `durable_work` contract, and it stays a device-local
+hide-able page once present. Because no released gateway advertises the family
+yet, the populated board is reachable only through the `work-board` DEBUG
+fixture; a follow-up server change is required to advertise the capability.
+
 The server owns profile-private `work.db`; it retains bounded, redacted Job,
 Attention, and event state rather than raw prompts, answers, passwords, or
 secrets. A phone disconnect does not stop a running Job, but a gateway restart
@@ -224,6 +234,17 @@ The v1 vertical slice on both platforms:
    The overflow menu also opens a **live screen view** — a read-only
    picture-in-picture of the gateway host's screen for watching a
    `computer_use` turn, polling `computer.screenshot`.
+4. **Artifacts** — a browser for the images, files, and links an agent
+   produced, derived client-side from `session.list` + `session.transcript`
+   (no server artifact index exists yet). Genuinely external images preview
+   inline; workspace files and links show as rows with copy-path / open
+   actions. Authenticated inline preview of workspace-file bytes and a
+   server-indexed `artifact.list`/`artifact.fetch` path are follow-ups.
+5. **Settings** — server identity/status, the pet companion, read-aloud
+   voice, iOS permission inventory, and a **Pages** control that hides
+   optional tabs (e.g. Social) from the tab bar. Hidden pages are a
+   device-local preference (`fabric.mobile.hidden-tabs.v1`); Home and
+   Settings always stay, and Reset local app data restores every page.
 
 Plus the dispatch/remote-control surface the TUI composer has, driven from
 the same chat screen:
@@ -250,6 +271,15 @@ the same chat screen:
   audio to Apple's speech service. Gateway-host `voice.record` / `voice.tts`
   operations never capture or play phone audio. Android voice and a
   continuous/model-backed Talk contract remain future work.
+- **Clean up draft** — an explicit, on-device transform (composer wand button,
+  toggle in Settings → Voice) that removes filler words (um, uh), collapses
+  repeated words, and tidies spacing, sentence casing, and terminal punctuation
+  in the draft — the Wispr Flow-style cleanup on top of on-device dictation. It
+  never calls a model or the gateway and only runs on tap; URLs and backtick
+  code spans are preserved verbatim. Model-backed server transcription
+  (uploading a bounded recording to the gateway's existing
+  `/api/audio/transcribe`, already used by the desktop mic) is the documented
+  next step for higher accuracy on technical vocabulary.
 
 The iOS durable Work client also validates and reconciles the versioned
 `fabric.work` Job/Attention ledger. `FabricGoalPortfolio` is the shared native

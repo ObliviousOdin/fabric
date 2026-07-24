@@ -105,6 +105,12 @@ struct ChatView: View {
                     },
                     workGatewayID: {
                         appModel.activeGatewayId
+                    },
+                    onWorkIdentity: { runtimeSessionID, identity in
+                        appModel.publishWorkContext(
+                            runtimeSessionID: runtimeSessionID,
+                            workIdentity: identity
+                        )
                     }
                 )
                 model = vm
@@ -212,6 +218,7 @@ private struct ChatContentView: View {
     @State private var attachmentSequence = 0
     @State private var voice = DeviceVoiceController()
     @State private var dictationBaseDraft = ""
+    @AppStorage(DictationCleanup.enabledKey) private var cleanupEnabled = true
     @AccessibilityFocusState private var focusedInteractionIdentity: String?
 
     init(
@@ -318,8 +325,9 @@ private struct ChatContentView: View {
         }
         // A pushed conversation must never fall back to the system backdrop
         // (near-black in dark mode) while the transcript lays out — paint the
-        // Fabric canvas behind every state, matching the connected Home.
-        .background(FabricTheme.canvas.ignoresSafeArea())
+        // Fabric canvas (plus a decorative reactive ambient that brightens while
+        // the agent works) behind every state, matching the connected Home.
+        .background { ChatAmbientBackdrop(active: model.busy) }
         .sheet(isPresented: $showCommandCatalog) {
             CommandCatalogSheet(
                 api: model.api,
@@ -658,7 +666,9 @@ private struct ChatContentView: View {
             onAttachFiles: { showFileImporter = true },
             showsDictationControl: true,
             dictationState: voice.dictationState,
-            onToggleDictation: toggleDictation
+            onToggleDictation: toggleDictation,
+            showsCleanupControl: cleanupEnabled,
+            onCleanup: applyDraftCleanup
         )
     }
 
@@ -669,6 +679,10 @@ private struct ChatContentView: View {
                 if issue == nil { voice.clearIssue() }
             }
         )
+    }
+
+    private func applyDraftCleanup() {
+        draft = DictationCleanup.apply(draft)
     }
 
     private func toggleDictation() {
@@ -1010,6 +1024,8 @@ private struct ChatComposerBar: View {
     var showsDictationControl = false
     var dictationState: DeviceDictationState = .idle
     var onToggleDictation: () -> Void = {}
+    var showsCleanupControl = false
+    var onCleanup: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1051,6 +1067,25 @@ private struct ChatComposerBar: View {
                     || dictationState.locksDraft
                     || !supportsMethod(draftDispatchMethod)
             )
+
+            if showsCleanupControl {
+                Button(action: onCleanup) {
+                    Image(systemName: "wand.and.stars")
+                        .font(.title2)
+                        .foregroundStyle(FabricTheme.action)
+                        .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
+                }
+                .accessibilityLabel("Clean up draft")
+                .accessibilityHint("Removes filler words and tidies spacing and punctuation in the message draft")
+                .accessibilityIdentifier("chat-cleanup-button")
+                .disabled(
+                    !sessionReady
+                        || busy
+                        || hasUnknownSendOutcome
+                        || trimmedDraft.isEmpty
+                        || dictationState.locksDraft
+                )
+            }
 
             if showsDictationControl {
                 Button(action: onToggleDictation) {
@@ -1389,7 +1424,12 @@ struct ChatExperienceDebugFixtureView: View {
                     name: "release_check",
                     detail: "Waiting for a signing decision",
                     state: .running,
-                    durationSeconds: nil
+                    durationSeconds: nil,
+                    log: [
+                        "Archiving Fabric scheme",
+                        "Validating entitlements",
+                        "Checking signing identity",
+                    ]
                 ))
             ),
             AssistantTurnPart(
@@ -1397,6 +1437,17 @@ struct ChatExperienceDebugFixtureView: View {
                 content: .text("The app is healthy. One protected release action needs your approval.")
             ),
         ]
+        let generative = """
+        Here's the plan and this week's runs:
+
+        ```work
+        {"title":"Ship v0.4","status":"running","steps":[{"label":"Tests","state":"done"},{"label":"Deploy","state":"running"},{"label":"Announce","state":"pending"}]}
+        ```
+
+        ```chart
+        {"type":"bar","title":"Weekly runs","data":[{"label":"Mon","value":12},{"label":"Tue","value":18},{"label":"Wed","value":9},{"label":"Thu","value":21}]}
+        ```
+        """
         return [
             TranscriptMessage(role: .user, text: "Verify the iOS release and prepare TestFlight."),
             TranscriptMessage(
@@ -1404,6 +1455,9 @@ struct ChatExperienceDebugFixtureView: View {
                 text: "The app is healthy. One protected release action needs your approval.",
                 assistantParts: parts
             ),
+            // A completed assistant turn with no activity parts takes the rich
+            // document path, exercising the ```work / ```chart generative cards.
+            TranscriptMessage(role: .assistant, text: generative),
         ]
     }
 
@@ -2499,6 +2553,9 @@ private struct ToolActivityCard: View {
                         .font(.caption)
                         .foregroundStyle(FabricTheme.textMuted)
                 }
+                if !tool.log.isEmpty {
+                    toolLog
+                }
             }
             Spacer(minLength: 0)
         }
@@ -2509,6 +2566,29 @@ private struct ToolActivityCard: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Tool \(title), \(stateLabel)")
         .accessibilityValue(tool.detail ?? "")
+    }
+
+    /// A compact live terminal of the tool's recent progress lines.
+    private var toolLog: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(tool.log.enumerated()), id: \.offset) { _, line in
+                HStack(alignment: .top, spacing: 5) {
+                    Text("›")
+                        .foregroundStyle(stateColor.opacity(0.75))
+                    Text(line)
+                        .foregroundStyle(FabricTheme.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .font(.caption2.monospaced())
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            FabricTheme.canvas.opacity(0.6),
+            in: RoundedRectangle(cornerRadius: FabricTheme.radiusChip)
+        )
+        .padding(.top, 3)
     }
 }
 
@@ -3160,9 +3240,32 @@ private struct AssistantTranscriptView: View {
             }
             .padding(.leading, CGFloat(depth) * 12)
         case .code(let language, let text):
-            TechnicalTranscriptBlock(kind: .code(language: language), text: text)
+            codeBlock(language: language, text: text)
         case .diff(let text):
             TechnicalTranscriptBlock(kind: .diff, text: text)
+        }
+    }
+
+    /// A ```work / ```chart fence renders as a generative card; every other
+    /// fenced language falls back to the ordinary technical code block. An
+    /// unparseable spec also falls back, so the raw fence is never lost.
+    @ViewBuilder
+    private func codeBlock(language: String?, text: String) -> some View {
+        switch language?.lowercased() {
+        case "work":
+            if let spec = WorkFenceSpec.parse(text) {
+                WorkFenceCard(spec: spec)
+            } else {
+                TechnicalTranscriptBlock(kind: .code(language: language), text: text)
+            }
+        case "chart":
+            if let spec = ChartFenceSpec.parse(text) {
+                ChartFenceCard(spec: spec)
+            } else {
+                TechnicalTranscriptBlock(kind: .code(language: language), text: text)
+            }
+        default:
+            TechnicalTranscriptBlock(kind: .code(language: language), text: text)
         }
     }
 

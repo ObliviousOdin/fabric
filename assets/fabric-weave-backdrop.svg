@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fabric weave backdrop. A subtle, transparent-background field for
+     onboarding, loading, empty, or auth surfaces. Follows the Woven Operations
+     design contract (web/DESIGN.md): a quiet crossing-line weave, resting
+     threads, one active lineage carrying a pulse of work, restrained purple,
+     prefers-reduced-motion honored. The background is intentionally transparent
+     so the field sits on either the light or dark canvas. Not wallpaper: use it
+     behind empty and planning canvases, never behind dense reading. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" fill="none" role="img" aria-labelledby="fwb-title fwb-desc">
+  <title id="fwb-title">Fabric weave</title>
+  <desc id="fwb-desc">A quiet woven field of crossing lines. Resting threads span the canvas while a single active thread carries a pulse of light from left to right.</desc>
+  <style>
+    .fwb-run   { stroke-dasharray: 26 14; animation: fwb-run 9s linear infinite; }
+    .fwb-comet { stroke-dasharray: 20 1180; animation: fwb-comet 7s linear 1.4s infinite; opacity: 0; }
+    .fwb-live  { transform-box: fill-box; transform-origin: center; animation: fwb-breathe 4.2s ease-in-out infinite; }
+    @keyframes fwb-run     { to { stroke-dashoffset: -160; } }
+    @keyframes fwb-comet   { 0% { stroke-dashoffset: 0; opacity: 0; } 4% { opacity: 0.9; } 96% { opacity: 0.9; } 100% { stroke-dashoffset: -1200; opacity: 0; } }
+    @keyframes fwb-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @media (prefers-reduced-motion: reduce) {
+      .fwb-run, .fwb-live { animation: none; }
+      .fwb-comet { display: none; }
+    }
+  </style>
+  <defs>
+    <pattern id="fwb-weave" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M 0 43.5 H 44 M 43.5 0 V 44" stroke="#9481E6" stroke-opacity="0.07" stroke-width="1" />
+    </pattern>
+    <linearGradient id="fwb-thread" x1="0" y1="200" x2="1200" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4628CC" />
+      <stop offset="0.5" stop-color="#9481E6" />
+      <stop offset="1" stop-color="#4628CC" />
+    </linearGradient>
+    <radialGradient id="fwb-falloff" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0" stop-color="#000000" />
+      <stop offset="0.5" stop-color="#000000" />
+      <stop offset="1" stop-color="#FFFFFF" />
+    </radialGradient>
+    <mask id="fwb-mask">
+      <rect x="0" y="0" width="1200" height="400" fill="url(#fwb-falloff)" />
+    </mask>
+  </defs>
+
+  <!-- Woven field, quiet toward the edges. -->
+  <rect x="0" y="0" width="1200" height="400" fill="url(#fwb-weave)" mask="url(#fwb-mask)" />
+
+  <!-- Resting threads of the weave. -->
+  <g stroke="#9481E6" stroke-opacity="0.12" stroke-width="1.5" stroke-linecap="round" fill="none">
+    <path d="M -20 112 C 120 112 180 100 320 100 S 560 124 700 124 S 940 100 1080 100 S 1180 112 1220 112" />
+    <path d="M -20 300 C 120 300 180 312 320 312 S 560 288 700 288 S 940 312 1080 312 S 1180 300 1220 300" />
+  </g>
+
+  <!-- The active lineage: one live thread through the field. -->
+  <path class="fwb-run" fill="none"
+    d="M -20 206 C 90 206 150 180 260 180 S 450 232 560 232 S 760 180 870 180 S 1080 232 1220 206"
+    stroke="url(#fwb-thread)" stroke-width="2.5" stroke-linecap="round" opacity="0.5" />
+  <!-- A pulse of work traveling the active thread. -->
+  <path class="fwb-comet" fill="none"
+    d="M -20 206 C 90 206 150 180 260 180 S 450 232 560 232 S 760 180 870 180 S 1080 232 1220 206"
+    stroke="#AAA0FF" stroke-width="2.5" stroke-linecap="round" />
+
+  <!-- A live node where a thread meets the field. -->
+  <circle class="fwb-live" cx="260" cy="180" r="4.5" fill="none" stroke="#9481E6" stroke-width="1.75" />
+</svg>

@@ -9,6 +9,7 @@ import type { RichFenceProps } from './types'
 // renderer is its own split chunk (mermaid pulls in the mermaid lib, svg pulls
 // in DOMPurify), loaded only when a block of that language actually appears.
 const LAZY_FENCE: Record<string, LazyExoticComponent<ComponentType<RichFenceProps>>> = {
+  chart: lazy(() => import('./chart-embed')),
   diff: lazy(() => import('./diff-embed')),
   mermaid: lazy(() => import('./mermaid-embed')),
   svg: lazy(() => import('./svg-embed')),

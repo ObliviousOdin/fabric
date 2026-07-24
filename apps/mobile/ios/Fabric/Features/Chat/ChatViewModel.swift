@@ -1754,7 +1754,10 @@ final class ChatViewModel {
         return true
     }
 
-    private func installWorkIdentity(_ identity: FabricWorkSessionIdentity?) {
+    private func installWorkIdentity(
+        _ identity: FabricWorkSessionIdentity?,
+        sessionId explicitSessionId: String? = nil
+    ) {
         // A gateway profile change is a new Work namespace. Do not show or
         // refresh Job IDs that were learned under the previous one.
         if workIdentity?.profileID != identity?.profileID {
@@ -1766,8 +1769,12 @@ final class ChatViewModel {
             pendingDurableBackgroundMutations.removeAll()
         }
         workIdentity = identity
-        if let identity, let sessionId {
-            onWorkIdentity(sessionId, identity)
+        // Start/resume assign `sessionId` only after installing the identity, so
+        // let those callers pass the freshly negotiated id explicitly. Otherwise
+        // the shared Work board never receives this session's context until an
+        // unrelated session.info happens to replay.
+        if let identity, let resolvedSessionId = explicitSessionId ?? sessionId {
+            onWorkIdentity(resolvedSessionId, identity)
         }
     }
 
@@ -1897,7 +1904,7 @@ final class ChatViewModel {
                 return
             }
             storedSessionId = durableId
-            installWorkIdentity(live.workIdentity)
+            installWorkIdentity(live.workIdentity, sessionId: live.sessionId)
             if let seeded = live.usage {
                 usage = usage?.merging(seeded) ?? seeded
             }
@@ -1998,7 +2005,7 @@ final class ChatViewModel {
             clearInteractions()
             statusLine = nil
             self.storedSessionId = durableId
-            installWorkIdentity(live.workIdentity)
+            installWorkIdentity(live.workIdentity, sessionId: live.sessionId)
             if let seeded = live.usage {
                 usage = usage?.merging(seeded) ?? seeded
             }

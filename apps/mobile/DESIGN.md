@@ -37,6 +37,30 @@ mobile export target, these files become generated artifacts.
 | One primary action per surface | Connect (Connect), approval (Allow filled, Deny quiet), prompts (Send filled). |
 | Errors carry recovery copy | Connection loss and failures state what happened and what to do next. |
 
+## Mithuru simplified-experience rules
+
+Mithuru is a subordinate, simplified Fabric experience, not a separate product
+identity. It uses the canonical Fabric icon, token roles, pairing, sessions,
+and security controls. Its presentation contract is:
+
+- one setup question at a time;
+- one prominent Talk control when voice is enabled and one explicit Send
+  control in every mode;
+- editable speech text before Send, with no wake word or automatic dispatch;
+- large Dynamic Type-aware prose and touch targets at least 44 points;
+- literal Listening, Working, Speaking, Offline, and Needs confirmation labels;
+- gateway approval summaries shown in an amber review surface with only
+  Allow once and Deny actions;
+- secure entry for sudo/secret prompts, never read aloud;
+- a visible Standard Fabric escape path; and
+- no provider, model, token, terminal, or raw tool controls in the simplified
+  surface.
+
+Simple Mode reduces presentation only. It must not weaken capability checks,
+credential storage, exact-request receipts, or existing fail-closed approval
+behavior. Colors and icons continue to come from `FabricTheme` and SF Symbols;
+Mithuru adds no ad-hoc palette or alternate app branding.
+
 ## Status → color mapping (both platforms)
 
 | Runtime status | Role | Rationale |

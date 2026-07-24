@@ -44,6 +44,34 @@ provider. Plain LAN HTTP is useful for native development but browsers normally
 require trusted HTTPS to install a PWA. Use `--qr-url` with Tailscale Serve or
 another trusted HTTPS tunnel for the installable browser path.
 
+## Mithuru simplified experience (iOS source preview)
+
+The connected iOS Home tab can open **Mithuru**, a simplified Fabric experience
+for people who prefer larger controls, shorter copy, and a voice-first path.
+Mithuru reuses the current Fabric gateway, authenticated socket, attachment
+RPCs, and approval/prompt interactions. Its own gateway-scoped durable
+conversation is distinct from Standard Home's active conversation. It does not
+create a second pairing protocol, mobile API, agent runtime, or authorization
+boundary.
+
+First use asks one setup question at a time: Sinhala, Tamil, or Sri Lankan
+English; voice and text or text only; text size; family setup; and, when voice
+is enabled, read-aloud speed and whether Apple online speech may be used when
+on-device recognition is not available. Text-only setup skips those voice-only
+questions. Saying no fails closed to editable text. Dictation never sends a
+request automatically. Documents show a disclosure before the picker opens,
+and consequential tool requests still require the gateway's exact pending
+approval to be reviewed and answered in-app.
+
+Mithuru preferences are device-local and scoped to the saved gateway. A family
+helper choice does not grant access to transcripts, recordings, files, health
+data, or location. Standard Fabric remains available from the same Home tab.
+
+The Sinhala and Tamil copy is implementation copy pending native-language
+review. Do not describe it as release-quality localization until that review,
+the physical-iPhone voice/accessibility gate in `ios/VOICE.md`, and the normal
+TestFlight provenance gates are recorded.
+
 ## Why the runtime stays off the phone
 
 The Fabric engine is a Python runtime that spawns subprocesses (terminal

@@ -470,6 +470,48 @@ final class FabricExperienceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Start goal"].exists)
     }
 
+    func testMithuruOnboardingIsReachableAtAccessibilityTextSizes() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-fabric-ui-fixture", "mithuru",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityXXXL",
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_LK",
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Which language would you like?"].waitForExistence(timeout: 4))
+
+        let english = app.buttons["English (Sri Lanka)"]
+        scrollTo(english, in: app)
+        XCTAssertTrue(english.isHittable)
+        english.tap()
+
+        XCTAssertTrue(app.staticTexts["Would you like to speak, type, or use both?"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Speak and type"].exists)
+        XCTAssertTrue(app.buttons["Type only"].exists)
+    }
+
+    func testMithuruTextOnlyOnboardingSkipsVoiceQuestions() {
+        let app = launchFixture("mithuru")
+
+        app.buttons["English (Sri Lanka)"].tap()
+        XCTAssertTrue(app.buttons["Type only"].waitForExistence(timeout: 2))
+        app.buttons["Type only"].tap()
+        XCTAssertTrue(app.staticTexts["How large should the text be?"].waitForExistence(timeout: 2))
+        app.buttons["Large"].tap()
+
+        XCTAssertTrue(app.staticTexts["Is a family member helping with setup?"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["How fast should Mithuru speak?"].exists)
+        app.buttons["No"].tap()
+
+        XCTAssertTrue(app.staticTexts["Mithuru setup complete"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts[
+            "May speech use Apple's online service when this iPhone cannot recognize the selected language on device?"
+        ].exists)
+    }
+
     private func launchFixture(_ fixture: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [

@@ -145,6 +145,25 @@ opens the visual target and action timeline beside the conversation. You can
 pop that same session into an always-on-top window, pause only its visual
 updates, and dock it again without restarting the task.
 
+## Mithuru Simple Mode
+
+Mithuru is a source-preview, reduced Desktop presentation for people who want
+larger controls and a voice-first path in Sinhala, Tamil, or Sri Lankan English.
+Open **Mithuru Simple Mode** from Desktop, choose a language, and select voice
+or text-only operation. Desktop asks separately before sending recorded audio
+to the configured online speech service; text-only mode keeps microphone and
+online-speech state disabled.
+
+Mithuru presents the active Desktop chat rather than creating a second client
+or authorization path. Its first send can create the backing session without
+leaving the Mithuru route. Attachments remain visible and removable while
+staged, and approval or credential prompts retain the same exact request and
+session identity as standard Desktop. Choose **Standard Fabric** at any point
+to return to the normal interface.
+
+See [Mithuru Simple Mode](/user-guide/features/mithuru) for current behavior,
+security boundaries, language support, and physical-device release gates.
+
 ## Voice notes
 
 Open **Voice Notes** from the sidebar or Command Center to turn a recording

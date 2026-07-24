@@ -20,7 +20,12 @@ import { type ChatMessage, chatMessageText, preserveLocalAssistantErrors, toChat
 import { storedSessionIdForNotification } from '../lib/session-ids'
 import { isMessagingSource } from '../lib/session-source'
 import { latestSessionTodos } from '../lib/todos'
-import { stashSessionDraft } from '../store/composer'
+import {
+  $composerAttachments,
+  clearComposerAttachments,
+  removeComposerAttachment,
+  stashSessionDraft
+} from '../store/composer'
 import { setCronFocusJobId } from '../store/cron'
 import {
   $fileBrowserOpen,
@@ -55,6 +60,7 @@ import { $reviewOpen, REVIEW_PANE_ID } from '../store/review'
 import {
   $activeSessionId,
   $attentionSessionIds,
+  $busy,
   $connection,
   $currentCwd,
   $freshDraftReady,
@@ -101,6 +107,7 @@ import { useGatewayBoot } from './gateway/hooks/use-gateway-boot'
 import { useGatewayRequest } from './gateway/hooks/use-gateway-request'
 import { useKeybinds } from './hooks/use-keybinds'
 import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from './layout-constants'
+import { MithuruSimpleMode } from './mithuru'
 import { ModelPickerOverlay } from './model-picker-overlay'
 import { ModelVisibilityOverlay } from './model-visibility-overlay'
 import { PetGenerateOverlay } from './pet-generate/pet-generate-overlay'
@@ -115,6 +122,7 @@ import { closeActiveTerminal } from './right-sidebar/terminal/terminals'
 import {
   ARTIFACTS_ROUTE,
   CRON_ROUTE,
+  MITHURU_ROUTE,
   NEW_CHAT_ROUTE,
   routeSessionId,
   sessionRoute,
@@ -212,6 +220,9 @@ export function DesktopController() {
   const gatewayState = useStore($gatewayState)
   const connection = useStore($connection)
   const activeSessionId = useStore($activeSessionId)
+  const busy = useStore($busy)
+  const messages = useStore($messages)
+  const composerAttachments = useStore($composerAttachments)
   const liveViews = useStore($liveViews)
   const currentCwd = useStore($currentCwd)
   const freshDraftReady = useStore($freshDraftReady)
@@ -258,7 +269,15 @@ export function DesktopController() {
     toggleCommandCenter
   } = useOverlayRouting()
 
+  const mithuruOpen = currentView === 'mithuru'
+  const previousNonMithuruRouteRef = useRef(NEW_CHAT_ROUTE)
   const terminalSidebarOpen = chatOpen && terminalTakeover
+
+  useEffect(() => {
+    if (!mithuruOpen) {
+      previousNonMithuruRouteRef.current = `${location.pathname}${location.search}${location.hash}`
+    }
+  }, [location.hash, location.pathname, location.search, mithuruOpen])
 
   const titlebarToolGroups = useGroupRegistry<TitlebarTool>()
   const statusbarItemGroups = useGroupRegistry<StatusbarItem>()
@@ -1383,6 +1402,7 @@ export function DesktopController() {
 
   return (
     <AppShell
+      hideStatusbar={mithuruOpen}
       leftStatusbarItems={leftStatusbarItems}
       leftTitlebarTools={titlebarToolGroups.flat.left}
       mainOverlays={mainOverlays}
@@ -1393,7 +1413,7 @@ export function DesktopController() {
       terminalPaneOpen={terminalSidebarOpen}
       titlebarTools={titlebarToolGroups.flat.right}
     >
-      {!isSecondaryWindow() && (
+      {!isSecondaryWindow() && !mithuruOpen && (
         <Pane
           forceCollapsed={narrowViewport}
           hoverReveal
@@ -1412,6 +1432,28 @@ export function DesktopController() {
         <Routes>
           <Route element={chatView} index />
           <Route element={chatView} path=":sessionId" />
+          <Route
+            element={
+              <MithuruSimpleMode
+                attachments={composerAttachments}
+                busy={busy}
+                connected={gatewayState === 'open'}
+                messages={messages}
+                onChooseDocument={() => composer.pickContextPaths('file')}
+                onClearAttachments={clearComposerAttachments}
+                onExit={() => navigate(previousNonMithuruRouteRef.current)}
+                onRemoveAttachment={id => void removeComposerAttachment(id)}
+                onRespondToApproval={(sessionId, requestId, action) =>
+                  respondToApprovalAction(sessionId, requestId, action)
+                }
+                onSubmit={text => submitText(text, { attachments: $composerAttachments.get(), preserveRoute: true })}
+                onTranscribeAudio={transcribeVoiceAudio}
+                profile={activeGatewayProfile || 'default'}
+                speechToTextEnabled={sttEnabled}
+              />
+            }
+            path={MITHURU_ROUTE.slice(1)}
+          />
           <Route
             element={
               <Suspense fallback={null}>

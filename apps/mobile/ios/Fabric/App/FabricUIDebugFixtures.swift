@@ -12,6 +12,7 @@ enum FabricUIDebugFixture: String, CaseIterable {
     case connectionLegacy = "connection-legacy"
     case sessions
     case chatActivity = "chat-activity"
+    case mithuru
     case workBoard = "work-board"
     case settings
 
@@ -85,6 +86,8 @@ struct FabricUIDebugFixtureView: View {
                 SessionLibraryDebugFixtureView()
             case .chatActivity:
                 ChatExperienceDebugFixtureView()
+            case .mithuru:
+                MithuruOnboardingDebugFixtureView()
             case .workBoard:
                 WorkBoardDebugFixtureView()
             case .settings:

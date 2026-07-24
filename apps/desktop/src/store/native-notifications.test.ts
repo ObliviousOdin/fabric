@@ -223,6 +223,23 @@ describe('respondToApprovalAction', () => {
     })
   })
 
+  it('allows only one in-flight response for the same approval identity', async () => {
+    let resolveRequest: ((value: { request_id: string; resolved: number }) => void) | undefined
+    request.mockImplementationOnce(
+      () =>
+        new Promise<{ request_id: string; resolved: number }>(resolve => {
+          resolveRequest = resolve
+        })
+    )
+
+    const approve = respondToApprovalAction('bg', 'approval-1', 'approve')
+    const reject = respondToApprovalAction('bg', 'approval-1', 'reject')
+
+    expect(request).toHaveBeenCalledTimes(1)
+    resolveRequest?.({ request_id: 'approval-1', resolved: 1 })
+    await Promise.all([approve, reject])
+  })
+
   it('ignores unknown action ids', async () => {
     await respondToApprovalAction('bg', 'approval-1', 'snooze')
     expect(request).not.toHaveBeenCalled()

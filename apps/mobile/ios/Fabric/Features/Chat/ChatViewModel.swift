@@ -1599,6 +1599,7 @@ final class ChatViewModel {
     private(set) var pendingApproval: PendingApproval?
     private(set) var approvalResponseState: ApprovalResponseState = .idle
     private(set) var pendingPrompt: PendingPrompt?
+    private(set) var promptResponseSubmitting = false
     private(set) var interactionAccessibilityCue: PendingInteractionAccessibilityCue?
     private(set) var sessionReady = false
     private(set) var sessionError: String?
@@ -2077,6 +2078,20 @@ final class ChatViewModel {
 
         guard !trimmed.isEmpty || !pendingAttachments.isEmpty else { return }
         _ = await submitPrompt(trimmed, sessionId: sessionId)
+    }
+
+    /// Submit a plain prompt only when the session can begin it immediately.
+    /// Simplified surfaces use the Bool to retain their editable draft whenever
+    /// capability, reconnect, or upload state prevents the attempt from starting.
+    @discardableResult
+    func sendPlainPrompt(_ text: String) async -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard unknownSendOutcome == nil,
+              sessionReady,
+              !busy,
+              let sessionId,
+              !trimmed.isEmpty || !pendingAttachments.isEmpty else { return false }
+        return await submitPrompt(trimmed, sessionId: sessionId)
     }
 
     /// Submit a conversation-first Home objective as a normal prompt even
@@ -2662,11 +2677,16 @@ final class ChatViewModel {
 
     /// Answer the pending clarify/sudo/secret prompt. An empty answer is a
     /// valid "dismiss" (the server releases the wait with an empty string).
-    func respondToPrompt(_ answer: String) async {
-        guard let sessionId, let prompt = pendingPrompt else { return }
-        guard canCall(prompt.responseMethod, action: "Prompt responses") else { return }
+    @discardableResult
+    func respondToPrompt(_ answer: String) async -> Bool {
+        guard !promptResponseSubmitting,
+              let sessionId,
+              let prompt = pendingPrompt else { return false }
+        guard canCall(prompt.responseMethod, action: "Prompt responses") else { return false }
         let interaction = PendingInteraction.prompt(prompt)
         let generation = bootstrapGeneration
+        promptResponseSubmitting = true
+        defer { promptResponseSubmitting = false }
         do {
             switch prompt.kind {
             case .clarify:
@@ -2688,10 +2708,11 @@ final class ChatViewModel {
                     value: answer
                 )
             }
-            guard generation == bootstrapGeneration else { return }
+            guard generation == bootstrapGeneration else { return false }
             removeInteraction(interaction)
+            return true
         } catch {
-            guard generation == bootstrapGeneration else { return }
+            guard generation == bootstrapGeneration else { return false }
             messages.append(TranscriptMessage(
                 role: .system,
                 text: ChatPresentationSafety.userVisibleFailure(
@@ -2699,6 +2720,7 @@ final class ChatViewModel {
                     fallback: "The prompt reply couldn't be sent. Check the gateway connection, then try again."
                 )
             ))
+            return false
         }
     }
 

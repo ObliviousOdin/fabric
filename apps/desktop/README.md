@@ -57,6 +57,21 @@ That command builds and launches the app against the active Fabric profile. The
 CLI and desktop share `~/.fabric` (or `%LOCALAPPDATA%\fabric` on Windows), so
 there is no second account or session store to configure.
 
+## Mithuru Simple Mode
+
+Select **Open Mithuru Simple Mode** in the title bar for a simplified,
+large-control conversation surface with Sinhala, Tamil, and Sri Lankan English
+presentation. Mithuru uses the active Fabric profile, session, attachments, and
+gateway approval flow; it does not create a second account or authorization
+boundary. Dictation stays editable until **Send**, online speech requires an
+explicit setup choice, and text-only setup hides voice controls. Select
+**Standard Fabric** to return to the regular desktop chat.
+
+Mithuru is source-preview functionality. Sinhala and Tamil implementation copy
+still requires native-language review. See the
+[Mithuru Simple Mode guide](https://obliviousodin.github.io/fabric/user-guide/features/mithuru)
+for privacy, approval, accessibility, and release-gate details.
+
 ## Development
 
 Install workspace dependencies at the repository root, then start the renderer

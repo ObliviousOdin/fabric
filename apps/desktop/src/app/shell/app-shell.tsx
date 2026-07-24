@@ -29,6 +29,7 @@ import { TitlebarControls, type TitlebarTool } from './titlebar-controls'
 
 interface AppShellProps {
   children: ReactNode
+  hideStatusbar?: boolean
   leftStatusbarItems?: readonly StatusbarItem[]
   leftTitlebarTools?: readonly TitlebarTool[]
   // Fixed-position overlays that must share <main>'s stacking context so pane
@@ -64,6 +65,7 @@ const viewportIsFullscreen = () =>
 
 export function AppShell({
   children,
+  hideStatusbar = false,
   leftStatusbarItems,
   leftTitlebarTools,
   mainOverlays,
@@ -134,7 +136,7 @@ export function AppShell({
   // between the pane-tool cluster and the system cluster so they don't sit
   // flush against each other. Modeled as N gaps (N - 1 inner + 1 trailing)
   // to keep the formula generic for any pane-tool count.
-  const SYSTEM_TOOL_COUNT = 4
+  const SYSTEM_TOOL_COUNT = 5
   const paneToolCount = titlebarTools?.filter(tool => !tool.hidden).length ?? 0
   const systemToolsWidth = `calc(${SYSTEM_TOOL_COUNT} * (var(--titlebar-control-size) + 0.25rem))`
 
@@ -217,7 +219,9 @@ export function AppShell({
 
         {/* The compact pop-out drops the statusbar — it's a scratch window, not
             the full shell. */}
-        {!isSecondaryWindow() && <StatusbarControls items={statusbarItems} leftItems={leftStatusbarItems} />}
+        {!isSecondaryWindow() && !hideStatusbar && (
+          <StatusbarControls items={statusbarItems} leftItems={leftStatusbarItems} />
+        )}
       </main>
 
       {overlays}

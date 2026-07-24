@@ -14,6 +14,7 @@ export const CRON_ROUTE = '/cron'
 export const PROFILES_ROUTE = '/profiles'
 export const AGENTS_ROUTE = '/agents'
 export const STARMAP_ROUTE = '/starmap'
+export const MITHURU_ROUTE = '/mithuru'
 
 export type AppView =
   | 'agents'
@@ -24,6 +25,7 @@ export type AppView =
   | 'cron'
   | 'design'
   | 'messaging'
+  | 'mithuru'
   | 'profiles'
   | 'settings'
   | 'skills'
@@ -39,6 +41,7 @@ export type AppRouteId =
   | 'cron'
   | 'design'
   | 'messaging'
+  | 'mithuru'
   | 'new'
   | 'profiles'
   | 'settings'
@@ -62,6 +65,7 @@ export const APP_ROUTES = [
   { id: 'voice-notes', path: VOICE_NOTES_ROUTE, view: 'voice-notes' },
   { id: 'social', path: SOCIAL_ROUTE, view: 'social' },
   { id: 'messaging', path: MESSAGING_ROUTE, view: 'messaging' },
+  { id: 'mithuru', path: MITHURU_ROUTE, view: 'mithuru' },
   { id: 'connections', path: CONNECTIONS_ROUTE, view: 'connections' },
   { id: 'artifacts', path: ARTIFACTS_ROUTE, view: 'artifacts' },
   { id: 'cron', path: CRON_ROUTE, view: 'cron' },
@@ -82,6 +86,7 @@ export const OVERLAY_VIEWS: ReadonlySet<AppView> = new Set([
   'cron',
   'profiles',
   'settings',
+  'mithuru',
   'starmap'
 ])
 

@@ -624,6 +624,23 @@ final class ChatExperienceTests: XCTestCase {
     }
 
     @MainActor
+    func testPlainPromptReportsWhetherAnAttemptActuallyStarted() async {
+        let recorder = AttachmentUploadRecorder()
+        let model = makeModel(
+            methods: ["session.create", "prompt.submit"],
+            operations: makeSucceedingOperations(recorder: recorder)
+        )
+
+        let beforeStart = await model.sendPlainPrompt("Keep this draft")
+        XCTAssertFalse(beforeStart)
+        await model.start()
+        let afterStart = await model.sendPlainPrompt("Send after ready")
+        XCTAssertTrue(afterStart)
+        XCTAssertEqual(recorder.submittedPrompts, ["Send after ready"])
+        model.stop()
+    }
+
+    @MainActor
     func testAmbiguousPromptSubmitLocksRepeatAndNeverReplaysTheRequest() async {
         let counter = ChatMutationCounter()
         let operations = makeOperations(counter: counter, failure: .socketClosed)

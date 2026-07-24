@@ -19,7 +19,7 @@ import {
   toggleSidebarOpen
 } from '@/store/layout'
 
-import { appViewForPath, isOverlayView } from '../routes'
+import { appViewForPath, isOverlayView, MITHURU_ROUTE } from '../routes'
 
 import { titlebarButtonClass } from './titlebar'
 
@@ -111,6 +111,12 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
 
   // Static system tools — always pinned to the screen's right edge.
   const systemTools: TitlebarTool[] = [
+    {
+      icon: <Codicon name="comment-discussion" />,
+      id: 'mithuru-simple-mode',
+      label: 'Open Mithuru Simple Mode',
+      to: MITHURU_ROUTE
+    },
     {
       active: hapticsMuted,
       icon: <Codicon name={hapticsMuted ? 'mute' : 'unmute'} />,

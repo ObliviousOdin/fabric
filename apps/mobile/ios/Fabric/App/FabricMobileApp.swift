@@ -147,7 +147,7 @@ private struct ConnectedAppShellView: View {
             }
             TabView(selection: selectionBinding) {
                 NavigationStack {
-                    ConversationHomeView()
+                    MithuruRootView()
                 }
                 .tag(ConnectedAppTab.home.rawValue)
                 .tabItem {

@@ -759,17 +759,17 @@ main[class*="docMainContainer"] > .container {
 }
 
 .docs-hub-steps li {
-  display: grid;
-  min-height: 84px;
-  align-items: center;
-  padding: 18px 0;
+  position: relative;
+  display: block;
+  padding: 26px 0 26px 52px;
   border-bottom: 1px solid var(--fabric-line);
-  gap: 18px;
-  grid-template-columns: 34px 1fr;
   counter-increment: fabric-steps;
 }
 
 .docs-hub-steps li::before {
+  position: absolute;
+  top: 27px;
+  left: 0;
   color: var(--ifm-color-primary);
   content: "0" counter(fabric-steps);
   font-family: var(--ifm-font-family-monospace);
@@ -904,6 +904,13 @@ main[class*="docMainContainer"] > .container {
 
   .navbar__search-input::placeholder {
     color: transparent;
+  }
+
+  /* Hide the keyboard-shortcut hint while the search input is collapsed to
+     the 48px icon (768-996px). Left visible it overflows the circle and
+     overprints the magnifier. It reappears when the input expands on focus. */
+  .navbar__search-container:not(:focus-within) [class*="searchHintContainer"] {
+    display: none;
   }
 
   .navbar__search-container:focus-within {

@@ -1,9 +1,7 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
-
 .page {
   --skills-accent: #4e3bc2;
   --skills-accent-rgb: 78, 59, 194;
-  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--ifm-font-family-base);
   min-height: 100vh;
 }
 
@@ -43,7 +41,7 @@
 }
 
 .heroEyebrow {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--ifm-font-family-monospace);
   font-size: 0.75rem;
   letter-spacing: 0.15em;
   text-transform: uppercase;
@@ -91,7 +89,7 @@
 }
 
 .statValue {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--ifm-font-family-monospace);
   font-size: 1.6rem;
   font-weight: 700;
   line-height: 1;
@@ -141,7 +139,7 @@
   width: 100%;
   padding: 0.7rem 2.5rem 0.7rem 2.6rem;
   font-size: 0.95rem;
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--ifm-font-family-base);
   border: 1px solid rgba(var(--skills-accent-rgb), 0.12);
   border-radius: 10px;
   background: rgba(15, 15, 24, 0.6);
@@ -201,7 +199,7 @@
   border-radius: 20px;
   background: transparent;
   color: var(--ifm-font-color-secondary, #9a968e);
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--ifm-font-family-base);
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
@@ -220,7 +218,7 @@
 }
 
 .srcCount {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--ifm-font-family-monospace);
   font-size: 0.68rem;
   background: rgba(255, 255, 255, 0.05);
   padding: 0.05rem 0.35rem;
@@ -276,7 +274,7 @@
 }
 
 .sidebarClear {
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--ifm-font-family-base);
   font-size: 0.72rem;
   color: rgba(var(--skills-accent-rgb), 0.6);
   background: none;
@@ -305,7 +303,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--ifm-font-color-secondary, #9a968e);
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--ifm-font-family-base);
   font-size: 0.82rem;
   cursor: pointer;
   transition: all 0.15s;
@@ -338,7 +336,7 @@
 }
 
 .catItemCount {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--ifm-font-family-monospace);
   font-size: 0.68rem;
   color: rgba(var(--skills-accent-rgb), 0.3);
   min-width: 1.5rem;
@@ -405,7 +403,7 @@
 }
 
 .clearAllBtn {
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--ifm-font-family-base);
   font-size: 0.75rem;
   color: var(--ifm-font-color-secondary);
   background: none;
@@ -524,7 +522,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--ifm-font-family-monospace);
   font-size: 0.62rem;
   font-weight: 500;
   padding: 0.15rem 0.45rem;
@@ -558,7 +556,7 @@
 }
 
 .catButton {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--ifm-font-family-monospace);
   font-size: 0.66rem;
   padding: 0.15rem 0.45rem;
   border: 1px solid rgba(var(--skills-accent-rgb), 0.12);
@@ -600,7 +598,7 @@
 }
 
 .tagPill {
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--ifm-font-family-base);
   font-size: 0.68rem;
   padding: 0.12rem 0.4rem;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -625,7 +623,7 @@
 }
 
 .authorLabel {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--ifm-font-family-monospace);
   font-size: 0.62rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -651,7 +649,7 @@
 }
 
 .installHint code {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--ifm-font-family-monospace);
   font-size: 0.72rem;
   color: rgba(var(--skills-accent-rgb), 0.7);
   background: none;
@@ -722,7 +720,7 @@
 
 .detailLabel {
   display: block;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--ifm-font-family-monospace);
   font-size: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -760,7 +758,7 @@
 }
 
 .prereqKind {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--ifm-font-family-monospace);
   font-size: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -777,7 +775,7 @@
 }
 
 .prereqItem {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--ifm-font-family-monospace);
   font-size: 0.7rem;
   padding: 0.1rem 0.4rem;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -822,7 +820,7 @@
 }
 
 .loadMoreBtn {
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--ifm-font-family-base);
   font-size: 0.85rem;
   font-weight: 500;
   padding: 0.6rem 1.5rem;
@@ -870,7 +868,7 @@
 }
 
 .emptyReset {
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--ifm-font-family-base);
   font-size: 0.85rem;
   padding: 0.5rem 1.25rem;
   border: 1px solid rgba(var(--skills-accent-rgb), 0.25);
@@ -945,7 +943,7 @@
     border-radius: 6px;
     background: rgba(var(--skills-accent-rgb), 0.03);
     color: var(--ifm-font-color-secondary);
-    font-family: "DM Sans", sans-serif;
+    font-family: var(--ifm-font-family-base);
     font-size: 0.82rem;
     cursor: pointer;
     transition: all 0.15s;

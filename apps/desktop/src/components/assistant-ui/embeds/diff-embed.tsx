@@ -16,7 +16,7 @@ export default function DiffRenderer({ code }: RichFenceProps) {
   }
 
   return (
-    <div className="my-2">
+    <div className="my-2 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none">
       <FileDiffPanel diff={code} showLineNumbers />
     </div>
   )

@@ -122,7 +122,10 @@ export default function WorkRenderer({ code }: RichFenceProps) {
   }
 
   return (
-    <div className="my-2 rounded-lg border border-border bg-muted/30 p-3 text-sm" data-slot="aui_work-card">
+    <div
+      className="my-2 animate-in rounded-lg border border-border bg-muted/30 p-3 text-sm duration-200 fade-in slide-in-from-bottom-1 motion-reduce:animate-none"
+      data-slot="aui_work-card"
+    >
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">{spec.title}</span>
         <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_CLASS[spec.status]}`}>

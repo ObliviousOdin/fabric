@@ -99,7 +99,10 @@ export default function ChartRenderer({ code }: RichFenceProps) {
   const baseY = PAD_TOP + innerH
 
   return (
-    <figure className="my-2 rounded-lg border border-border bg-muted/30 p-3" data-slot="aui_chart-card">
+    <figure
+      className="my-2 animate-in rounded-lg border border-border bg-muted/30 p-3 duration-200 fade-in slide-in-from-bottom-1 motion-reduce:animate-none"
+      data-slot="aui_chart-card"
+    >
       {spec.title && <figcaption className="mb-1.5 text-xs font-medium text-muted-foreground">{spec.title}</figcaption>}
       <svg
         aria-label={spec.title ?? `${spec.type} chart`}

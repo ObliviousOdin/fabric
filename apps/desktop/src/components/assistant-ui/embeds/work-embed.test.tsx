@@ -53,4 +53,12 @@ describe('work rich fence — render', () => {
     // React logs the thrown error; that is expected and harmless here.
     expect(() => render(<WorkRenderer code={'{bad'} />)).toThrow()
   })
+
+  it('applies a reduced-motion-gated entrance animation', () => {
+    const { container } = render(<WorkRenderer code={'{"title":"X","status":"done"}'} />)
+    const card = container.querySelector('[data-slot="aui_work-card"]')
+
+    expect(card?.className).toContain('animate-in')
+    expect(card?.className).toContain('motion-reduce:animate-none')
+  })
 })

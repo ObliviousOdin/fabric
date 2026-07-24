@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 POST_CLONE = ROOT / "apps" / "mobile" / "ios" / "ci_scripts" / "ci_post_clone.sh"
 PROJECT_SPEC = ROOT / "apps" / "mobile" / "ios" / "project.yml"
+LINK_PACKAGE_SPEC = ROOT / "apps" / "mobile" / "ios" / "project.fabric-link.yml"
 BOOTSTRAP_PROJECT = (
     ROOT / "apps" / "mobile" / "ios" / "FabricMobile.xcodeproj" / "project.pbxproj"
 )
@@ -65,10 +66,23 @@ class IOSProjectGenerationTests(unittest.TestCase):
         self.assertIn("io.github.obliviousodin.fabric.mobile.pairing", info)
         self.assertIn("<key>FabricSourceRevision</key>", info)
         self.assertIn("<string>development</string>", info)
+        self.assertNotIn("XCLocalSwiftPackageReference", project)
+        self.assertNotIn("FabricLinkCore", project)
         self.assertNotIn("com.example.fabric.mobile", project)
         self.assertNotIn("com.example.fabric.mobile", info)
         self.assertEqual(POST_CLONE.parent.parent, PROJECT_SPEC.parent)
         self.assertTrue(os.access(POST_CLONE, os.X_OK))
+
+    def test_fabric_link_package_is_an_explicit_post_clone_overlay(self) -> None:
+        bootstrap_spec = PROJECT_SPEC.read_text(encoding="utf-8")
+        link_spec = LINK_PACKAGE_SPEC.read_text(encoding="utf-8")
+
+        self.assertIn("path: ${XCODEGEN_LINK_OVERLAY_PATH}", bootstrap_spec)
+        self.assertIn("enable: ${XCODEGEN_INCLUDE_LINK_CORE}", bootstrap_spec)
+        self.assertNotIn("FabricLinkCore:", bootstrap_spec)
+        self.assertIn("FabricLinkCore:", link_spec)
+        self.assertIn("path: ${XCODEGEN_LINK_CORE_PACKAGE_PATH}", link_spec)
+        self.assertIn("- package: FabricLinkCore", link_spec)
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -78,6 +92,8 @@ class IOSProjectGenerationTests(unittest.TestCase):
         self.ios_dir.mkdir(parents=True)
         self.project_spec = self.ios_dir / "project.yml"
         shutil.copy2(PROJECT_SPEC, self.project_spec)
+        self.link_package_spec = self.ios_dir / "project.fabric-link.yml"
+        shutil.copy2(LINK_PACKAGE_SPEC, self.link_package_spec)
         self.original_spec = self.project_spec.read_bytes()
 
         subprocess.run(
@@ -90,9 +106,13 @@ class IOSProjectGenerationTests(unittest.TestCase):
         self.source_revision = self._commit_spec("add iOS project manifest")
 
         self.capture = self.checkout / "captured-project.yml"
+        self.link_include_capture = self.checkout / "captured-link-include"
+        self.link_overlay_capture = self.checkout / "captured-link-overlay"
+        self.link_package_path_capture = self.checkout / "captured-link-package-path"
         self.link_build_capture = self.checkout / "captured-link-build"
         self.rust_paths_capture = self.checkout / "captured-rust-paths"
         self.rustup_args_capture = self.checkout / "captured-rustup-args"
+        self.swift_args_capture = self.checkout / "captured-swift-args"
         self.fake_tools = self.checkout / "fake-tools"
         self.fake_tools.mkdir()
         fake_curl = self.fake_tools / "curl"
@@ -127,6 +147,12 @@ class IOSProjectGenerationTests(unittest.TestCase):
             encoding="utf-8",
         )
         fake_shasum.chmod(0o755)
+        fake_swift = self.fake_tools / "swift"
+        fake_swift.write_text(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$FABRIC_TEST_CAPTURE_SWIFT_ARGS\"\nexit \"${FABRIC_TEST_SWIFT_EXIT:-0}\"\n",
+            encoding="utf-8",
+        )
+        fake_swift.chmod(0o755)
 
         link_build = (
             self.checkout
@@ -165,6 +191,18 @@ class IOSProjectGenerationTests(unittest.TestCase):
                 arguments = sys.argv[1:]
                 spec = Path(arguments[arguments.index("--spec") + 1])
                 shutil.copy2(spec, Path(os.environ["FABRIC_TEST_CAPTURE_SPEC"]))
+                Path(os.environ["FABRIC_TEST_CAPTURE_LINK_INCLUDE"]).write_text(
+                    os.environ.get("XCODEGEN_INCLUDE_LINK_CORE", ""),
+                    encoding="utf-8",
+                )
+                Path(os.environ["FABRIC_TEST_CAPTURE_LINK_OVERLAY"]).write_text(
+                    os.environ.get("XCODEGEN_LINK_OVERLAY_PATH", ""),
+                    encoding="utf-8",
+                )
+                Path(os.environ["FABRIC_TEST_CAPTURE_LINK_PACKAGE_PATH"]).write_text(
+                    os.environ.get("XCODEGEN_LINK_CORE_PACKAGE_PATH", ""),
+                    encoding="utf-8",
+                )
                 """
             ),
             encoding="utf-8",
@@ -205,16 +243,24 @@ class IOSProjectGenerationTests(unittest.TestCase):
         )
         return result.stdout.strip()
 
-    def run_post_clone(self, **overrides: str) -> subprocess.CompletedProcess[str]:
+    def run_post_clone(
+        self, *arguments: str, **overrides: str
+    ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment.update(
             {
                 "CI_PRIMARY_REPOSITORY_PATH": str(self.checkout),
                 "FABRIC_XCODEGEN_BIN": str(self.fake_xcodegen),
                 "FABRIC_TEST_CAPTURE_SPEC": str(self.capture),
+                "FABRIC_TEST_CAPTURE_LINK_INCLUDE": str(self.link_include_capture),
+                "FABRIC_TEST_CAPTURE_LINK_OVERLAY": str(self.link_overlay_capture),
+                "FABRIC_TEST_CAPTURE_LINK_PACKAGE_PATH": str(
+                    self.link_package_path_capture
+                ),
                 "FABRIC_TEST_CAPTURE_LINK_BUILD": str(self.link_build_capture),
                 "FABRIC_TEST_CAPTURE_RUST_PATHS": str(self.rust_paths_capture),
                 "FABRIC_TEST_CAPTURE_RUSTUP_ARGS": str(self.rustup_args_capture),
+                "FABRIC_TEST_CAPTURE_SWIFT_ARGS": str(self.swift_args_capture),
                 "PATH": f"{self.fake_tools}{os.pathsep}{environment['PATH']}",
             }
         )
@@ -223,7 +269,7 @@ class IOSProjectGenerationTests(unittest.TestCase):
         environment.pop("FABRIC_IOS_BUNDLE_ID", None)
         environment.update(overrides)
         return subprocess.run(
-            [str(POST_CLONE)],
+            [str(POST_CLONE), *arguments],
             check=False,
             capture_output=True,
             text=True,
@@ -242,6 +288,45 @@ class IOSProjectGenerationTests(unittest.TestCase):
             self.link_build_capture.read_text(encoding="utf-8"),
             "built\n",
         )
+        self.assertEqual(
+            self.link_include_capture.read_text(encoding="utf-8"), "true"
+        )
+        self.assertEqual(
+            self.link_overlay_capture.read_text(encoding="utf-8"),
+            str(self.link_package_spec),
+        )
+        self.assertEqual(
+            self.link_package_path_capture.read_text(encoding="utf-8"),
+            str(self.checkout / "apps" / "fabric-link-core" / "apple"),
+        )
+        self.assertEqual(
+            self.swift_args_capture.read_text(encoding="utf-8").splitlines(),
+            [
+                "package",
+                "--package-path",
+                str(self.checkout / "apps" / "fabric-link-core" / "apple"),
+                "describe",
+            ],
+        )
+        self.assert_source_manifest_unchanged()
+
+    def test_bootstrap_generation_skips_fabric_link_staging(self) -> None:
+        result = self.run_post_clone("--bootstrap")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.capture.read_bytes(), self.original_spec)
+        self.assertEqual(
+            self.link_include_capture.read_text(encoding="utf-8"), ""
+        )
+        self.assertEqual(
+            self.link_overlay_capture.read_text(encoding="utf-8"), ""
+        )
+        self.assertEqual(
+            self.link_package_path_capture.read_text(encoding="utf-8"), ""
+        )
+        self.assertFalse(self.link_build_capture.exists())
+        self.assertFalse(self.swift_args_capture.exists())
+        self.assertFalse(self.rustup_args_capture.exists())
         self.assert_source_manifest_unchanged()
 
     def test_rustup_cannot_modify_the_user_shell_profile(self) -> None:
@@ -252,6 +337,18 @@ class IOSProjectGenerationTests(unittest.TestCase):
             encoding="utf-8"
         ).splitlines()
         self.assertIn("--no-modify-path", rustup_args)
+        self.assert_source_manifest_unchanged()
+
+    def test_unresolvable_staged_link_package_fails_before_generation(self) -> None:
+        result = self.run_post_clone(FABRIC_TEST_SWIFT_EXIT="1")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "Fabric Link XCFramework is not a resolvable Swift package after staging",
+            result.stderr,
+        )
+        self.assertFalse(self.capture.exists())
+        self.assertFalse(self.link_include_capture.exists())
         self.assert_source_manifest_unchanged()
 
     def test_rust_bootstrap_uses_physical_paths_beneath_a_symlinked_tmpdir(

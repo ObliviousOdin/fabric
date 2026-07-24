@@ -30,8 +30,11 @@ edits the tracked `project.yml`.
 - **The manifest is authoritative; the generic project is a committed
   bootstrap.** Xcode Cloud validates `FabricMobile.xcodeproj` before it runs
   custom scripts, so the portable project and generated Info.plist from
-  `project.yml` must be present in the checkout. The project-adjacent
-  `ci_scripts/ci_post_clone.sh` then regenerates them on the build machine.
+  `project.yml` must be present in the checkout. The bootstrap deliberately
+  excludes the local Fabric Link binary package because its XCFramework is an
+  ignored build product. The project-adjacent `ci_scripts/ci_post_clone.sh`
+  first rebuilds and validates that package, then regenerates the archivable
+  project with the Fabric Link overlay enabled.
   This placement follows [Apple's custom-build-script discovery contract](https://developer.apple.com/documentation/xcode/writing-custom-build-scripts).
   Release-only bundle, build, and exact source-revision values exist only in
   its temporary spec and regenerated build outputs. Generic builds identify
@@ -52,7 +55,6 @@ edits the tracked `project.yml`.
 - A role of Account Holder, Admin, or App Manager (to create the app record and
   manage Xcode Cloud).
 - A Mac with Xcode 16 or newer.
-- XcodeGen for the one-time local setup: `brew install xcodegen`.
 - Rustup for local Fabric Link builds. The checked-in Apple build recipe pins
   the Rust version and installs only its required iOS targets:
 
@@ -66,17 +68,21 @@ Xcode Cloud needs the project present before it can start a build or run
 `ci_post_clone.sh`. Generate the portable bootstrap from the manifest:
 
 ```bash
-./apps/fabric-link-core/apple/build-xcframework.sh
-cd apps/mobile/ios
-xcodegen generate
-open FabricMobile.xcodeproj
+./apps/mobile/ios/ci_scripts/ci_post_clone.sh --bootstrap
+open apps/mobile/ios/FabricMobile.xcodeproj
 ```
 
 Commit `FabricMobile.xcodeproj` and `Fabric/Info.plist` whenever `project.yml`
-changes. GitHub CI regenerates both and fails if the committed bootstrap drifts
-from the manifest. They contain only the public development bundle identity;
+or `project.fabric-link.yml` changes. Regenerate the committed bootstrap with
+the Fabric Link overlay omitted; GitHub CI verifies its generic project
+contract, and the post-clone hook separately verifies the staged archive
+package. The bootstrap contains only the public development bundle identity;
 protected release values are still applied after clone and never committed.
 The **Fabric** scheme is shared so Xcode Cloud can discover it.
+
+For a locally buildable project, run `./apps/mobile/ios/ci_scripts/ci_post_clone.sh`
+from the repository root instead. It builds the ignored Fabric Link XCFramework
+and regenerates the project with the local package attached.
 
 ## Step 2 — Create the app record in App Store Connect
 

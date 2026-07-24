@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@nous-research/ui/ui/components/button";
+import { Spinner } from "@nous-research/ui/ui/components/spinner";
 
 import { Badge } from "@/components/fabric/Badge";
 import { SocialBrainstorm } from "@/components/social/SocialBrainstorm";
@@ -200,6 +201,23 @@ export default function SocialPage() {
               );
             })}
           </div>
+
+          {!access.libraryUnlocked && (
+            <div className="-mt-3 mb-6 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="text-xs leading-5 text-text-tertiary">
+                {s.deepScanNote.replace("{count}", String(scan.scanned))}
+              </span>
+              <Button
+                ghost
+                size="sm"
+                disabled={scan.loading}
+                onClick={scan.scanMore}
+                prefix={scan.loading ? <Spinner /> : undefined}
+              >
+                {s.deepScanAction}
+              </Button>
+            </div>
+          )}
 
           {stage === "brainstorm" && (
             <SocialBrainstorm

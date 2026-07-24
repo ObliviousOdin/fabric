@@ -244,6 +244,8 @@ export const en: Translations = {
     lockedComposeHint: "Unlocks after your first brainstorm",
     lockedLibraryHint: "Unlocks when your first post lands",
     checkingLibrary: "Checking your conversations for posts…",
+    deepScanNote: "No posts found in your {count} most recent conversations.",
+    deepScanAction: "Scan further back",
     // Brainstorm interview
     bsStepOf: "Step {step} of {total}",
     bsContinue: "Continue",

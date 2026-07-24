@@ -165,12 +165,12 @@ export function buildSocialBrainstormPrompt(plan: SocialBrainstormPlan): string 
     "1. Ask me up to three sharp questions that would make the sequence stronger. If the raw material already answers them, skip ahead.",
     `2. Propose ${plan.postCount} post ideas as a numbered list — for each, a scroll-stopping hook line, the angle in one sentence, and how it advances the goal.`,
     "3. Let me react and pick before you draft anything.",
-    `4. When I ask for a draft, put the final paste-ready post inside a single fenced code block tagged \`${SOCIAL_POST_FENCE}\` — one block per post, nothing else inside the block.`,
+    `4. When I ask for a draft, reply with that one post only — the final paste-ready text inside a single fenced code block tagged \`${SOCIAL_POST_FENCE}\`, nothing else inside the block. Never batch several drafted posts into one reply; each draft gets its own reply so it stays paired with its artifacts.`,
   ];
 
   if (plan.includeImage) {
     lines.push(
-      '5. For each drafted post, create one on-brand square (1200x1200) image that fits it, save it into the workspace, and finish with an "Artifacts" heading that lists its workspace-relative path and shows it with a markdown image so Fabric can index and preview it.',
+      '5. With each drafted post, create one on-brand square (1200x1200) image that fits it, save it into the workspace, and finish that same reply with an "Artifacts" heading that lists the image\'s workspace-relative path and shows it with a markdown image so Fabric can index and preview it. One image per drafted post, in the same reply as its post.',
     );
   } else {
     lines.push("5. These posts are text only; no images are needed.");

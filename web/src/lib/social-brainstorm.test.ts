@@ -79,6 +79,16 @@ describe("buildSocialBrainstormPrompt", () => {
     expect(prompt).toContain(`\`${SOCIAL_POST_FENCE}\``);
   });
 
+  it("constrains drafts to one post (and its image) per reply", () => {
+    // The shared artifact parser pairs every fenced block in a message with
+    // the first image found in that message, so batched drafts would attach
+    // one image to every caption. The handoff must forbid batching.
+    const prompt = buildSocialBrainstormPrompt(basePlan);
+    expect(prompt).toContain("that one post only");
+    expect(prompt).toContain("each draft gets its own reply");
+    expect(prompt).toContain("in the same reply as its post");
+  });
+
   it("reflects cadence and the image choice", () => {
     const prompt = buildSocialBrainstormPrompt(basePlan);
     expect(prompt).toContain("one post each weekday");

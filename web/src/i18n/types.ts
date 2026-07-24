@@ -285,6 +285,8 @@ export interface Translations {
     lockedComposeHint: string;
     lockedLibraryHint: string;
     checkingLibrary: string;
+    deepScanNote: string;
+    deepScanAction: string;
     bsStepOf: string;
     bsContinue: string;
     bsEdit: string;

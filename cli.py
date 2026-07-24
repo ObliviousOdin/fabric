@@ -3952,7 +3952,10 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         # These must exist before any direct chat() call because single-query
         # mode does not go through run().
         self._agent_running = False
-        self._pending_input = queue.Queue()
+        self._classic_remote_control = None
+        self._remote_current_input = None
+        self._remote_control_lock = threading.RLock()
+        self._pending_input = self._new_pending_input_queue()
         self._interrupt_queue = queue.Queue()
         # Tracks whether the turn that just finished was interrupted via
         # Ctrl+C. Consumed by _maybe_continue_goal_after_turn so /goal loops
@@ -5264,6 +5267,15 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
     def _on_thinking(self, text: str) -> None:
         """Called by agent when thinking starts/stops. Updates TUI spinner."""
+        remote_host = getattr(self, "_classic_remote_control", None)
+        if remote_host is not None and remote_host.published:
+            remote_host.emit(
+                "status.update",
+                {
+                    "kind": "thinking" if text else "idle",
+                    "text": str(text or "")[:512],
+                },
+            )
         if not text:
             self._flush_reasoning_preview(force=True)
         self._spinner_text = text or ""
@@ -5989,7 +6001,13 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
             # Agent busy → honour the configured busy-input behaviour by
             # queueing for the next turn (the safe default; interrupt/steer
             # remain reachable via the normal Enter path).
-            self._interrupt_queue.put(text) if self.busy_input_mode == "interrupt" else self._pending_input.put(text)
+            host = getattr(self, "_classic_remote_control", None)
+            if host is not None and host.published:
+                self._pending_input.put(text)
+            elif self.busy_input_mode == "interrupt":
+                self._interrupt_queue.put(text)
+            else:
+                self._pending_input.put(text)
             preview = text[:80] + ("..." if len(text) > 80 else "")
             _cprint(f"  Queued for the next turn: {preview}")
         else:
@@ -8361,6 +8379,269 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
             print(f"    2. Or configure settings in {display_fabric_home()}/config.yaml")
             print()
     
+    def _new_pending_input_queue(self):
+        from fabric_cli.classic_remote_control import ClassicRemoteInputQueue
+
+        return ClassicRemoteInputQueue(self)
+
+    def _classic_remote_snapshot(self) -> dict:
+        """Return the exact display state fenced by the classic publication hub."""
+        from fabric_cli.classic_remote_control import snapshot_messages
+
+        with self._remote_control_lock:
+            pending = []
+            if self._clarify_state:
+                pending.append(
+                    {
+                        "type": "clarify.request",
+                        "payload": {
+                            "choices": list(
+                                self._clarify_state.get("choices") or []
+                            ),
+                            "question": str(
+                                self._clarify_state.get("question") or ""
+                            ),
+                            "request_id": str(
+                                self._clarify_state.get("request_id") or ""
+                            ),
+                        },
+                    }
+                )
+            if self._approval_state:
+                pending.append(
+                    {
+                        "type": "approval.request",
+                        "payload": {
+                            "choices": list(
+                                self._approval_state.get("choices") or []
+                            ),
+                            "command": str(
+                                self._approval_state.get("public_command")
+                                or "[command redacted]"
+                            )[:512],
+                            "description": str(
+                                self._approval_state.get("description") or ""
+                            )[:512],
+                            "request_id": str(
+                                self._approval_state.get("request_id") or ""
+                            ),
+                        },
+                    }
+                )
+            host = getattr(self, "_classic_remote_control", None)
+            inflight = host.inflight if host is not None else None
+            running = bool(inflight) if host is not None and host.published else bool(
+                self._agent_running
+            )
+            publication_session_id = (
+                host.session_id
+                if host is not None and host.published
+                else self.session_id
+            )
+            snapshot = {
+                "messages": snapshot_messages(self.conversation_history),
+                "pending_interactions": pending,
+                "running": running,
+                "session_id": publication_session_id,
+                "session_key": self.session_id,
+                "source": "cli",
+                "status": "streaming" if running else "idle",
+            }
+            if inflight is not None:
+                snapshot["inflight"] = {
+                    "controller_id": inflight.controller_id,
+                    "ordinal": inflight.ordinal,
+                    "origin": inflight.origin,
+                    "request_id": inflight.request_id,
+                }
+            return snapshot
+
+    def _sync_classic_remote_stream_callback(self) -> None:
+        """Keep local rendering and remote deltas on the same agent callback."""
+        if self.agent is None:
+            return
+        host = getattr(self, "_classic_remote_control", None)
+        if host is not None and host.published:
+            self.agent.stream_delta_callback = self._stream_delta_with_remote
+        else:
+            self.agent.stream_delta_callback = (
+                self._stream_delta if self.streaming_enabled else None
+            )
+
+    def _stream_delta_with_remote(self, text) -> None:
+        if self.streaming_enabled:
+            self._stream_delta(text)
+        host = getattr(self, "_classic_remote_control", None)
+        if host is not None and host.published and text:
+            host.emit("message.delta", {"text": text})
+
+    def _stop_classic_remote_control(self, *, require_idle: bool = False) -> None:
+        host = getattr(self, "_classic_remote_control", None)
+        if host is None:
+            return
+        try:
+            host.stop(require_idle=require_idle)
+        finally:
+            try:
+                from fabric_link.runtime import unpublish_link_session
+
+                unpublish_link_session(host.session_id)
+            except Exception:
+                pass
+            self._classic_remote_control = None
+            self._sync_classic_remote_stream_callback()
+
+    def _classic_remote_respond_approval(
+        self,
+        request_id: str,
+        choice: str,
+    ) -> dict:
+        """Resolve one exact non-secret approval prompt from an attached client."""
+        allowed = {"once", "session", "always", "deny"}
+        if choice not in allowed:
+            raise ValueError("invalid approval choice")
+        with self._remote_control_lock:
+            state = self._approval_state
+            if (
+                not state
+                or str(state.get("request_id") or "") != request_id
+                or choice not in (state.get("choices") or [])
+            ):
+                raise LookupError("approval request is no longer pending")
+            state["response_queue"].put(choice)
+        return {
+            "choice": choice,
+            "request_id": request_id,
+            "resolved": 1,
+        }
+
+    def _classic_remote_respond_clarify(
+        self,
+        request_id: str,
+        answer: str,
+    ) -> dict:
+        """Resolve one exact clarification prompt from an attached client."""
+        with self._remote_control_lock:
+            state = self._clarify_state
+            if (
+                not state
+                or str(state.get("request_id") or "") != request_id
+            ):
+                raise LookupError("clarification request is no longer pending")
+            state["response_queue"].put(answer)
+        return {"request_id": request_id, "status": "ok"}
+
+    def _handle_remote_command(self, command: str) -> None:
+        """Publish the exact classic CLI session on a loopback-only endpoint."""
+        parts = command.split(maxsplit=1)
+        action = parts[1].strip().lower() if len(parts) > 1 else ""
+        if action in {"publish", "start"}:
+            action = "on"
+        elif action in {"unpublish", "stop"}:
+            action = "off"
+        elif action == "show":
+            action = "status"
+        if action not in {"", "on", "off", "status"}:
+            self._console_print("  Usage: /remote [on|off|status]")
+            return
+        host = getattr(self, "_classic_remote_control", None)
+        if action in {"", "on"}:
+            if self._agent_running:
+                self._console_print(
+                    "  Session busy — enable Remote Control after this turn."
+                )
+                return
+            if host is None:
+                from fabric_cli.classic_remote_control import (
+                    ClassicRemoteControlHost,
+                )
+
+                host = ClassicRemoteControlHost(
+                    session_id=self.session_id,
+                    snapshot_builder=self._classic_remote_snapshot,
+                    accepted_input=self._pending_input.put_accepted,
+                    approval_responder=self._classic_remote_respond_approval,
+                    clarify_responder=self._classic_remote_respond_clarify,
+                    fence_lock=self._remote_control_lock,
+                )
+                self._classic_remote_control = host
+            try:
+                status = host.start()
+            except Exception as exc:
+                self._classic_remote_control = None
+                self._console_print(
+                    f"  Could not start Remote Control: {exc}"
+                )
+                return
+            try:
+                from fabric_link.runtime import publish_classic_link_session
+
+                link_status = publish_classic_link_session(host)
+                host.set_link_status(link_status)
+                status["link"] = link_status
+            except Exception as exc:
+                try:
+                    host.stop(require_idle=False)
+                finally:
+                    self._classic_remote_control = None
+                self._console_print(
+                    "  Could not start Fabric Link Remote Control: "
+                    f"{getattr(exc, 'code', exc)}"
+                )
+                return
+            self._sync_classic_remote_stream_callback()
+        elif action == "off":
+            if host is None:
+                status = {"published": False, "detached_controllers": []}
+            else:
+                try:
+                    status = host.stop(require_idle=True)
+                except RuntimeError as exc:
+                    self._console_print(f"  {exc}")
+                    return
+                try:
+                    from fabric_link.runtime import unpublish_link_session
+
+                    unpublish_link_session(host.session_id)
+                except Exception:
+                    pass
+                self._classic_remote_control = None
+                self._sync_classic_remote_stream_callback()
+        else:
+            status = (
+                host.status(owner=True)
+                if host is not None
+                else {"published": False}
+            )
+
+        if status.get("published"):
+            attached = len(status.get("attached_controllers") or [])
+            noun = "controller" if attached == 1 else "controllers"
+            self._console_print(
+                "  Remote Control is on for this exact live session."
+            )
+            self._console_print(f"  Session: {self.session_id}")
+            self._console_print(f"  Attached: {attached} {noun}")
+            link_status = status.get("link") or {}
+            if link_status.get("active"):
+                self._console_print(
+                    "  Paired Fabric Link controllers can attach through the "
+                    "end-to-end encrypted relay."
+                )
+            else:
+                self._console_print(
+                    f"  Local attach URL: {status.get('endpoint')}"
+                )
+                self._console_print(
+                    "  Enable Fabric Link and configure a relay for internet access."
+                )
+        else:
+            detached = len(status.get("detached_controllers") or [])
+            self._console_print(
+                f"  Remote Control is off. Detached {detached} "
+                f"{'controller' if detached == 1 else 'controllers'}."
+            )
+
     def process_command(self, command: str) -> bool:
         """
         Process a slash command.
@@ -8381,6 +8662,31 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         _base_word = cmd_lower.split()[0].lstrip("/")
         _cmd_def = _resolve_cmd(_base_word)
         canonical = _cmd_def.name if _cmd_def else _base_word
+
+        remote_host = getattr(self, "_classic_remote_control", None)
+        if (
+            remote_host is not None
+            and remote_host.published
+            and canonical
+            in {
+                "branch",
+                "clear",
+                "codex-runtime",
+                "compress",
+                "model",
+                "new",
+                "profile",
+                "reload-skills",
+                "resume",
+                "retry",
+                "undo",
+            }
+        ):
+            self._console_print(
+                f"  /{canonical} changes this live session. "
+                "Run /remote off first."
+            )
+            return True
 
         # A bare `/resume` prompt is one-shot: any command other than the
         # resume/sessions handlers (which manage the pending state themselves)
@@ -8547,6 +8853,8 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         elif canonical == "handoff":
             if not self._handle_handoff_command(cmd_original):
                 return False
+        elif canonical == "remote":
+            self._handle_remote_command(cmd_original)
         elif canonical == "new":
             # Strip inline-skip tokens (now/--yes/-y) before deriving the title
             # so "/new now My Session" yields title="My Session" instead of
@@ -10887,6 +11195,22 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         stacked line to scrollback on tool.completed so users can see the
         full history of tool calls (not just the current one in the spinner).
         """
+        remote_host = getattr(self, "_classic_remote_control", None)
+        if remote_host is not None and remote_host.published:
+            remote_event = {
+                "tool.started": "tool.start",
+                "tool.completed": "tool.complete",
+            }.get(event_type)
+            if remote_event is not None:
+                remote_host.emit(
+                    remote_event,
+                    {
+                        "duration": float(kwargs.get("duration") or 0.0),
+                        "is_error": bool(kwargs.get("is_error")),
+                        "name": str(function_name or "")[:128],
+                        "preview": str(preview or "")[:512],
+                    },
+                )
         # MoA reference-model outputs: render each reference's answer as a
         # labelled thinking-style block BEFORE the aggregator acts, so the user
         # sees the mixture-of-agents process instead of a silent pause. These
@@ -11516,16 +11840,34 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         timeout = CLI_CONFIG.get("clarify", {}).get("timeout", 120)
         response_queue = queue.Queue()
         is_open_ended = not choices
-
-        self._clarify_state = {
+        request_id = f"clarify-{uuid.uuid4().hex}"
+        clarify_state = {
             "question": question,
             "choices": choices if not is_open_ended else [],
             "selected": 0,
             "response_queue": response_queue,
+            "request_id": request_id,
         }
-        self._clarify_deadline = _time.monotonic() + timeout
-        # Open-ended questions skip straight to freetext input
-        self._clarify_freetext = is_open_ended
+
+        def register_clarify() -> None:
+            self._clarify_state = clarify_state
+            self._clarify_deadline = _time.monotonic() + timeout
+            # Open-ended questions skip straight to freetext input.
+            self._clarify_freetext = is_open_ended
+
+        remote_host = getattr(self, "_classic_remote_control", None)
+        if remote_host is not None and remote_host.published:
+            remote_host.mutate_and_emit(
+                "clarify.request",
+                {
+                    "choices": list(choices or []),
+                    "question": str(question),
+                    "request_id": request_id,
+                },
+                register_clarify,
+            )
+        else:
+            register_clarify()
 
         # Trigger an immediate prompt_toolkit repaint from this (non-main)
         # thread. Modal prompts must paint at once and must not be gated by the
@@ -11540,7 +11882,23 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         while True:
             try:
                 result = response_queue.get(timeout=1)
-                self._clarify_deadline = 0
+                def resolve_clarify() -> None:
+                    self._clarify_state = None
+                    self._clarify_freetext = False
+                    self._clarify_deadline = 0
+
+                if remote_host is not None and remote_host.published:
+                    remote_host.mutate_and_emit_if(
+                        lambda: self._clarify_state is clarify_state,
+                        "interaction.complete",
+                        {
+                            "kind": "clarify",
+                            "request_id": request_id,
+                        },
+                        resolve_clarify,
+                    )
+                elif self._clarify_state is clarify_state:
+                    resolve_clarify()
                 self._persist_prompt_summary("?", "Clarify", question, str(result))
                 return result
             except queue.Empty:
@@ -11553,9 +11911,24 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     self._paint_now()
 
         # Timed out — tear down the UI and let the agent decide
-        self._clarify_state = None
-        self._clarify_freetext = False
-        self._clarify_deadline = 0
+        def expire_clarify() -> None:
+            self._clarify_state = None
+            self._clarify_freetext = False
+            self._clarify_deadline = 0
+
+        if remote_host is not None and remote_host.published:
+            remote_host.mutate_and_emit_if(
+                lambda: self._clarify_state is clarify_state,
+                "interaction.complete",
+                {
+                    "kind": "clarify",
+                    "request_id": request_id,
+                    "timed_out": True,
+                },
+                expire_clarify,
+            )
+        elif self._clarify_state is clarify_state:
+            expire_clarify()
         self._paint_now()
         _cprint(f"\n{_DIM}(clarify timed out after {timeout}s — agent will decide){_RST}")
         return (
@@ -11631,15 +12004,42 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         with self._approval_lock:
             timeout = int(CLI_CONFIG.get("approvals", {}).get("timeout", 60))
             response_queue = queue.Queue()
-
-            self._approval_state = {
+            request_id = f"approval-{uuid.uuid4().hex}"
+            approval_state = {
                 "command": command,
                 "description": description,
                 "choices": self._approval_choices(command, allow_permanent=allow_permanent),
                 "selected": 0,
                 "response_queue": response_queue,
+                "request_id": request_id,
             }
-            self._approval_deadline = _time.monotonic() + timeout
+
+            def register_approval() -> None:
+                self._approval_state = approval_state
+                self._approval_deadline = _time.monotonic() + timeout
+
+            remote_host = getattr(self, "_classic_remote_control", None)
+            if remote_host is not None and remote_host.published:
+                try:
+                    from gateway.run import _redact_approval_command
+
+                    public_command = _redact_approval_command(command)
+                except Exception:
+                    public_command = "[command redacted]"
+                approval_state["public_command"] = public_command
+                remote_host.mutate_and_emit(
+                    "approval.request",
+                    {
+                        "allow_permanent": bool(allow_permanent),
+                        "choices": list(approval_state["choices"]),
+                        "command": public_command,
+                        "description": str(description)[:512],
+                        "request_id": request_id,
+                    },
+                    register_approval,
+                )
+            else:
+                register_approval()
 
             # Modal prompt — paint immediately, bypassing the throttle/resize
             # guard. A throttled paint here can be silently dropped (250ms
@@ -11652,8 +12052,22 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
             while True:
                 try:
                     result = response_queue.get(timeout=1)
-                    self._approval_state = None
-                    self._approval_deadline = 0
+                    def resolve_approval() -> None:
+                        self._approval_state = None
+                        self._approval_deadline = 0
+
+                    if remote_host is not None and remote_host.published:
+                        remote_host.mutate_and_emit_if(
+                            lambda: self._approval_state is approval_state,
+                            "interaction.complete",
+                            {
+                                "kind": "approval",
+                                "request_id": request_id,
+                            },
+                            resolve_approval,
+                        )
+                    elif self._approval_state is approval_state:
+                        resolve_approval()
                     self._paint_now()
                     _outcome_labels = {
                         "once": "allowed once",
@@ -11675,8 +12089,23 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         _last_countdown_refresh = now
                         self._paint_now()
 
-            self._approval_state = None
-            self._approval_deadline = 0
+            def expire_approval() -> None:
+                self._approval_state = None
+                self._approval_deadline = 0
+
+            if remote_host is not None and remote_host.published:
+                remote_host.mutate_and_emit_if(
+                    lambda: self._approval_state is approval_state,
+                    "interaction.complete",
+                    {
+                        "kind": "approval",
+                        "request_id": request_id,
+                        "timed_out": True,
+                    },
+                    expire_approval,
+                )
+            elif self._approval_state is approval_state:
+                expire_approval()
             self._paint_now()
             _cprint(f"\n{_DIM}  ⏱ Timeout — denying command{_RST}")
             return "deny"
@@ -11732,7 +12161,6 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
             return
 
         state["response_queue"].put(chosen)
-        self._approval_state = None
         self._invalidate()
 
     def _get_approval_display_fragments(self):
@@ -11953,21 +12381,62 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         cancel (None / empty).  Each step is wrapped so a dead queue can't
         prevent clearing the others.
         """
-        if self._approval_state:
-            try:
-                self._approval_state["response_queue"].put("deny")
-            except Exception:
-                pass
-            self._approval_state = None
-        if self._clarify_state:
-            try:
-                self._clarify_state["response_queue"].put(
-                    "The user cancelled. Use your best judgement to proceed."
+        approval_state = self._approval_state
+        if approval_state:
+            remote_host = getattr(self, "_classic_remote_control", None)
+
+            def clear_approval() -> None:
+                try:
+                    approval_state["response_queue"].put("deny")
+                except Exception:
+                    pass
+                self._approval_state = None
+                self._approval_deadline = 0
+
+            if remote_host is not None and remote_host.published:
+                remote_host.mutate_and_emit_if(
+                    lambda: self._approval_state is approval_state,
+                    "interaction.complete",
+                    {
+                        "cancelled": True,
+                        "kind": "approval",
+                        "request_id": str(
+                            approval_state.get("request_id") or ""
+                        ),
+                    },
+                    clear_approval,
                 )
-            except Exception:
-                pass
-            self._clarify_state = None
-            self._clarify_freetext = False
+            elif self._approval_state is approval_state:
+                clear_approval()
+        clarify_state = self._clarify_state
+        if clarify_state:
+            def clear_clarify() -> None:
+                try:
+                    clarify_state["response_queue"].put(
+                        "The user cancelled. Use your best judgement to proceed."
+                    )
+                except Exception:
+                    pass
+                self._clarify_state = None
+                self._clarify_freetext = False
+                self._clarify_deadline = 0
+
+            remote_host = getattr(self, "_classic_remote_control", None)
+            if remote_host is not None and remote_host.published:
+                remote_host.mutate_and_emit_if(
+                    lambda: self._clarify_state is clarify_state,
+                    "interaction.complete",
+                    {
+                        "cancelled": True,
+                        "kind": "clarify",
+                        "request_id": str(
+                            clarify_state.get("request_id") or ""
+                        ),
+                    },
+                    clear_clarify,
+                )
+            elif self._clarify_state is clarify_state:
+                clear_clarify()
         if self._sudo_state:
             try:
                 self._sudo_state["response_queue"].put("")
@@ -12025,6 +12494,34 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         # register secure secret capture here as well.
         set_secret_capture_callback(self._secret_capture_callback)
 
+        # The process loop records an arbiter-owned entry before calling chat.
+        # Capture it before any early-return path so publication failures can be
+        # reported without accidentally replacing the owning agent.
+        _remote_entry = getattr(self, "_remote_current_input", None)
+        _remote_host = getattr(self, "_classic_remote_control", None)
+        _remote_controller_input = bool(
+            _remote_entry is not None and _remote_entry.origin == "remote"
+        )
+
+        def reject_remote_turn(reason: str) -> None:
+            if (
+                _remote_entry is not None
+                and _remote_host is not None
+                and _remote_host.published
+            ):
+                _remote_host.emit(
+                    "error",
+                    {
+                        "input": {
+                            "controller_id": _remote_entry.controller_id,
+                            "ordinal": _remote_entry.ordinal,
+                            "origin": _remote_entry.origin,
+                            "request_id": _remote_entry.request_id,
+                        },
+                        "message": reason[:512],
+                    },
+                )
+
         # Reset the per-turn interrupt flag. Any subsequent path that
         # discovers an interrupt (below, after run_conversation) will flip
         # this to True. Early returns (credential refresh failure, etc.)
@@ -12032,11 +12529,41 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._last_turn_interrupted = False
 
         # Refresh provider credentials if needed (handles key rotation transparently)
+        _agent_before_credentials = self.agent
+        _route_before_credentials = self._active_agent_route_signature
         if not self._ensure_runtime_credentials():
+            reject_remote_turn("runtime credentials are unavailable")
+            return None
+        if (
+            _remote_host is not None
+            and _remote_host.published
+            and _agent_before_credentials is not None
+            and self.agent is None
+        ):
+            self.agent = _agent_before_credentials
+            self._active_agent_route_signature = _route_before_credentials
+            reason = (
+                "runtime credentials changed while Remote Control is active; "
+                "run /remote off before changing the live agent"
+            )
+            reject_remote_turn(reason)
+            self._console_print(f"  {reason}")
             return None
 
         turn_route = self._resolve_turn_agent_config(message)
         if turn_route["signature"] != self._active_agent_route_signature:
+            if (
+                _remote_host is not None
+                and _remote_host.published
+                and self.agent is not None
+            ):
+                reason = (
+                    "runtime routing changed while Remote Control is active; "
+                    "run /remote off before changing the live agent"
+                )
+                reject_remote_turn(reason)
+                self._console_print(f"  {reason}")
+                return None
             self.agent = None
 
         # Initialize agent if needed
@@ -12047,6 +12574,7 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
             runtime_override=turn_route["runtime"],
             request_overrides=turn_route.get("request_overrides"),
         ):
+            reject_remote_turn("the live agent could not be initialized")
             return None
         
         # Route image attachments based on the active model's vision capability.
@@ -12107,7 +12635,11 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 )
 
         # Expand @ context references (e.g. @file:main.py, @diff, @folder:src/)
-        if isinstance(message, str) and "@" in message:
+        if (
+            isinstance(message, str)
+            and "@" in message
+            and not _remote_controller_input
+        ):
             try:
                 from agent.context_references import preprocess_context_references
                 from agent.model_metadata import get_model_context_length
@@ -12136,8 +12668,22 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
             from run_agent import _sanitize_surrogates
             message = _sanitize_surrogates(message)
 
-        # Add user message to history
-        self.conversation_history.append({"role": "user", "content": message})
+        # Add the user message under the same snapshot/event fence used by
+        # attached classic Remote Control clients.
+        if (
+            _remote_entry is not None
+            and _remote_host is not None
+            and _remote_host.published
+        ):
+            _remote_host.begin_turn(
+                _remote_entry,
+                text=message,
+                mutation=lambda: self.conversation_history.append(
+                    {"role": "user", "content": message}
+                ),
+            )
+        else:
+            self.conversation_history.append({"role": "user", "content": message})
 
         ChatConsole().print(f"[{_accent_hex()}]{'─' * 40}[/]")
         print(flush=True)
@@ -12467,8 +13013,31 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
             sys.stdout.flush()
             time.sleep(0.15)
 
-            # Update history with full conversation
-            self.conversation_history = result.get("messages", self.conversation_history) if result else self.conversation_history
+            # Update history with the full conversation at the exact
+            # message.complete publication fence.
+            _updated_history = (
+                result.get("messages", self.conversation_history)
+                if result
+                else self.conversation_history
+            )
+            response = result.get("final_response", "") if result else ""
+            if (
+                _remote_entry is not None
+                and _remote_host is not None
+                and _remote_host.published
+            ):
+                _remote_host.complete_turn(
+                    _remote_entry,
+                    response=response,
+                    failed=bool(result and result.get("failed")),
+                    mutation=lambda: setattr(
+                        self,
+                        "conversation_history",
+                        _updated_history,
+                    ),
+                )
+            else:
+                self.conversation_history = _updated_history
 
             # If auto-compression fired mid-turn, the agent created a new
             # continuation session and mutated self.agent.session_id. Sync
@@ -12484,9 +13053,6 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 self._transfer_session_yolo(self.session_id, self.agent.session_id)
                 self.session_id = self.agent.session_id
                 self._pending_title = None
-
-            # Get the final response
-            response = result.get("final_response", "") if result else ""
 
             # Auto-generate session title after first exchange (non-blocking)
             if response and result and not result.get("failed") and not result.get("partial"):
@@ -12689,6 +13255,8 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
             return response
             
         except Exception as e:
+            if _remote_host is not None and _remote_host.published:
+                _remote_host.emit("error", {"message": str(e)[:512]})
             print(f"Error: {e}")
             return None
         finally:
@@ -13226,7 +13794,7 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         
         # State for async operation
         self._agent_running = False
-        self._pending_input = queue.Queue()     # For normal input (commands + new queries)
+        self._pending_input = self._new_pending_input_queue()
         self._interrupt_queue = queue.Queue()   # For messages typed while agent is running
         # See constructor note. Mirrored here for the run() path that skips
         # the earlier __init__ branch.
@@ -13386,7 +13954,6 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 text = event.app.current_buffer.text.strip()
                 if text:
                     self._clarify_state["response_queue"].put(text)
-                    self._clarify_state = None
                     self._clarify_freetext = False
                     event.app.current_buffer.reset()
                     event.app.invalidate()
@@ -13399,7 +13966,6 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 choices = state.get("choices") or []
                 if selected < len(choices):
                     state["response_queue"].put(choices[selected])
-                    self._clarify_state = None
                     event.app.invalidate()
                 else:
                     # "Other" selected → switch to freetext
@@ -13453,7 +14019,16 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 # Bundle text + images as a tuple when images are present
                 payload = (text, images) if images else text
                 if self._agent_running and not (text and _looks_like_slash_command(text)):
-                    _effective_mode = self.busy_input_mode
+                    _remote_host = getattr(
+                        self,
+                        "_classic_remote_control",
+                        None,
+                    )
+                    _effective_mode = (
+                        "queue"
+                        if _remote_host is not None and _remote_host.published
+                        else self.busy_input_mode
+                    )
                     if _effective_mode == "steer":
                         # Route Enter through /steer — inject mid-run after the
                         # next tool call.  Images can't ride along (steer only
@@ -13615,8 +14190,6 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     if idx < len(choices):
                         # Select a numbered choice
                         self._clarify_state["response_queue"].put(choices[idx])
-                        self._clarify_state = None
-                        self._clarify_freetext = False
                         event.app.invalidate()
                     elif idx == len(choices):
                         # Select "Other" option
@@ -15111,6 +15684,7 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         
         # Background thread to process inputs and run agent
         def process_loop():
+            from fabric_cli.classic_remote_control import ClassicArbitratedInput
             from tools.approval import set_fabric_interactive_context
 
             set_fabric_interactive_context(True)
@@ -15138,6 +15712,14 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     if not user_input:
                         continue
 
+                    remote_entry = (
+                        user_input
+                        if isinstance(user_input, ClassicArbitratedInput)
+                        else None
+                    )
+                    if remote_entry is not None:
+                        user_input = remote_entry.payload
+
                     # The user has typed and submitted something, so any
                     # post-resize transient suppression should end here.
                     self._status_bar_suppressed_after_resize = False
@@ -15155,7 +15737,16 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     
                     # Check for commands — but detect dragged/pasted file paths first.
                     # See _detect_file_drop() for details.
-                    _file_drop = _detect_file_drop(user_input) if isinstance(user_input, str) else None
+                    _remote_controller_input = bool(
+                        remote_entry is not None
+                        and remote_entry.origin == "remote"
+                    )
+                    _file_drop = (
+                        _detect_file_drop(user_input)
+                        if isinstance(user_input, str)
+                        and not _remote_controller_input
+                        else None
+                    )
                     if _file_drop:
                         _drop_path = _file_drop["path"]
                         _remainder = _file_drop["remainder"]
@@ -15175,13 +15766,19 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     # the digit isn't sent to the agent as a message.
                     if (
                         not _file_drop
+                        and not _remote_controller_input
                         and self._pending_resume_sessions
                         and isinstance(user_input, str)
                         and self._consume_pending_resume_selection(user_input)
                     ):
                         continue
 
-                    if not _file_drop and isinstance(user_input, str) and _looks_like_slash_command(user_input):
+                    if (
+                        remote_entry is None
+                        and not _file_drop
+                        and isinstance(user_input, str)
+                        and _looks_like_slash_command(user_input)
+                    ):
                         _cprint(f"\n⚙️  {user_input}")
                         try:
                             if not self.process_command(user_input):
@@ -15204,13 +15801,26 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         _seed = getattr(self, "_pending_agent_seed", None)
                         if _seed:
                             self._pending_agent_seed = None
+                            remote_host = getattr(
+                                self,
+                                "_classic_remote_control",
+                                None,
+                            )
+                            if remote_host is not None and remote_host.published:
+                                self._pending_input.put(_seed)
+                                continue
                             user_input = _seed
                         else:
                             continue
                     
                     # Expand paste references back to full content
                     _paste_ref_re = re.compile(r'\[Pasted text #\d+: \d+ lines \u2192 (.+?)\]')
-                    paste_refs = list(_paste_ref_re.finditer(user_input)) if isinstance(user_input, str) else []
+                    paste_refs = (
+                        list(_paste_ref_re.finditer(user_input))
+                        if isinstance(user_input, str)
+                        and not _remote_controller_input
+                        else []
+                    )
                     if paste_refs:
                         user_input = self._expand_paste_references(user_input)
                     print()
@@ -15223,6 +15833,7 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
                     # Regular chat - run agent
                     self._agent_running = True
+                    self._remote_current_input = remote_entry
                     self._pet_turn_error = False
                     self._pet_reasoning = False
                     app.invalidate()  # Refresh status line
@@ -15231,6 +15842,14 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         self.chat(user_input, images=submit_images or None)
                     finally:
                         self._agent_running = False
+                        remote_host = getattr(
+                            self,
+                            "_classic_remote_control",
+                            None,
+                        )
+                        if remote_entry is not None and remote_host is not None:
+                            remote_host.release_turn(remote_entry)
+                        self._remote_current_input = None
                         self._spinner_text = ""
                         self._tool_start_time = 0.0
                         self._pending_tool_info.clear()
@@ -15513,6 +16132,16 @@ class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
         finally:
             self._should_exit = True
             self._pet_stop_anim()
+            # The classic terminal is the publication owner. Withdraw Remote
+            # Control before agent/session teardown so attached viewers never
+            # see a dead terminal presented as live.
+            try:
+                self._stop_classic_remote_control(require_idle=False)
+            except Exception:
+                logger.debug(
+                    "classic Remote Control owner shutdown failed",
+                    exc_info=True,
+                )
             # Immediate feedback: prompt_toolkit has just torn down the input
             # box + status bar, so without a line here the terminal sits
             # silent for the whole cleanup window (session flush, memory

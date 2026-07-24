@@ -18,6 +18,9 @@ set -eu
 
 XCODEGEN_VERSION="2.46.0"
 XCODEGEN_SHA256="c83c7bd70255b0ddf4116dadce16bdf0e5939165b43a544e124de294ec84aa27"
+RUSTUP_VERSION="1.29.0"
+RUSTUP_AARCH64_APPLE_SHA256="aeb4105778ca1bd3c6b0e75768f581c656633cd51368fa61289b6a71696ac7e1"
+RUSTUP_X86_64_APPLE_SHA256="33cf85df9142bc6d29cbc62fa5ca1d4c29622cddb55213a4c1a43c457fb9b2d7"
 
 # Xcode Cloud exports CI_PRIMARY_REPOSITORY_PATH. The fallback walks from this
 # required project-adjacent ci_scripts directory to the repository root so the
@@ -169,6 +172,40 @@ if [ -n "$source_revision" ]; then
   fi
   mv "$next_spec" "$generated_spec"
 fi
+
+# Fabric Link's MLS state machine is a reviewed Rust/OpenMLS binary shared by
+# Python, iOS, Android, and the browser. The generated Swift source and
+# XCFramework are intentionally ignored build products, so every Xcode Cloud
+# clone must reproduce them from Cargo.lock before Xcode resolves the local
+# package. Bootstrap rustup into this job's private temporary directory rather
+# than trusting or mutating a runner-global toolchain.
+rust_arch="$(uname -m)"
+case "$rust_arch" in
+  arm64|aarch64)
+    rust_target="aarch64-apple-darwin"
+    rustup_sha256="$RUSTUP_AARCH64_APPLE_SHA256"
+    ;;
+  x86_64)
+    rust_target="x86_64-apple-darwin"
+    rustup_sha256="$RUSTUP_X86_64_APPLE_SHA256"
+    ;;
+  *)
+    echo "Unsupported Xcode Cloud Rust bootstrap architecture: $rust_arch" >&2
+    exit 2
+    ;;
+esac
+
+rustup_init="$work/rustup-init"
+curl --fail --location --silent --show-error \
+  --output "$rustup_init" \
+  "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${rust_target}/rustup-init"
+printf '%s  %s\n' "$rustup_sha256" "$rustup_init" | shasum --algorithm 256 --check
+chmod 700 "$rustup_init"
+export CARGO_HOME="$work/cargo"
+export RUSTUP_HOME="$work/rustup"
+export PATH="$CARGO_HOME/bin:$PATH"
+"$rustup_init" -y --profile minimal --default-toolchain none
+"$repo_root/apps/fabric-link-core/apple/build-xcframework.sh"
 
 "$xcodegen_bin" generate \
   --spec "$generated_spec" \

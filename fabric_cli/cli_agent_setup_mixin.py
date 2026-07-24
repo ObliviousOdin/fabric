@@ -402,6 +402,10 @@ class CLIAgentSetupMixin:
             # forever — so memory shutdown never ran on /exit (#49287).
             import cli as _cli
             _cli._active_agent_ref = self.agent
+            # `/remote` may have published an empty classic session before the
+            # first prompt initialized its agent. Bind the shared local/remote
+            # stream callback now without creating or replacing the agent.
+            self._sync_classic_remote_stream_callback()
             # Route agent status output through prompt_toolkit so ANSI escape
             # sequences aren't garbled by patch_stdout's StdoutProxy (#2262).
             self.agent._print_fn = _cprint

@@ -171,6 +171,13 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
     surface: action('hatch')
   },
   { name: '/queue', description: 'Queue a prompt for the next turn', aliases: ['/q'], surface: exec() },
+  {
+    name: '/remote',
+    description: 'Publish this exact live session for secure controller attachment',
+    aliases: ['/remote-control', '/rc'],
+    surface: exec(),
+    args: true
+  },
   { name: '/retry', description: 'Retry the last user message', surface: exec() },
   { name: '/rollback', description: 'List or restore filesystem checkpoints', surface: exec() },
   { name: '/save', description: 'Save the current transcript to JSON', surface: exec() },

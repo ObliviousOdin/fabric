@@ -97,6 +97,7 @@ final class AppModel {
     private(set) var activeGatewayId: String?
     private(set) var lastConnectError: String?
     private(set) var pendingSignInGateway: SavedGateway?
+    private(set) var pendingFabricLinkPairing: FabricLinkPairing?
     private(set) var connectedIntroGatewayId: String?
     private(set) var connectionGeneration = 0
     private(set) var capabilityNegotiation: GatewayCapabilityNegotiation?
@@ -120,6 +121,7 @@ final class AppModel {
     /// worker pool, so responses can reorder within one connection.
     private var petRefreshEpoch = 0
     let api: GatewayAPI
+    let linkController = FabricLinkControllerModel()
 
     var activeGateway: SavedGateway? {
         gateways.first { $0.id == activeGatewayId }
@@ -230,6 +232,7 @@ final class AppModel {
         GatewayAPI.clearAllAuthSessions()
         do {
             try clearCachedPresentationData()
+            try FabricLinkMachineStore.removeAll()
             try resetGatewayStore()
         } catch let error as AppLocalDataError {
             gateways = GatewayStore.all()
@@ -243,6 +246,7 @@ final class AppModel {
         }
         gateways = []
         pendingSignInGateway = nil
+        pendingFabricLinkPairing = nil
         lastConnectError = nil
     }
 
@@ -276,6 +280,8 @@ final class AppModel {
     /// sign-in or persisting its opaque enrollment handle.
     func receivePairingURL(_ url: URL) {
         switch pairingOutcome(for: .deepLink(url)) {
+        case .link(let pairing):
+            pendingFabricLinkPairing = pairing
         case .invalid:
             lastConnectError = "This link is not a valid Fabric pairing link."
         case .unsupportedEnrollment:
@@ -298,6 +304,11 @@ final class AppModel {
                 username: target.existingUsername(in: gateways)
             )
         }
+    }
+
+    func takePendingFabricLinkPairing() -> FabricLinkPairing? {
+        defer { pendingFabricLinkPairing = nil }
+        return pendingFabricLinkPairing
     }
 
     func takePendingSignInGateway() -> SavedGateway? {
@@ -560,6 +571,7 @@ final class AppModel {
 
     func sceneEnteredBackground() {
         isForeground = false
+        LinkControllerStore.lock()
         reconnectTask?.cancel()
         reconnectTask = nil
         if phase == .connected {

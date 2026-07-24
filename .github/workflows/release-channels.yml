@@ -31,14 +31,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build-candidate:
-    name: Build immutable candidate
+  build-base-candidate:
+    name: Build universal candidate artifacts
     if: github.event_name != 'workflow_dispatch' || inputs.channel == 'alpha'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
-      source_sha: ${{ steps.manifest.outputs.source_sha }}
-      version: ${{ steps.manifest.outputs.version }}
+      source_sha: ${{ steps.source.outputs.source_sha }}
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -46,6 +45,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Record the immutable source revision
+        id: source
+        run: echo "source_sha=${{ github.event.pull_request.head.sha || github.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -94,14 +97,110 @@ jobs:
       - name: Build wheel and source distribution
         run: uv build --sdist --wheel --out-dir dist
 
+      - name: Upload universal artifacts for candidate assembly
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fabric-base-${{ steps.source.outputs.source_sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  build-link-core:
+    name: Build Fabric Link native wheel (${{ matrix.id }})
+    if: github.event_name != 'pull_request'
+    needs: build-base-candidate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux
+            os: ubuntu-24.04
+          - id: macos
+            os: macos-15
+          - id: windows
+            os: windows-2025
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.build-base-candidate.outputs.source_sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Build and verify the native wheel
+        shell: bash
+        working-directory: apps/fabric-link-core/python
+        env:
+          FABRIC_LINK_CORE_WHEEL_OUT: dist
+        run: bash verify-wheel.sh
+
+      - name: Upload the verified native wheel
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fabric-link-core-${{ matrix.id }}-${{ needs.build-base-candidate.outputs.source_sha }}
+          path: apps/fabric-link-core/python/dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
+
+  assemble-candidate:
+    # Protected branch context: keep this job name stable.
+    name: Build immutable candidate
+    if: >-
+      always() && needs.build-base-candidate.result == 'success' &&
+      (github.event_name == 'pull_request' || needs.build-link-core.result == 'success')
+    needs: [build-base-candidate, build-link-core]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      source_sha: ${{ steps.manifest.outputs.source_sha }}
+      version: ${{ steps.manifest.outputs.version }}
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.build-base-candidate.outputs.source_sha }}
+
+      - name: Download universal candidate artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fabric-base-${{ needs.build-base-candidate.outputs.source_sha }}
+          path: dist
+
+      - name: Download verified Fabric Link native wheels
+        if: github.event_name != 'pull_request'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: fabric-link-core-*-${{ needs.build-base-candidate.outputs.source_sha }}
+          path: dist
+          merge-multiple: true
+
       - name: Create provenance manifest
         id: manifest
-        run: >-
-          python3 scripts/ci/release_candidate.py create
-          --dist dist
-          --project-root .
-          --source-sha "${{ github.event.pull_request.head.sha || github.sha }}"
-          --repository "${{ github.repository }}"
+        env:
+          REQUIRE_LINK_CORE: ${{ github.event_name != 'pull_request' }}
+        run: |
+          args=()
+          if [[ "$REQUIRE_LINK_CORE" == "true" ]]; then
+            args+=(--require-link-core)
+          fi
+          python3 scripts/ci/release_candidate.py create \
+            --dist dist \
+            --project-root . \
+            --source-sha "${{ needs.build-base-candidate.outputs.source_sha }}" \
+            --repository "${{ github.repository }}" \
+            "${args[@]}"
 
       - name: Upload candidate for smoke testing
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -113,8 +212,11 @@ jobs:
 
   smoke-candidate:
     name: Smoke ${{ matrix.os }} package
-    if: github.event_name != 'workflow_dispatch' || inputs.channel == 'alpha'
-    needs: build-candidate
+    # A skipped PR-only dependency must not suppress protected contexts.
+    if: >-
+      always() && needs.assemble-candidate.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' || inputs.channel == 'alpha')
+    needs: assemble-candidate
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -139,26 +241,65 @@ jobs:
       - name: Download the candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: fabric-candidate-${{ needs.build-candidate.outputs.source_sha }}
+          name: fabric-candidate-${{ needs.assemble-candidate.outputs.source_sha }}
           path: dist
 
       - name: Verify candidate provenance
         run: >-
           python scripts/ci/release_candidate.py verify
           --dist dist
-          --source-sha "${{ needs.build-candidate.outputs.source_sha }}"
+          --source-sha "${{ needs.assemble-candidate.outputs.source_sha }}"
           --repository "${{ github.repository }}"
 
-      - name: Install the built wheel
+      - name: Install the built package and matching native companion
         env:
           CANDIDATE_DIR: ${{ github.workspace }}/dist
         working-directory: ${{ runner.temp }}
-        run: >-
-          python -c "import glob, os, subprocess, sys;
-          wheels = glob.glob(os.path.join(os.environ['CANDIDATE_DIR'], '*.whl'));
-          assert len(wheels) == 1, wheels;
-          subprocess.check_call([sys.executable, '-m', 'pip', 'install',
-          '--disable-pip-version-check', wheels[0]])"
+        run: |
+          python - <<'PY'
+          import glob
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          dist = Path(os.environ["CANDIDATE_DIR"])
+          agent_wheels = sorted(dist.glob("fabric_agent-*.whl"))
+          assert len(agent_wheels) == 1, agent_wheels
+          subprocess.check_call([
+              sys.executable,
+              "-m",
+              "pip",
+              "install",
+              "--disable-pip-version-check",
+              str(agent_wheels[0]),
+          ])
+
+          manifest = json.loads((dist / "release-manifest.json").read_text())
+          platform_hint = (
+              "macosx" if sys.platform == "darwin"
+              else "win_" if sys.platform == "win32"
+              else "linux"
+          )
+          core_wheels = sorted(
+              path for path in dist.glob("fabric_link_core-*.whl")
+              if platform_hint in path.name.lower()
+          )
+          if manifest.get("link_core") is None:
+              assert not core_wheels, core_wheels
+          else:
+              assert len(core_wheels) == 1, core_wheels
+              subprocess.check_call([
+                  sys.executable,
+                  "-m",
+                  "pip",
+                  "install",
+                  "--disable-pip-version-check",
+                  "--no-deps",
+                  str(core_wheels[0]),
+              ])
+          PY
 
       - name: Smoke the installed command and onboarding imports
         working-directory: ${{ runner.temp }}
@@ -170,8 +311,10 @@ jobs:
 
   smoke-macos-pr-context:
     name: Smoke macos-15 package
-    if: github.event_name == 'pull_request'
-    needs: build-candidate
+    if: >-
+      always() && needs.assemble-candidate.result == 'success' &&
+      github.event_name == 'pull_request'
+    needs: assemble-candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -182,8 +325,10 @@ jobs:
 
   smoke-windows-pr-context:
     name: Smoke windows-2025 package
-    if: github.event_name == 'pull_request'
-    needs: build-candidate
+    if: >-
+      always() && needs.assemble-candidate.result == 'success' &&
+      github.event_name == 'pull_request'
+    needs: assemble-candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -195,9 +340,11 @@ jobs:
   deploy-alpha:
     name: Deploy alpha candidate
     if: >-
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'workflow_dispatch' && inputs.channel == 'alpha')
-    needs: [build-candidate, smoke-candidate]
+      always() && needs.assemble-candidate.result == 'success' &&
+      needs.smoke-candidate.result == 'success' &&
+      (github.event_name == 'pull_request' ||
+        (github.event_name == 'workflow_dispatch' && inputs.channel == 'alpha'))
+    needs: [assemble-candidate, smoke-candidate]
     runs-on: ubuntu-24.04
     environment:
       name: alpha
@@ -205,13 +352,13 @@ jobs:
       - name: Download the verified candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: fabric-candidate-${{ needs.build-candidate.outputs.source_sha }}
+          name: fabric-candidate-${{ needs.assemble-candidate.outputs.source_sha }}
           path: dist
 
       - name: Publish the alpha artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: fabric-alpha-${{ needs.build-candidate.outputs.source_sha }}
+          name: fabric-alpha-${{ needs.assemble-candidate.outputs.source_sha }}
           path: dist/*
           if-no-files-found: error
           retention-days: 14
@@ -219,7 +366,7 @@ jobs:
   deploy-beta:
     name: Deploy beta candidate
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build-candidate, smoke-candidate]
+    needs: [assemble-candidate, smoke-candidate]
     runs-on: ubuntu-24.04
     environment:
       name: beta
@@ -227,13 +374,13 @@ jobs:
       - name: Download the verified candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: fabric-candidate-${{ needs.build-candidate.outputs.source_sha }}
+          name: fabric-candidate-${{ needs.assemble-candidate.outputs.source_sha }}
           path: dist
 
       - name: Publish the beta artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: fabric-beta-${{ needs.build-candidate.outputs.source_sha }}
+          name: fabric-beta-${{ needs.assemble-candidate.outputs.source_sha }}
           path: dist/*
           if-no-files-found: error
           retention-days: 30

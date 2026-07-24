@@ -100,6 +100,7 @@ Default route: `/workspace/home`.
 | `fabric insights` | — | Show usage insights and analytics | `fabric_cli/subcommands/insights.py` |
 | `fabric journey` | `fabric learning`, `fabric memory-graph` | Timeline of learned skills + memories over time | `fabric_cli/main.py` |
 | `fabric kanban` | — | Multi-profile collaboration board (tasks, links, comments) | `fabric_cli/kanban.py` |
+| `fabric link` | — | Securely pair and authorize Fabric controllers | `fabric_cli/subcommands/link.py` |
 | `fabric logout` | — | Clear authentication for an inference provider | `fabric_cli/subcommands/logout.py` |
 | `fabric logs` | — | View and filter Fabric log files | `fabric_cli/subcommands/logs.py` |
 | `fabric loom` | — | Deployment plane (hosts, projects, deploys) | `fabric_cli/subcommands/loom.py` |
@@ -198,6 +199,7 @@ and plugin-registered commands are intentionally not presented as new public com
 | `/reload` | CLI | Tools & Skills | — | — | Reload .env variables into the running session |
 | `/reload-mcp` | CLI, TUI, and messaging gateway | Tools & Skills | — | `/reload_mcp` | Reload MCP servers from config |
 | `/reload-skills` | CLI, TUI, and messaging gateway | Tools & Skills | — | `/reload_skills` | Re-scan ~/.fabric/skills/ for newly installed or removed skills |
+| `/remote` | CLI | Session | [on\|off\|status] | `/remote-control`, `/rc` | Publish this exact live session for secure controller attachment |
 | `/restart` | Messaging gateway | Session | — | — | Gracefully restart the gateway after draining active runs |
 | `/resume` | CLI, TUI, and messaging gateway | Session | [name] | — | Resume a previously-named session |
 | `/retry` | CLI, TUI, and messaging gateway | Session | — | — | Retry the last message (resend to agent) |

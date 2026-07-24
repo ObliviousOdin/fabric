@@ -7,6 +7,11 @@ description: "Pair the Fabric PWA or preview native clients with a secure remote
 
 # Mobile access
 
+For end-to-end encrypted device pairing and exact-session Remote Control
+without exposing a gateway or using social login, see
+[Fabric Link](./fabric-link.md). The direct gateway flow below remains
+available and uses a different trust boundary.
+
 `fabric mobile` starts Fabric's authenticated remote-execution gateway, serves
 an installable PWA at `/mobile/`, and prints a pairing QR. Fabric still runs on
 the gateway computer: the phone is a remote client and never executes Python,

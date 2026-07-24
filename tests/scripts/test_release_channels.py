@@ -81,6 +81,20 @@ def _write_artifacts(
                 archive.addfile(asset, io.BytesIO(content))
 
 
+def _write_link_core_wheels(dist: Path, version: str = VERSION) -> None:
+    for platform in (
+        "manylinux_2_28_x86_64",
+        "macosx_11_0_arm64",
+        "win_amd64",
+    ):
+        wheel = dist / f"fabric_link_core-{version}-py3-none-{platform}.whl"
+        with zipfile.ZipFile(wheel, mode="w") as archive:
+            archive.writestr(
+                f"fabric_link_core-{version}.dist-info/METADATA",
+                f"Metadata-Version: 2.4\nName: fabric-link-core\nVersion: {version}\n",
+            )
+
+
 def _candidate(tmp_path: Path) -> Path:
     _write_project(tmp_path)
     dist = tmp_path / "dist"
@@ -134,6 +148,56 @@ def test_candidate_round_trip_records_and_verifies_exact_bytes(tmp_path):
         f"fabric_agent-{VERSION}.tar.gz",
     }
     assert output.read_text() == f"source_sha={SOURCE_SHA}\nversion={VERSION}\n"
+
+
+def test_link_candidate_round_trip_requires_all_platform_wheels(tmp_path):
+    _write_project(tmp_path)
+    dist = tmp_path / "dist"
+    _write_artifacts(dist)
+    _write_link_core_wheels(dist)
+
+    created = create_candidate(
+        dist,
+        project_root=tmp_path,
+        source_sha=SOURCE_SHA,
+        repository=REPOSITORY,
+        require_link_core=True,
+    )
+    verified = verify_candidate(
+        dist,
+        source_sha=SOURCE_SHA,
+        repository=REPOSITORY,
+    )
+
+    assert verified == created
+    assert verified["link_core"] == {"platforms": ["linux", "macos", "windows"]}
+    assert len(verified["artifacts"]) == 5
+
+
+def test_link_candidate_rejects_missing_or_undeclared_native_wheels(tmp_path):
+    _write_project(tmp_path)
+    dist = tmp_path / "dist"
+    _write_artifacts(dist)
+    _write_link_core_wheels(dist)
+    next(dist.glob("*macosx*.whl")).unlink()
+
+    with pytest.raises(CandidateError, match="one native wheel for each"):
+        create_candidate(
+            dist,
+            project_root=tmp_path,
+            source_sha=SOURCE_SHA,
+            repository=REPOSITORY,
+            require_link_core=True,
+        )
+
+    _write_link_core_wheels(dist)
+    with pytest.raises(CandidateError, match="without Link release manifest"):
+        create_candidate(
+            dist,
+            project_root=tmp_path,
+            source_sha=SOURCE_SHA,
+            repository=REPOSITORY,
+        )
 
 
 def test_candidate_rejects_changed_artifact_after_manifest(tmp_path):
@@ -232,11 +296,39 @@ def test_release_workflow_builds_dashboard_before_python_packages():
     assert web_build < package_build < candidate_check
 
 
+def test_release_workflow_seals_native_link_wheels_only_for_release_paths():
+    workflow = Path(".github/workflows/release-channels.yml").read_text(
+        encoding="utf-8"
+    )
+
+    base = workflow.index("build-base-candidate:")
+    link = workflow.index("build-link-core:")
+    assemble = workflow.index("assemble-candidate:")
+    manifest = workflow.index("--require-link-core")
+
+    assert base < link < assemble < manifest
+    assert "if: github.event_name != 'pull_request'" in workflow
+    assert "needs: [build-base-candidate, build-link-core]" in workflow
+    assert "fabric-link-core-${{ matrix.id }}" in workflow
+
+
 def test_release_workflow_keeps_required_smoke_contexts_on_prs():
     workflow = Path(".github/workflows/release-channels.yml").read_text(
         encoding="utf-8"
     )
 
+    def job_block(job: str, next_job: str) -> str:
+        start = workflow.index(f"\n  {job}:")
+        end = workflow.index(f"\n  {next_job}:", start)
+        return workflow[start:end]
+
+    assemble = job_block("assemble-candidate", "smoke-candidate")
+    ubuntu = job_block("smoke-candidate", "smoke-macos-pr-context")
+    macos = job_block("smoke-macos-pr-context", "smoke-windows-pr-context")
+    windows = job_block("smoke-windows-pr-context", "deploy-alpha")
+    alpha = job_block("deploy-alpha", "deploy-beta")
+
+    assert "name: Build immutable candidate" in assemble
     assert "smoke-macos-pr-context:" in workflow
     assert "name: Smoke macos-15 package" in workflow
     assert "Preserve required macOS smoke context on PRs" in workflow
@@ -247,6 +339,10 @@ def test_release_workflow_keeps_required_smoke_contexts_on_prs():
         'github.event_name == \'pull_request\' && \'["ubuntu-24.04"]\''
         in workflow
     )
+    for block in (ubuntu, macos, windows, alpha):
+        assert "always()" in block
+        assert "needs.assemble-candidate.result == 'success'" in block
+    assert "needs.smoke-candidate.result == 'success'" in alpha
 
 
 def test_promotion_dispatches_desktop_release_after_publish():

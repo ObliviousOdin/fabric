@@ -97,6 +97,7 @@ import {
   resolveTimeoutMs,
   TEXT_PREVIEW_SOURCE_MAX_BYTES
 } from './hardening'
+import { resolveBundledLinkCore } from './link-core-bundle'
 import { createLinkTitleWindow, guardLinkTitleSession, readLinkTitleWindowTitle } from './link-title-window'
 import { createLiveViewController } from './live-view-controller'
 import {
@@ -295,6 +296,31 @@ if (INSTALL_STAMP) {
   console.error(
     '[fabric] WARNING: no install-stamp.json found in packaged build. First-launch bootstrap will not have a pinned ref to install.'
   )
+}
+
+function loadBundledLinkCore() {
+  if (!IS_PACKAGED || !process.resourcesPath || !INSTALL_STAMP) {
+    return null
+  }
+
+  try {
+    return resolveBundledLinkCore({
+      installCommit: INSTALL_STAMP.commit,
+      platform: process.platform,
+      resourcesPath: process.resourcesPath
+    })
+  } catch (error) {
+    console.error(`[fabric] bundled Fabric Link core is invalid: ${error.message}`)
+
+    return null
+  }
+}
+
+const BUNDLED_LINK_CORE = loadBundledLinkCore()
+
+if (BUNDLED_LINK_CORE) {
+  process.env.FABRIC_LINK_CORE_WHEEL = BUNDLED_LINK_CORE.path
+  process.env.FABRIC_LINK_CORE_SHA256 = BUNDLED_LINK_CORE.sha256
 }
 
 // Resolve the single Fabric state root, including live Windows user-registry

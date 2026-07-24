@@ -60,6 +60,15 @@ Settings are resolved in this order (highest priority first):
 API keys and bot tokens normally go in `.env`. Everything else (model, terminal backend, compression settings, memory limits, toolsets) goes in `config.yaml`. A subsystem may define an explicit credential field in `config.yaml`; when it does, that field is canonical and can use `${VAR}` interpolation when you prefer to keep the underlying value in `.env`. Dashboard authentication uses this pattern.
 :::
 
+### Fabric Link
+
+Use `fabric link setup --relay https://link.example.com` instead of hand-editing
+Link state. The relay origin and service behavior are non-secret settings in
+`config.yaml`; machine identities, controller keys, replay state, and enrollment
+secrets live in Fabric's protected Link stores rather than `.env`. See
+[Fabric Link](fabric-link.md) for relay, pairing, `/remote`, Dispatch, service,
+revocation, and recovery instructions.
+
 ### Capability catalogs
 
 Setup screens and pickers start with curated platform and provider lists. The

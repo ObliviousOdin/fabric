@@ -51,6 +51,13 @@ FEATURE_METHODS: dict[str, frozenset[str]] = {
 OPTIONAL_FEATURE_METHODS: dict[str, frozenset[str]] = {
     "artifact_fetch": frozenset({"artifact.list", "artifact.fetch"}),
     "session_transcript": frozenset({"session.transcript"}),
+    "link_remote_control": frozenset({
+        "events.poll",
+        "session.attach",
+        "session.detach",
+        "session.input.submit",
+        "session.remote_status",
+    }),
     "pets": frozenset({
         "pet.info",
         "pet.info.meta",

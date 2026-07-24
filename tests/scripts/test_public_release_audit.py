@@ -120,6 +120,12 @@ on:
 permissions:
   contents: read
 jobs:
+  build-link-core:
+    steps:
+      - run: echo "fabric-link-core-${{ matrix.id }}"
+  assemble-candidate:
+    steps:
+      - run: python3 scripts/ci/release_candidate.py create --require-link-core
   deploy-alpha:
     environment:
       name: alpha

@@ -92,6 +92,7 @@ enum PairingTokenConnectResult: Equatable {
 /// Unsupported enrollment intentionally carries no opaque enrollment handle;
 /// invalid input intentionally carries no raw payload.
 enum PairingFlowOutcome: Equatable, CustomStringConvertible, CustomDebugStringConvertible {
+    case link(FabricLinkPairing)
     case token(PairingTokenAcceptance)
     case gated(PairingFlowTarget)
     case unsupportedEnrollment(PairingFlowTarget)
@@ -99,6 +100,7 @@ enum PairingFlowOutcome: Equatable, CustomStringConvertible, CustomDebugStringCo
 
     var description: String {
         switch self {
+        case .link(let pairing): pairing.description
         case .token(let acceptance): acceptance.description
         case .gated(let target):
             target.existingGatewayID == nil ? "gated pairing for new endpoint" : "gated re-pair for existing endpoint"
@@ -127,6 +129,12 @@ struct PairingFlowModel {
     }
 
     func accept(_ input: PairingFlowInput) -> PairingFlowOutcome {
+        // Fabric Link v3 is an independent device-enrollment protocol. Check
+        // its exact HTTPS QR shape before the legacy fabric:// gateway parser;
+        // neither path can reinterpret the other's credential material.
+        if let pairing = try? FabricLinkPairing.parse(input.rawValue) {
+            return .link(pairing)
+        }
         guard let payload = PairingPayload.parse(input.rawValue) else { return .invalid }
 
         let endpointKey = SavedGateway.endpointKey(for: payload.baseURL)

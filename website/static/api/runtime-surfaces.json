@@ -233,6 +233,14 @@
       {
         "alias_of": null,
         "aliases": [],
+        "help": "Securely pair and authorize Fabric controllers",
+        "name": "link",
+        "source": "fabric_cli/subcommands/link.py",
+        "visibility": "public"
+      },
+      {
+        "alias_of": null,
+        "aliases": [],
         "help": "Clear authentication for an inference provider",
         "name": "logout",
         "source": "fabric_cli/subcommands/logout.py",
@@ -1816,6 +1824,34 @@
           "gateway_config_gate": "",
           "gateway_only": false,
           "subcommands": []
+        },
+        "origin": "bundled"
+      },
+      {
+        "authorities": [
+          {
+            "path": "fabric_cli/commands.py",
+            "symbol": "COMMAND_REGISTRY"
+          }
+        ],
+        "confidence": "exact",
+        "key": "remote",
+        "label": "Publish this exact live session for secure controller attachment",
+        "metadata": {
+          "aliases": [
+            "remote-control",
+            "rc"
+          ],
+          "args_hint": "[on|off|status]",
+          "cli_only": true,
+          "command_category": "Session",
+          "gateway_config_gate": "",
+          "gateway_only": false,
+          "subcommands": [
+            "on",
+            "off",
+            "status"
+          ]
         },
         "origin": "bundled"
       },
@@ -7319,8 +7355,8 @@
   "generation_mode": "repository_only_no_runtime_imports",
   "schema_version": 1,
   "summary": {
-    "cli_command": 67,
-    "command": 84,
+    "cli_command": 68,
+    "command": 85,
     "dashboard_plugin_manifest": 3,
     "dashboard_route": 27,
     "model_provider": 40,

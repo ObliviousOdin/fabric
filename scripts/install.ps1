@@ -1737,6 +1737,40 @@ function Install-Venv {
     Write-Success "Virtual environment ready (Python $PythonVersion)"
 }
 
+function Install-BundledLinkCore {
+    $wheel = [string]$env:FABRIC_LINK_CORE_WHEEL
+    $expectedSha = [string]$env:FABRIC_LINK_CORE_SHA256
+    if ([string]::IsNullOrWhiteSpace($wheel) -and [string]::IsNullOrWhiteSpace($expectedSha)) {
+        return
+    }
+    if ([string]::IsNullOrWhiteSpace($wheel) -or [string]::IsNullOrWhiteSpace($expectedSha)) {
+        throw "Packaged Fabric Link core metadata is incomplete."
+    }
+    if ($expectedSha -notmatch '^[0-9a-fA-F]{64}$') {
+        throw "Packaged Fabric Link core checksum is invalid."
+    }
+    $wheelItem = Get-Item -LiteralPath $wheel -Force -ErrorAction Stop
+    if ($wheelItem.PSIsContainer -or (($wheelItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw "Packaged Fabric Link core wheel is not a regular file."
+    }
+    $corePython = if (-not $NoVenv) {
+        Join-Path $InstallDir "venv\Scripts\python.exe"
+    } else {
+        & $UvCmd python find $PythonVersion
+    }
+    if (-not $corePython -or -not (Test-Path -LiteralPath $corePython -PathType Leaf)) {
+        throw "Python is unavailable for Fabric Link core installation."
+    }
+    Write-Info "Installing the verified Fabric Link native core..."
+    Invoke-NativeWithRelaxedErrorAction {
+        & $corePython -m fabric_cli.main link core install --wheel $wheel --sha256 $expectedSha
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "The packaged Fabric Link native core failed verification."
+    }
+    Write-Success "Fabric Link native core verified"
+}
+
 function Install-Dependencies {
     Write-Info "Installing dependencies..."
     
@@ -1993,6 +2027,7 @@ print(','.join(scripts))
         }
     }
     
+    Install-BundledLinkCore
     Pop-Location
     
     Write-Success "All dependencies installed"

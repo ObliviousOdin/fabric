@@ -51,6 +51,7 @@ struct FabricMobileApp: App {
 struct RootView: View {
     @Environment(AppModel.self) private var appModel
     @State private var signIn: SavedGateway?
+    @State private var linkPairing: FabricLinkPairing?
 
     var body: some View {
         Group {
@@ -76,9 +77,16 @@ struct RootView: View {
         .sheet(item: $signIn) { gateway in
             SignInSheet(gateway: gateway)
         }
+        .sheet(item: $linkPairing) { pairing in
+            FabricLinkPairingView(pairing: pairing)
+        }
         .onChange(of: appModel.pendingSignInGateway?.id, initial: true) {
             guard appModel.pendingSignInGateway != nil else { return }
             signIn = appModel.takePendingSignInGateway()
+        }
+        .onChange(of: appModel.pendingFabricLinkPairing?.id, initial: true) {
+            guard appModel.pendingFabricLinkPairing != nil else { return }
+            linkPairing = appModel.takePendingFabricLinkPairing()
         }
     }
 }

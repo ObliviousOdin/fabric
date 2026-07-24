@@ -620,6 +620,13 @@ let optionalGatewayFeatureMethods: [String: Set<String>] = [
     "connected_nodes": ["node.list", "node.revoke"],
     "device_node": ["node.enroll"],
     "durable_work": durableWorkGatewayMethods,
+    "link_remote_control": [
+        "events.poll",
+        "session.attach",
+        "session.detach",
+        "session.input.submit",
+        "session.remote_status",
+    ],
     "node_invoke": ["node.announce", "node.result", "node.reject"],
     "pets": ["pet.info", "pet.info.meta", "pet.gallery", "pet.select", "pet.disable", "pet.thumb"],
     "push": ["push.register_device", "push.deregister_device"],

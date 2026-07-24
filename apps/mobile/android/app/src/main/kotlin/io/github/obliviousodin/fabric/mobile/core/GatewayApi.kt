@@ -339,6 +339,13 @@ val OPTIONAL_GATEWAY_FEATURE_METHODS = mapOf(
     "connected_nodes" to setOf("node.list", "node.revoke"),
     "device_node" to setOf("node.enroll"),
     "durable_work" to DURABLE_WORK_GATEWAY_METHODS,
+    "link_remote_control" to setOf(
+        "events.poll",
+        "session.attach",
+        "session.detach",
+        "session.input.submit",
+        "session.remote_status",
+    ),
     "node_invoke" to setOf("node.announce", "node.result", "node.reject"),
     "pets" to setOf(
         "pet.info",

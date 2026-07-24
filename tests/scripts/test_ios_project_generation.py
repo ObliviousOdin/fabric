@@ -90,6 +90,62 @@ class IOSProjectGenerationTests(unittest.TestCase):
         self.source_revision = self._commit_spec("add iOS project manifest")
 
         self.capture = self.checkout / "captured-project.yml"
+        self.link_build_capture = self.checkout / "captured-link-build"
+        self.fake_tools = self.checkout / "fake-tools"
+        self.fake_tools.mkdir()
+        fake_curl = self.fake_tools / "curl"
+        fake_curl.write_text(
+            textwrap.dedent(
+                """\
+                #!/bin/sh
+                set -eu
+                output=""
+                while [ "$#" -gt 0 ]; do
+                  case "$1" in
+                    --output)
+                      output="$2"
+                      shift 2
+                      ;;
+                    *)
+                      shift
+                      ;;
+                  esac
+                done
+                test -n "$output"
+                printf '#!/bin/sh\\nexit 0\\n' > "$output"
+                """
+            ),
+            encoding="utf-8",
+        )
+        fake_curl.chmod(0o755)
+        fake_shasum = self.fake_tools / "shasum"
+        fake_shasum.write_text(
+            "#!/bin/sh\ncat >/dev/null\n",
+            encoding="utf-8",
+        )
+        fake_shasum.chmod(0o755)
+
+        link_build = (
+            self.checkout
+            / "apps"
+            / "fabric-link-core"
+            / "apple"
+            / "build-xcframework.sh"
+        )
+        link_build.parent.mkdir(parents=True)
+        link_build.write_text(
+            textwrap.dedent(
+                """\
+                #!/bin/sh
+                set -eu
+                : "${FABRIC_TEST_CAPTURE_LINK_BUILD:?}"
+                printf 'built\\n' > "$FABRIC_TEST_CAPTURE_LINK_BUILD"
+                """
+            ),
+            encoding="utf-8",
+        )
+        link_build.chmod(0o755)
+
         self.fake_xcodegen = self.checkout / "fake-xcodegen"
         self.fake_xcodegen.write_text(
             textwrap.dedent(
@@ -150,6 +206,8 @@ class IOSProjectGenerationTests(unittest.TestCase):
                 "CI_PRIMARY_REPOSITORY_PATH": str(self.checkout),
                 "FABRIC_XCODEGEN_BIN": str(self.fake_xcodegen),
                 "FABRIC_TEST_CAPTURE_SPEC": str(self.capture),
+                "FABRIC_TEST_CAPTURE_LINK_BUILD": str(self.link_build_capture),
+                "PATH": f"{self.fake_tools}{os.pathsep}{environment['PATH']}",
             }
         )
         environment.pop("CI_BUILD_NUMBER", None)
@@ -172,6 +230,10 @@ class IOSProjectGenerationTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.capture.read_bytes(), self.original_spec)
+        self.assertEqual(
+            self.link_build_capture.read_text(encoding="utf-8"),
+            "built\n",
+        )
         self.assert_source_manifest_unchanged()
 
     def test_non_executable_configured_generator_fails_closed(self) -> None:

@@ -325,3 +325,70 @@ The source and implementation were placed in the same combined comparison images
 - Website documentation production build passed.
 
 final result: passed
+
+---
+
+# Design QA — Public website design audit (Loop A, cycle 1)
+
+Date: 2026-07-24
+
+> First cycle of the website + docs design-audit loop
+> ([playbook](docs/design/design-audit-loop.md)). Full findings report and
+> evidence: `.codex-audits/website-design-2026-07-24/audit.md`.
+
+## Comparison setup
+
+- Surface: the public Docusaurus site (`website/`) — marketing pages, docs
+  shell, hub and long-form pages.
+- Source of truth: `web/DESIGN.md` principles, `website/src/css/custom.css`
+  token ramps, `apps/design-system/src/tokens/tokens.json` (brand `#4628CC`).
+- Viewports: 360 × 740, 768 × 1024, 1440 × 900. Themes: light and dark
+  (site respects `prefers-color-scheme`).
+- State: production build served locally; Skills Hub and Download rendered
+  with offline data fallbacks (external fetches blocked).
+
+## Focused evidence
+
+- User-guide steps, before/after: `01-user-guide-steps-shatter-360.png`,
+  `02-user-guide-steps-fixed-360.png`.
+- Navbar search at 768, before/after: `03-navbar-search-768-broken.png`,
+  `04-navbar-search-768-fixed.png`.
+- Skills Hub light-contrast (open) and dark reference:
+  `05-skills-light-contrast.png`, `06-skills-dark.png`.
+
+## Iteration history
+
+1. Baseline capture (94 screenshots) surfaced one Critical layout break
+   (user-guide steps shattered into word fragments), one Critical brand
+   violation (Skills Hub Google Fonts import), two High issues (navbar
+   search overflow at 768–996px; Skills Hub light-theme contrast), and a
+   set of Medium/Low findings.
+2. Fixed the three localized Critical/High items — the steps-grid CSS, the
+   font import, and the collapsed-search hint — then rebuilt and re-captured
+   the affected screens to confirm resolution.
+
+## Interaction and accessibility verification
+
+- User-guide steps now render as a readable numbered list at 360 in both
+  themes; inline code no longer stretches into full-width bars.
+- The 768px collapsed navbar search shows a clean circular icon with no
+  overflowing shortcut hint; the hint correctly reappears at 1440 where the
+  input is expanded.
+- Skills Hub renders in the site's system font stacks with no external
+  font request.
+- Not a full automated a11y audit; the Skills Hub light-theme contrast
+  failures (High) are recorded as open for a scoped follow-up fix PR, with
+  contrast figures flagged for tooling verification during the fix.
+
+## Automated verification
+
+- Website production build passed after the fixes (broken links/anchors are
+  enforced at build time).
+- Documentation gates passed: `docs_sync.py check`/`audit`,
+  `generate-skill-docs.py --check`, website typecheck, `fabric-brand-audit.py`
+  (source + rendered `--build-dir`), and `lint:diagrams`.
+
+final result: passed with limits — all Critical findings cleared and
+re-verified; one High (Skills Hub light-theme contrast) and the Medium/Low
+set are documented as open for scoped follow-up fix PRs; the uppercase-label
+convention and the 404 route are escalated for a maintainer decision.

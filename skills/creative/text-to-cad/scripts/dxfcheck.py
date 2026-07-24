@@ -84,6 +84,21 @@ def _arc_endpoints(entity) -> tuple[tuple, tuple]:
     )
 
 
+def polyline_segments(points: list[tuple[float, float]], closed: bool) -> tuple[list[tuple[tuple, tuple]], int]:
+    """Return open-polyline segments and isolated open vertices.
+
+    Closed polylines are already counted as profiles. Open polylines must be
+    folded into the endpoint graph so a dangling contour cannot be hidden by a
+    separate valid closed profile in the same DXF.
+    """
+    vertices = [_key(x, y) for x, y in points]
+    if closed or not vertices:
+        return [], 0
+    if len(vertices) == 1:
+        return [], 1
+    return list(zip(vertices, vertices[1:])), 0
+
+
 def collect_dxf_facts(path: Path) -> dict:
     try:
         import ezdxf
@@ -95,6 +110,7 @@ def collect_dxf_facts(path: Path) -> dict:
     counts: dict[str, int] = {}
     inherent_closed = 0
     segments: list[tuple[tuple, tuple]] = []
+    isolated_open_vertices = 0
     xs: list[float] = []
     ys: list[float] = []
 
@@ -108,14 +124,21 @@ def collect_dxf_facts(path: Path) -> dict:
                 xs.extend([cx - r, cx + r])
                 ys.extend([cy - r, cy + r])
         elif name in {"LWPOLYLINE", "POLYLINE"}:
-            if getattr(entity, "closed", False) or entity.dxf.get("flags", 0) & 1:
-                inherent_closed += 1
+            closed = bool(getattr(entity, "closed", False) or entity.dxf.get("flags", 0) & 1)
+            points = []
             try:
-                for point in entity.get_points("xy"):
-                    xs.append(point[0])
-                    ys.append(point[1])
+                points = [(point[0], point[1]) for point in entity.get_points("xy")]
             except (AttributeError, TypeError):
                 pass
+
+            if closed:
+                inherent_closed += 1
+            polyline_edges, isolated = polyline_segments(points, closed)
+            segments.extend(polyline_edges)
+            isolated_open_vertices += isolated
+            for x, y in points:
+                xs.append(x)
+                ys.append(y)
         elif name == "SPLINE":
             if entity.closed:
                 inherent_closed += 1
@@ -132,6 +155,7 @@ def collect_dxf_facts(path: Path) -> dict:
             ys.extend([start[1], end[1]])
 
     segment_loops, open_endpoints = analyze_segments(segments)
+    open_endpoints += isolated_open_vertices
     if xs and ys:
         min_x, min_y, max_x, max_y = min(xs), min(ys), max(xs), max(ys)
     else:

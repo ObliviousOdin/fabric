@@ -206,6 +206,11 @@ def test_dxfcheck_segment_closure():
     assert dxfcheck.analyze_segments([((0, 0), (10, 0))]) == (0, 2)
     assert dxfcheck.analyze_segments([]) == (0, 0)
 
+    open_edges, isolated = dxfcheck.polyline_segments([(20, 0), (30, 0), (30, 10)], False)
+    assert dxfcheck.analyze_segments(square + open_edges) == (0, 2)
+    assert isolated == 0
+    assert dxfcheck.polyline_segments([(20, 0)], False) == ([], 1)
+
 
 def test_cadviewer_page_embeds_model():
     cadviewer = load_script("cadviewer.py")

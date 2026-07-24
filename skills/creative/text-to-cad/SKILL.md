@@ -1,6 +1,6 @@
 ---
 name: text-to-cad
-description: "Text-to-CAD: prose or drawings to parametric STEP/STL/3MF/GLB parts (build123d)."
+description: "Generate validated parametric CAD parts from text or drawings."
 version: 1.0.0
 author: Fabric
 license: MIT
@@ -61,13 +61,16 @@ CAD libraries are heavyweight and **must not** enter `pyproject.toml` or
 `uv.lock`. The skill owns a private virtualenv:
 
 ```bash
-bash scripts/setup.sh        # creates ${FABRIC_HOME:-~/.fabric}/text-to-cad/venv
+python scripts/setup.py       # works on macOS, Linux, and Windows
+# Unix convenience wrapper:
+bash scripts/setup.sh
 ```
 
-`setup.sh` installs the pinned `requirements.txt` (build123d, numpy-stl,
-matplotlib, ezdxf) with `uv` when available, else `pip`. It prints the venv's
-python path on success — use that interpreter for every script below. Done
-when: `setup.sh` exits 0 and prints the interpreter path.
+`setup.py` installs the pinned `requirements.txt` (build123d, numpy-stl,
+matplotlib, ezdxf) with `uv` when available, else `pip`. It chooses the
+platform's venv interpreter (`bin/python` or `Scripts/python.exe`) and prints
+that path on success — use it for every script below. Done when setup exits 0
+and prints the interpreter path.
 
 ## Pipeline
 
@@ -79,7 +82,8 @@ BRIEF --> SETUP --> MODEL --> CHECK --> EXPORT --> SNAPSHOT --> REVIEW
    from the request into a short written brief (see `references/cad-brief.md`
    for prose/image/drawing extraction). Done when: every dimension has a
    number + unit, or a named assumption from the defaults table.
-2. **SETUP** — Run `scripts/setup.sh`. Done when: it prints the venv python.
+2. **SETUP** — Run `python scripts/setup.py` (or `scripts/setup.sh` on Unix).
+   Done when: it prints the venv python.
 3. **MODEL** — Write `<part>.py` next to where the outputs belong, parameters
    as named constants at the top, exports sharing the generator's basename
    (`bracket.py` → `bracket.step`). Patterns, selectors, and error fixes:
@@ -106,7 +110,8 @@ BRIEF --> SETUP --> MODEL --> CHECK --> EXPORT --> SNAPSHOT --> REVIEW
 
 | Script | Purpose | Reference |
 |---|---|---|
-| `scripts/setup.sh` | Preflight + create/refresh the isolated venv | — |
+| `scripts/setup.py` | Cross-platform preflight + isolated venv setup | — |
+| `scripts/setup.sh` | Unix wrapper for `setup.py` | — |
 | `scripts/cadcheck.py` | Geometry facts + pass/fail validation for STEP/STL | validation-and-exports.md |
 | `scripts/cadsnap.py` | Multi-view PNG snapshots from STEP/STL | validation-and-exports.md |
 | `scripts/stdparts.py` | Parametric ISO fasteners (screws, nuts, washers) | standard-parts.md |

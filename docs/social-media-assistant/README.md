@@ -1,150 +1,113 @@
 # Fabric Social Media Assistant — Product Plan
 
-**Status:** Proposed product plan and implementation packet
+**Status:** Draft product plan and implementation packet
 **Date:** 2026-07-23
-**Product area:** Fabric Mobile, gateway-backed Social workspace
-**Primary design partner:** Example Company
-**Source use case:** a GTM leader operating Example Company's LinkedIn company page from mobile, coordinating agent research and content while retaining human control of every external post.
+**Product area:** Fabric Social Studio and dashboard extension
+**Design-partner context:** An anonymized B2B company LinkedIn-growth workflow
 
-## The product decision
+## Product decision
 
-Build **Social** as a first-class workspace inside the existing Fabric Mobile clients—not as a separate social-media app and not as a chat prompt template.
+Build a decision-and-evidence system for a company’s LinkedIn growth work, not a content factory and not an autonomous publishing tool.
 
-Social gives an operator one truthful place to:
+The first implementation is **mobile-first, not native-first**:
 
-1. set a growth goal and working forecast;
-2. produce and review company-page content with a specialized agent ensemble;
-3. publish manually on LinkedIn, then record the exact post URL;
-4. capture analytics with provenance and explicit coverage;
-5. read mobile-first start-of-day (SOD) and end-of-day (EOD) growth briefs; and
-6. export a clean CSV/PDF evidence ledger.
+1. Preserve the shipped Social Studio Compose/Library flow for drafting in a Fabric session and copying a LinkedIn-ready caption.
+2. Add a responsive, authenticated dashboard plugin for the durable operating ledger, manual evidence entry, and concise reports. It is usable from a phone browser.
+3. Defer changes to the core gateway contract, mobile PWA navigation, and native iOS/Android navigation until the workflow proves useful and the extension boundary is insufficient.
 
-Every workspace shows a **data-health** state so an operator can see whether a conclusion rests on verified, partial, stale, or unavailable evidence.
+## Current verified Fabric baseline
 
-The operating principle is **evidence before optimism**. A company can have excellent creative output while still being unable to prove whether it drives reach or pipeline. Social must make that gap visible rather than disguising it with empty metrics or assumed publication.
+Fabric already ships **Social Studio** across desktop, web, iOS, and Android:
 
-## Current Fabric baseline
+- `apps/shared/src/social.ts` defines the LinkedIn post prompt and `linkedin-post` fenced-block parser.
+- Compose starts a Fabric chat with a structured social prompt.
+- Library discovers post-ready assistant output from session transcripts and supports manual copy.
 
-Fabric `main` already ships **Social Studio** across desktop, web, iOS, and Android: a shared LinkedIn post-prompt builder, a `linkedin-post` artifact convention, and Compose/Library flows that let an operator draft a post in chat and copy a completed caption. This proposal does not replace or duplicate that capability.
+That shipped capability is text-first drafting. It is **not** a durable publishing ledger, source of analytics, social-network connector, or versioned approval system.
 
-It specifies the next layer: a persistent, gateway-authoritative Social workspace that promotes Social Studio’s draft/artifact output into versioned content, human review, manual-publish proof, metrics, reports, and decision history. The existing Compose and Library flows remain the draft-entry and artifact-discovery path.
+The mobile PWA is a focused chat shell and does not host dashboard plugins. Dashboard plugins are a separately authenticated extension surface. The MVP therefore opens the responsive dashboard plugin in a phone browser rather than adding a PWA tab or native screen prematurely.
 
 ## Why this is worth building
 
-The Example Company workflow exposed a repeated mobile operations problem:
+The anonymized workflow has a concrete ambition: improve company-page follower growth, qualified interaction, reach, and inbound demand. The hard problem is not generating more captions. It is retaining the truth about:
 
-- The team has a concrete outcome: grow the company LinkedIn page to 10,000 followers and materially increase qualified interaction and inbound demand.
-- The actual work is multi-step: research, competitor review, angle selection, drafting, visual direction, founder/company coordination, approval, manual publication, comments, metric capture, reporting, and iteration.
-- Today these steps are dispersed across chat, documents, LinkedIn, screenshots, assets, and scheduled reminders.
-- The hardest failure is not writing copy. It is losing the truth about what was published, what was measured, and which activity actually created a business outcome.
+- which lane should speak today;
+- what evidence supports the claim;
+- whether a person actually posted externally;
+- which metrics are user-supplied, partial, stale, or unavailable; and
+- which next decision changed because of the evidence.
 
-Fabric already has the correct foundation: authoritative gateway sessions, agent/tool execution on the gateway, user approvals, background work, artifacts, mobile pairing, native iOS/Android clients, and a capability-negotiated wire protocol. The missing product layer is a persistent social-growth operating model that turns those pieces into one mobile routine.
+Fabric can make that loop disciplined without claiming access it does not have.
 
 ## Product promise
 
-> Run a disciplined social-growth experiment from your phone, with clear human approval, proof of what happened, and a daily record of what changed.
+> Help a GTM operator choose the next social action, create an evidence-backed draft, hand it to a human for manual LinkedIn publishing, and record what is known afterward.
 
-This is **not** a promise to guarantee LinkedIn growth. Algorithms, audience, content quality, distribution, and sales follow-up remain external variables. Fabric should make experiments faster and outcomes more legible; it must not manufacture causal claims.
+This is not a promise to guarantee distribution, engagement, follower growth, or inbound pipeline. LinkedIn’s presentation and algorithm are platform-controlled. Forecasts are labeled scenarios, not promises.
 
-## Plan at a glance
+## Delivery path
 
-| Phase | Outcome | Scope | Exit evidence |
+| Phase | Outcome | Implementation boundary | Exit evidence |
 | --- | --- | --- | --- |
-| 0 — Contract and data truth | One authoritative Social workspace model | Gateway contracts, profile-private store, content/evidence/metric state machines, capability gate | Cross-client parser fixtures; no client can show unsupported or fabricated social state |
-| 1 — Mobile operating loop | An operator can run today’s plan and record manual publication | Promote Social Studio into a Social destination; setup, Today, content queue, post detail, manual URL capture, CSV export | iOS, Android, PWA screenshots and tests for empty/loading/offline/partial-data states |
-| 2 — Measurement loop | Daily reports become evidence-led | Screenshot/CSV import, metric snapshots, data health, SOD/EOD brief, forecast inputs | A report correctly distinguishes `0`, unknown, stale, partial, and verified data |
-| 3 — Agent ensemble | Repeatable content and research operations | Role prompts, research briefs, competitor watchlists, content-review and reporting jobs | Agent output is attached to a content item with sources, effort, decision, and review history |
-| 4 — Approved integrations | Less manual reporting where platform access permits | Read-only OAuth/API connector behind explicit consent; CRM/UTM attribution adapters | Tokens are server-side and revocable; connector limitations are visible; no silent publishing |
-| 5 — Experiment intelligence | Better decisions, not opaque automation | Cohort comparisons, cadence/format/angle experiments, forecast ranges, learned playbook | Recommendations cite sample size, comparison window, evidence quality, and uncertainty |
+| 0 — Social Studio safety | Reliable draft-only workflow | Existing Social Studio/session path; no social-network integration | Drafts are assistant-originated, manual-copy wording is unambiguous, and transcript failures are not shown as empty libraries |
+| 1 — Responsive operating ledger | A mobile-browser GTM cockpit | Authenticated `social-gtm` dashboard plugin with profile-scoped local ledger | A user can link a session draft, approve an exact hash, record a user-supplied post URL and manual metrics, then read a truthful report |
+| 2 — Evidence-led reporting | Better decisions from explicitly supplied data | Plugin reports, CSV export, non-publishing cron jobs | Reports distinguish unknown, zero, stale, partial, and user-supplied values |
+| 3 — Validated native integration | Native convenience where proven valuable | Separate core/mobile RFC after plugin validation | One canonical contract, authentication model, and native UX are approved and tested |
+| Future — External connector | Optional read-only platform data only | Separate authorization, legal, security, and product RFC | Explicit consent, scopes, token lifecycle, rate limits, auditability, and failure recovery are demonstrated |
 
-## What ships first
+## What ships in the first useful release
 
-The minimum valuable release is deliberately narrow:
+- a responsive dashboard tab supplied by a `social-gtm` plugin;
+- company/founder lanes, goals, cadence, ownership, and content constraints;
+- a link from a ledger item to its originating Fabric session and draft hash;
+- explicit review/approval for the exact caption version;
+- **Copy for manual LinkedIn publishing** — no publish, schedule, comment, follow, or reshare action;
+- a user-supplied post URL/attestation record, clearly labeled as such;
+- manual metric observations with source, observation date, capture date, coverage, and correction history;
+- a concise SOD/EOD report and parseable CSV export; and
+- non-publishing research/report cron jobs only after plugin-owned data access is verified.
 
-- one organization/brand workspace;
-- one company LinkedIn channel in **manual capture** mode;
-- target, baseline, due date, and simple funnel definitions;
-- an agent-generated daily plan and content queue;
-- mobile review of a post draft, preview, asset, and evidence;
-- a manual-publish handoff with copy-to-clipboard and exact URL capture;
-- explicit content states (`draft`, `approved for manual publish`, `posted—unverified`, `publication verified`, `metrics partial`, `measured`);
-- manual metric entry or screenshot/CSV evidence import;
-- SOD/EOD executive briefs plus CSV/PDF artifact export.
-
-This release does **not** require LinkedIn API access. It creates value even when the operator must paste a post URL and upload analytics screenshots. That is essential because LinkedIn data/API access varies by account, role, product approval, and permission.
+The first release does not require LinkedIn API access, OAuth, scraping, native-app changes, PWA navigation changes, image generation, or automatic analytics retrieval.
 
 ## Non-negotiable boundaries
 
-1. **No unattended posting or commenting.** `Approved for manual publish` means the human may publish; it never means Fabric may post.
-2. **No fake analytics.** Unknown is shown as unknown. Missing values remain null, never zero.
-3. **No implicit publication.** A content item is not “published” merely because a draft was selected, copied, or scheduled externally. It needs an operator attestation and then verifiable evidence.
-4. **No local source of truth.** Mobile is a view and action surface over gateway-owned state, exactly like existing Fabric sessions and Work.
-5. **No secret handling in chat or client storage.** OAuth tokens and platform credentials are optional server-side integration material, stored/revoked through the gateway’s credential boundary—not embedded in prompts, screenshots, or mobile caches.
-6. **No algorithm promises.** “Show more,” reach, and engagement predictions are hypotheses. The UI may offer a copy preview but cannot claim deterministic LinkedIn distribution.
-7. **No data blend without labels.** Company-page, founder-profile, paid, organic, and competitor observations remain separately labeled.
+1. **No autonomous public action.** Agents and cron jobs may research, draft, classify supplied evidence, and prepare reports. They cannot publish, schedule, comment, react, follow, invite, or reshare.
+2. **No fake analytics.** Unknown is not zero. Manual values are labeled user-supplied. A URL supplied by a user is not represented as API-verified platform data.
+3. **No implicit publication.** Copying a caption or approving a draft is not proof of an external post.
+4. **No use of chat history as a ledger.** Sessions remain the source of draft conversation; the plugin owns durable social operations data.
+5. **No credentials in prompts, files, clients, or the ledger.** No LinkedIn credentials are requested in this release.
+6. **No cron publishing.** Fabric cron is non-interactive and may auto-approve tools; it must be structurally unable to reach a publishing path.
+7. **No AI-slop factory.** Draft creation begins with a source, a firsthand observation, approved proof, or an explicitly labeled opinion. The system may recommend holding rather than posting.
+8. **No invented mobile support.** The initial experience is a responsive dashboard plugin, not a claimed PWA or native feature.
 
-## The Example Company design-partner use case
+## Design-partner outcomes and KPI policy
 
-### Target outcome
+The program may aim for 10,000 followers and materially stronger interaction and inbound demand, but it must first collect a baseline, due date, metric definition, and reporting window.
 
-- Grow Example Company’s company LinkedIn page toward **10,000 followers** by a user-selected target date.
-- Increase quality-adjusted interaction and reach; the original 200% objective becomes a baseline-relative quarterly target after a real baseline and time window are recorded.
-- Create more qualified inbound interest, not merely more reactions.
+The original 7–15% daily-growth idea is an experiment hypothesis, not a compounding commitment. Use 7-day and 28-day comparisons; show sample size, coverage, and confidence. Keep followers, reach, qualified interaction, qualified inbound, meetings, and pipeline as separate outcomes.
 
-### Actual operating constraints observed
+## Inputs needed during onboarding
 
-- Company and founder content must be separate but coordinated.
-- LinkedIn analytics may be inaccessible to Fabric; reports must still be useful and honest.
-- A draft, a scheduled item, and a confirmed live post are materially different facts.
-- The team wants concise mobile executive reporting: what changed, what was done, what is next, and what is expected.
-- The user wants content assistance and agent delegation, but not autonomous public posting.
-- Custom visuals can cost meaningful effort; their incremental performance must be measured rather than assumed.
+1. Current follower count, target date, and 30/60/90-day history where available.
+2. Exact meaning of the interaction/reach objective and its comparison window.
+3. ICP, offer, CTA, qualification criteria, owner, and definition of a LinkedIn-sourced inbound.
+4. Company/founder voice boundaries, proof rules, prohibited claims, asset/privacy constraints, and topic pillars.
+5. Publishing, reply, review, and reporting owners; cadence capacity and time zone.
+6. An approved competitor/inspiration watchlist and source-retention policy.
+7. The manual method for collecting post URLs and metric observations.
 
-### Product decisions derived from this use case
+## Product documents
 
-| Observed problem | Product response |
-| --- | --- |
-| Post state was uncertain | Versioned content lifecycle and evidence requirements |
-| Metrics were missing | Data-health score, field-level provenance, null vs zero semantics |
-| Reports risked treating drafts as results | Reporting only counts verified publication and labels all other state explicitly |
-| Mobile executive review was needed | Today/SOD/EOD cards optimized for one-handed scanning and decision-making |
-| LinkedIn cannot always be automated | Manual capture is a supported primary path, not an error state |
-| Content could feel repetitive/AI-generated | Voice profile, prior-post similarity check, human review, and source-backed claims |
-| Marketing work needed multiple specialties | Scoped agent roles with one accountable growth-plan owner |
+- [Product specification](PRODUCT_SPEC.md) — MVP scope, data rules, UX, security, and acceptance criteria.
+- [Build handoff](BUILD_HANDOFF.md) — constrained implementation instructions for the plugin and Social Studio hardening.
+- [Mobile operator guide](MOBILE_USER_GUIDE.md) — how to use the existing draft flow and the planned responsive operating ledger.
 
-## Open context to collect during onboarding
+## Product success measures
 
-The setup wizard and the GTM lead’s first working session should collect these inputs. The product remains usable with partial answers, but it must label affected forecasts and recommendations as incomplete.
+During a 30-day active pilot, success means:
 
-1. **Target and baseline:** current followers, target date, 30/60/90-day historical page metrics, and whether the 200% target applies to impressions, engagement rate, qualified engagement, or all of them.
-2. **Business outcome:** ICP, geographies, sectors, role titles, offer/CTA, qualification criteria, sales owner, and CRM definition of a LinkedIn-sourced inbound.
-3. **Content system:** company/founder/employee voice boundaries, topic pillars, proof assets, customer/legal permissions, prohibited claims, and visual capacity.
-4. **Distribution system:** who publishes, who comments, how employee amplification works, paid-media budget, and competitors/watchlists.
-5. **Measurement system:** LinkedIn page-admin access, approved API availability, website analytics, UTM naming convention, CRM connection, and evidence-retention policy.
-6. **Operating cadence:** desired SOD/EOD time zone and delivery times, weekly review day, publishing windows, approval SLA, and weekly production capacity.
-
-## Required product documents
-
-- [Product specification](PRODUCT_SPEC.md) — requirements, states, contracts, measurements, rollout, and acceptance criteria.
-- [Build handoff](BUILD_HANDOFF.md) — the execution prompt for an implementation agent/team.
-- [Mobile user guide](MOBILE_USER_GUIDE.md) — how a GTM operator runs the workflow from a phone.
-
-## Early KPI policy
-
-The original request mentioned daily 7–15% growth. The product should **not** put a compounding daily growth target on a volatile small sample as a commitment. Instead:
-
-- use follower growth and reach targets at 30/60/90-day and quarterly horizons;
-- use 7-day and 28-day rolling comparisons for trend detection;
-- treat 7–15% as an experiment-improvement ambition only when a comparable sample is large enough;
-- display confidence, sample size, and data coverage next to every recommendation; and
-- keep qualified inbounds, meetings, and pipeline as separate downstream outcomes.
-
-## Success measures for the product itself
-
-Within 30 days of an active workspace, a successful product pilot should demonstrate:
-
-- ≥90% of published content has a recorded URL and publication status;
-- ≥80% of expected 24-hour and 7-day metric checkpoints are captured or explicitly marked unavailable;
-- an operator can complete the daily review in under five minutes when data is available;
-- every external post has a recorded human approval/publish handoff; and
-- the weekly report can state which inputs are evidence, which are assumptions, and which decisions changed because of data.
+- every post record is explicitly marked draft, approved for manual copy, user-reported as posted, held, or unknown;
+- manual metric observations retain their provenance and never appear as verified API data;
+- the daily operating review takes under five minutes when inputs are available;
+- the report states what changed, what is unknown, what is next, and who owns it; and
+- the team can demonstrate that the system prevented at least one duplicate, unsupported claim, or mistaken “published” report.

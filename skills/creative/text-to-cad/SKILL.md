@@ -65,9 +65,9 @@ bash scripts/setup.sh        # creates ${FABRIC_HOME:-~/.fabric}/text-to-cad/ven
 ```
 
 `setup.sh` installs the pinned `requirements.txt` (build123d, numpy-stl,
-matplotlib) with `uv` when available, else `pip`. It prints the venv's python
-path on success — use that interpreter for every script below. Done when:
-`setup.sh` exits 0 and prints the interpreter path.
+matplotlib, ezdxf) with `uv` when available, else `pip`. It prints the venv's
+python path on success — use that interpreter for every script below. Done
+when: `setup.sh` exits 0 and prints the interpreter path.
 
 ## Pipeline
 
@@ -104,12 +104,36 @@ BRIEF --> SETUP --> MODEL --> CHECK --> EXPORT --> SNAPSHOT --> REVIEW
 
 ## Scripts
 
-| Script | Purpose |
-|---|---|
-| `scripts/setup.sh` | Preflight + create/refresh the isolated venv |
-| `scripts/cadcheck.py` | Geometry facts + pass/fail validation for STEP/STL |
-| `scripts/cadsnap.py` | Multi-view PNG snapshots from STEP/STL |
-| `scripts/zoo_text_to_cad.py` | Cloud generation via the Zoo Text-to-CAD API |
+| Script | Purpose | Reference |
+|---|---|---|
+| `scripts/setup.sh` | Preflight + create/refresh the isolated venv | — |
+| `scripts/cadcheck.py` | Geometry facts + pass/fail validation for STEP/STL | validation-and-exports.md |
+| `scripts/cadsnap.py` | Multi-view PNG snapshots from STEP/STL | validation-and-exports.md |
+| `scripts/stdparts.py` | Parametric ISO fasteners (screws, nuts, washers) | standard-parts.md |
+| `scripts/assembly.py` | Combine placed STEP parts, flag bbox overlap | assemblies.md |
+| `scripts/printcheck.py` | FDM print-readiness checks from an STL | print-prep.md |
+| `scripts/dxfcheck.py` | Validate 2D DXF cut profiles (closure, extents) | dxf-drawings.md |
+| `scripts/cadviewer.py` | Self-contained HTML 3D viewer from a GLB | validation-and-exports.md |
+| `scripts/zoo_text_to_cad.py` | Cloud generation via the Zoo Text-to-CAD API | providers.md |
+
+## Stack Capabilities
+
+Beyond single-part generation, the skill covers the surrounding hardware
+workflow. Reach for these when the request needs them; each has its own
+reference and, where it produces a file, its own validator.
+
+- **Standard parts** — don't model a screw from scratch. `stdparts.py`
+  emits sized ISO fasteners as STEP so mating features clear real hardware.
+- **Assemblies** — place parts by explicit transform and export one STEP;
+  `assembly.py` reports bounding-box interference (use `--allow-overlap` for
+  intended fits like screws in bores).
+- **2D DXF drawings** — author flat cut profiles with build123d's
+  `ExportDXF`; validate closure and extents with `dxfcheck.py` before sending
+  to a laser cutter.
+- **Print prep** — `printcheck.py` verifies an STL fits the bed and flags
+  steep overhangs and thin features before slicing (no slicer required).
+- **Interactive viewer** — `cadviewer.py` wraps a GLB into a portable,
+  shareable single-file HTML viewer (orbit/zoom) for review or handoff.
 
 ## Cloud Fallback: Zoo Text-to-CAD
 

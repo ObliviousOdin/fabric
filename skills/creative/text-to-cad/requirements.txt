@@ -4,3 +4,4 @@
 build123d==0.11.1
 numpy-stl==3.2.0
 matplotlib==3.10.3
+ezdxf==1.4.2

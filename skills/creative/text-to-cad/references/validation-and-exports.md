@@ -59,6 +59,21 @@ Review the PNG against the brief: feature count (holes, ribs, bosses),
 proportions, and obviously missing/extra material. The snapshot corroborates
 the numeric checks; it never replaces them.
 
+## Interactive viewer (`scripts/cadviewer.py`)
+
+For review or handoff, wrap a GLB export into a single portable HTML file:
+
+```bash
+"$VENV_PY" scripts/cadviewer.py part.glb -o part.html --title "Bracket v3"
+```
+
+The GLB geometry is base64-embedded in the page, so the `.html` is
+self-contained and shareable — no server, no sidecar. Orbit/zoom comes from
+the `<model-viewer>` web component, which loads from a CDN the first time the
+page is opened (the widget's only network need; the model itself is always
+embedded, never fetched). Produce the GLB in the generator with
+`export_gltf(part, "part.glb", binary=True)`.
+
 ## Delivery block
 
 End the final response with:

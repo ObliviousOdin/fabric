@@ -1,0 +1,86 @@
+/* Hero reveal card. Reuses the hero terminal-card language (var(--page-terminal)
+   ground, violet hairline border, offset accent shadow) so the cinematic clip
+   reads as a framed object in both themes rather than a bright floating panel. */
+.reveal {
+  position: relative;
+  margin: 0;
+  border: 1px solid rgba(197, 186, 245, 0.24);
+  background: var(--page-terminal);
+  box-shadow: 20px 24px 0 var(--page-accent-soft);
+}
+
+.header {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  border-bottom: 1px solid rgba(197, 186, 245, 0.18);
+  color: var(--page-terminal-muted);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.11em;
+}
+
+.tag {
+  color: var(--page-terminal-accent);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background:
+    radial-gradient(120% 100% at 50% 0%, rgba(197, 186, 245, 0.1), transparent 60%),
+    var(--page-terminal);
+}
+
+.media {
+  display: block;
+  width: 100%;
+  max-width: 460px;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+}
+
+.replay {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid rgba(197, 186, 245, 0.28);
+  color: var(--page-terminal-muted);
+  background: rgba(11, 10, 15, 0.72);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition:
+    color 160ms ease-out,
+    border-color 160ms ease-out;
+}
+
+.replay:hover {
+  color: var(--page-terminal-ink);
+  border-color: var(--page-terminal-accent);
+}
+
+.replay:focus-visible {
+  outline: 2px solid var(--page-accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .replay {
+    transition: none;
+  }
+}

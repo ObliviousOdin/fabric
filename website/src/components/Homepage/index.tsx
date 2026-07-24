@@ -1,6 +1,7 @@
 import Link from "@docusaurus/Link";
 import useBaseUrl from "@docusaurus/useBaseUrl";
 import CodeBlock from "@theme/CodeBlock";
+import HeroReveal from "../HeroReveal";
 import styles from "./styles.module.css";
 
 const surfaces = [
@@ -175,49 +176,7 @@ export default function Homepage(): React.JSX.Element {
               </ul>
             </div>
 
-            <figure
-              className={styles.profileMap}
-              aria-labelledby="fabric-profile-map-title"
-            >
-              <figcaption className={styles.mapHeader}>
-                <span id="fabric-profile-map-title">PROFILE / MAIN</span>
-                <span className={styles.ready}>
-                  <span aria-hidden="true" /> Ready
-                </span>
-              </figcaption>
-              <dl className={styles.profileInputs}>
-                <div>
-                  <dt>Model route</dt>
-                  <dd>OAuth · API · local</dd>
-                </div>
-                <div>
-                  <dt>Memory</dt>
-                  <dd>Profile-scoped</dd>
-                </div>
-                <div>
-                  <dt>Skills</dt>
-                  <dd>Loaded on demand</dd>
-                </div>
-                <div>
-                  <dt>Control</dt>
-                  <dd>Explicit local policy</dd>
-                </div>
-              </dl>
-              <div className={styles.fabricCore}>
-                <span>Fabric core</span>
-                <span>shared state · shared context · shared control</span>
-              </div>
-              <ul
-                className={styles.surfaceMap}
-                aria-label="Connected Fabric surfaces"
-              >
-                <li>Desktop</li>
-                <li>Terminal</li>
-                <li>Web</li>
-                <li>Messaging</li>
-                <li>IDE / API</li>
-              </ul>
-            </figure>
+            <HeroReveal />
           </div>
         </div>
       </section>

@@ -131,6 +131,11 @@ jobs:
       - name: Test the immutable iOS project-generation contract
         run: python3 ../../../tests/scripts/test_ios_project_generation.py
 
+      - name: Generate and verify the Xcode Cloud bootstrap
+        run: |
+          ci_scripts/ci_post_clone.sh --bootstrap
+          git diff --exit-code -- FabricMobile.xcodeproj Fabric/Info.plist
+
       - name: Generate the archivable Xcode project
         run: ci_scripts/ci_post_clone.sh
 

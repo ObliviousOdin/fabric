@@ -7,7 +7,8 @@
 # The generic Xcode project bootstrap is committed because Xcode Cloud validates
 # the project path before custom scripts run. This script regenerates that
 # project from apps/mobile/ios/project.yml after cloning, applying release-only
-# bundle/build values through a temporary manifest. Point the workflow at:
+# bundle/build values through a temporary manifest. Pass --bootstrap to generate
+# only the generic project for drift verification. Point the workflow at:
 #     project:  apps/mobile/ios/FabricMobile.xcodeproj
 #     scheme:   Fabric
 #
@@ -27,6 +28,15 @@ RUSTUP_X86_64_APPLE_SHA256="33cf85df9142bc6d29cbc62fa5ca1d4c29622cddb55213a4c1a4
 # same hook is also runnable by hand from a normal checkout.
 repo_root="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$(dirname "$0")/../../../.." && pwd)}"
 ios_dir="$repo_root/apps/mobile/ios"
+
+bootstrap_only=false
+if [ "$#" -gt 0 ]; then
+  if [ "$#" -ne 1 ] || [ "$1" != "--bootstrap" ]; then
+    echo "Usage: ci_post_clone.sh [--bootstrap]" >&2
+    exit 2
+  fi
+  bootstrap_only=true
+fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -58,6 +68,22 @@ else
 fi
 
 cd "$ios_dir"
+
+if [ "$bootstrap_only" = true ]; then
+  # Keep this separate from the archive generation below. Xcode Cloud opens the
+  # committed bootstrap before it can run this hook, so CI must be able to
+  # regenerate and diff the no-artifact project on its own.
+  env \
+    -u XCODEGEN_INCLUDE_LINK_CORE \
+    -u XCODEGEN_LINK_OVERLAY_PATH \
+    -u XCODEGEN_LINK_CORE_PACKAGE_PATH \
+    "$xcodegen_bin" generate \
+      --spec "$ios_dir/project.yml" \
+      --project "$ios_dir" \
+      --project-root "$ios_dir"
+  echo "XcodeGen generated the generic FabricMobile.xcodeproj bootstrap"
+  exit 0
+fi
 
 # Release overrides are rendered into a temporary spec. The tracked manifest is
 # never edited, so a local run and an Xcode Cloud run share the same clean-source

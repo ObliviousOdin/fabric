@@ -55,7 +55,6 @@ edits the tracked `project.yml`.
 - A role of Account Holder, Admin, or App Manager (to create the app record and
   manage Xcode Cloud).
 - A Mac with Xcode 16 or newer.
-- XcodeGen for the one-time local setup: `brew install xcodegen`.
 - Rustup for local Fabric Link builds. The checked-in Apple build recipe pins
   the Rust version and installs only its required iOS targets:
 
@@ -69,9 +68,8 @@ Xcode Cloud needs the project present before it can start a build or run
 `ci_post_clone.sh`. Generate the portable bootstrap from the manifest:
 
 ```bash
-cd apps/mobile/ios
-xcodegen generate
-open FabricMobile.xcodeproj
+./apps/mobile/ios/ci_scripts/ci_post_clone.sh --bootstrap
+open apps/mobile/ios/FabricMobile.xcodeproj
 ```
 
 Commit `FabricMobile.xcodeproj` and `Fabric/Info.plist` whenever `project.yml`

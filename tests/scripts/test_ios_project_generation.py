@@ -243,7 +243,9 @@ class IOSProjectGenerationTests(unittest.TestCase):
         )
         return result.stdout.strip()
 
-    def run_post_clone(self, **overrides: str) -> subprocess.CompletedProcess[str]:
+    def run_post_clone(
+        self, *arguments: str, **overrides: str
+    ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment.update(
             {
@@ -267,7 +269,7 @@ class IOSProjectGenerationTests(unittest.TestCase):
         environment.pop("FABRIC_IOS_BUNDLE_ID", None)
         environment.update(overrides)
         return subprocess.run(
-            [str(POST_CLONE)],
+            [str(POST_CLONE), *arguments],
             check=False,
             capture_output=True,
             text=True,
@@ -306,6 +308,25 @@ class IOSProjectGenerationTests(unittest.TestCase):
                 "describe",
             ],
         )
+        self.assert_source_manifest_unchanged()
+
+    def test_bootstrap_generation_skips_fabric_link_staging(self) -> None:
+        result = self.run_post_clone("--bootstrap")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.capture.read_bytes(), self.original_spec)
+        self.assertEqual(
+            self.link_include_capture.read_text(encoding="utf-8"), ""
+        )
+        self.assertEqual(
+            self.link_overlay_capture.read_text(encoding="utf-8"), ""
+        )
+        self.assertEqual(
+            self.link_package_path_capture.read_text(encoding="utf-8"), ""
+        )
+        self.assertFalse(self.link_build_capture.exists())
+        self.assertFalse(self.swift_args_capture.exists())
+        self.assertFalse(self.rustup_args_capture.exists())
         self.assert_source_manifest_unchanged()
 
     def test_rustup_cannot_modify_the_user_shell_profile(self) -> None:

@@ -171,7 +171,7 @@ final class WorkBoardPresentationTests: XCTestCase {
             WorkJobDetailView.message(for: .delivered(attentionID: "a", version: 2, state: "resolved", replayed: false)),
             "Response sent."
         )
-        XCTAssertEqual(WorkJobDetailView.message(for: .outcomeUnknown), "Couldn't confirm the response. Pull to refresh.")
+        XCTAssertEqual(WorkJobDetailView.message(for: FabricWorkInboxAttentionResult.outcomeUnknown), "Couldn't confirm the response. Pull to refresh.")
     }
 
     func testAttentionActionLabels() {

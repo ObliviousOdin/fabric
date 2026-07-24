@@ -17,10 +17,11 @@ class StageLinkCoreError(ValueError):
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _PLATFORM_MARKERS = {
-    "mac": ("macosx", "arm64"),
+    "mac": ("macosx",),
     "win": ("win_amd64",),
     "linux": ("linux_x86_64",),
 }
+_MACOS_ARCH_MARKERS = ("arm64", "universal2")
 
 
 def _sha256(path: Path) -> str:
@@ -71,17 +72,21 @@ def stage_link_core_wheel(
     rows = manifest.get("artifacts")
     if not isinstance(rows, list):
         raise StageLinkCoreError("release artifact manifest is invalid")
-    markers = _PLATFORM_MARKERS[platform]
     candidates = []
     for row in rows:
         if not isinstance(row, dict):
             continue
         name = row.get("name")
+        lower_name = name.lower() if isinstance(name, str) else ""
         if (
             isinstance(name, str)
             and name.startswith(f"fabric_link_core-{version}-")
             and name.endswith(".whl")
-            and all(marker in name.lower() for marker in markers)
+            and all(marker in lower_name for marker in _PLATFORM_MARKERS[platform])
+            and (
+                platform != "mac"
+                or any(marker in lower_name for marker in _MACOS_ARCH_MARKERS)
+            )
         ):
             candidates.append(row)
     if len(candidates) != 1:

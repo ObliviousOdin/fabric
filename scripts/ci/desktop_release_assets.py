@@ -696,16 +696,20 @@ def resolve_release(
     repository: str,
     tag: str,
     github_sha: str,
+    github_ref: str,
     desktop_version: str,
     force_rebuild: bool,
+    allow_main_backfill: bool,
 ) -> dict:
-    """Validate the release, bind the dispatched SHA, and decide packaging."""
+    """Validate the release, bind its immutable source, and decide packaging."""
     if not REPOSITORY_RE.fullmatch(repository):
         raise DesktopAssetError("repository must use owner/name form")
     if not TAG_RE.fullmatch(tag):
         raise DesktopAssetError("release tag must use CalVer form")
     if not SHA_RE.fullmatch(github_sha):
         raise DesktopAssetError("github SHA must be a 40-character commit SHA")
+    if not github_ref.startswith("refs/"):
+        raise DesktopAssetError("github ref must be a fully qualified Git ref")
     _validate_desktop_version(desktop_version)
 
     release = _run_gh(["api", f"repos/{repository}/releases/tags/{tag}"])
@@ -719,7 +723,18 @@ def resolve_release(
         raise DesktopAssetError(f"release {tag} is a prerelease; refusing to attach")
 
     tag_sha = _tag_commit_sha(repository, tag)
-    if tag_sha != github_sha:
+    tag_ref = f"refs/tags/{tag}"
+    if allow_main_backfill:
+        if github_ref != "refs/heads/main":
+            raise DesktopAssetError(
+                "main backfill is only allowed when dispatched from refs/heads/main"
+            )
+    elif github_ref != tag_ref:
+        raise DesktopAssetError(
+            f"dispatched ref {github_ref} is not {tag_ref}; "
+            "dispatch desktop-release.yml at ref: <tag>"
+        )
+    if tag_sha != github_sha and not allow_main_backfill:
         raise DesktopAssetError(
             f"dispatched SHA {github_sha} does not match tag {tag} commit {tag_sha}; "
             "dispatch desktop-release.yml at ref: <tag>, not main"
@@ -747,12 +762,14 @@ def _parser() -> argparse.ArgumentParser:
     resolve.add_argument("--repository", required=True)
     resolve.add_argument("--tag", required=True)
     resolve.add_argument("--github-sha", required=True)
+    resolve.add_argument("--github-ref", required=True)
     resolve.add_argument(
         "--desktop-package",
         type=Path,
         default=Path("apps/desktop/package.json"),
     )
     resolve.add_argument("--force-rebuild", action="store_true")
+    resolve.add_argument("--allow-main-backfill", action="store_true")
     resolve.add_argument("--output", type=Path)
 
     collect = sub.add_parser("collect", help="Hash one platform's installers")
@@ -801,8 +818,10 @@ def main(argv: list[str] | None = None) -> int:
                 repository=args.repository,
                 tag=args.tag,
                 github_sha=args.github_sha,
+                github_ref=args.github_ref,
                 desktop_version=desktop_version,
                 force_rebuild=args.force_rebuild,
+                allow_main_backfill=args.allow_main_backfill,
             )
             _write_outputs(
                 {

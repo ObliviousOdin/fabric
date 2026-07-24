@@ -49,8 +49,12 @@ class DesktopReleaseWorkflowAudit(unittest.TestCase):
         self.assertLess(collect, verify)
         self.assertLess(verify, attach)
 
-    def test_resolve_binds_the_dispatched_commit(self) -> None:
+    def test_resolve_binds_tag_releases_and_limits_backfills_to_main(self) -> None:
         self.assertIn("--github-sha \"${{ github.sha }}\"", self.desktop)
+        self.assertIn("--github-ref \"${{ github.ref }}\"", self.desktop)
+        self.assertIn("backfill_from_main:", self.desktop)
+        self.assertIn("args+=(--allow-main-backfill)", self.desktop)
+        self.assertIn("git show \"${RELEASE_TAG}:apps/desktop/package.json\"", self.desktop)
 
     def test_only_the_attach_job_can_write_contents(self) -> None:
         # Exactly one contents: write in the file, belonging to the attach job.
@@ -75,6 +79,14 @@ class DesktopReleaseWorkflowAudit(unittest.TestCase):
         gate = self.channels.index("desktop_release_assets.py preflight")
         publish = self.channels.index("python3 scripts/ci/publish_release.py")
         self.assertLess(gate, publish)
+
+    def test_release_asset_api_paths_are_safe_for_windows_git_bash(self) -> None:
+        asset_path = "repos/${{ github.repository }}/releases/assets/${asset_id}"
+        tag_path = "repos/${{ github.repository }}/releases/tags/${{ inputs.release_tag }}"
+        self.assertIn(asset_path, self.desktop)
+        self.assertIn(tag_path, self.desktop)
+        self.assertNotIn(f'/{asset_path}', self.desktop)
+        self.assertNotIn(f'/{tag_path}', self.desktop)
 
 
 if __name__ == "__main__":

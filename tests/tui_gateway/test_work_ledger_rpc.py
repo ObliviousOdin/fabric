@@ -1093,11 +1093,18 @@ def test_job_read_collection_and_delta_rpc_shapes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _session, _ = _install_session(tmp_path)
+    entered = threading.Event()
     release = threading.Event()
+
+    def _blocked_background_agent(_spec, _control):
+        entered.set()
+        release.wait(timeout=5)
+        return {"final_response": "ok"}
+
     monkeypatch.setattr(
         server,
         "_run_durable_background_agent",
-        lambda _spec, _control: (release.wait(timeout=5), {"final_response": "ok"})[1],
+        _blocked_background_agent,
     )
     receipt = _rpc(
         "job.create",
@@ -1110,33 +1117,41 @@ def test_job_read_collection_and_delta_rpc_shapes(
         },
     )["result"]
     job_id = receipt["job"]["job_id"]
-    detail = _rpc("job.get", {"session_id": "mobile-session", "job_id": job_id})[
-        "result"
-    ]
-    listing = _rpc(
-        "job.list",
-        {"session_id": "mobile-session", "statuses": [detail["status"]], "limit": 10},
-    )["result"]
-    events = _rpc(
-        "job.events",
-        {"session_id": "mobile-session", "job_id": job_id, "after": 0},
-    )["result"]
-    delta = _rpc(
-        "job.sync",
-        {
-            "session_id": "mobile-session",
-            "ledger_id": server._work_service_for_session(_session).ledger_id,
-            "after": 0,
-            "limit": 100,
-        },
-    )["result"]
+    assert entered.wait(timeout=5)
+    try:
+        detail = _rpc(
+            "job.get",
+            {"session_id": "mobile-session", "job_id": job_id},
+        )["result"]
+        listing = _rpc(
+            "job.list",
+            {
+                "session_id": "mobile-session",
+                "statuses": [detail["status"]],
+                "limit": 10,
+            },
+        )["result"]
+        events = _rpc(
+            "job.events",
+            {"session_id": "mobile-session", "job_id": job_id, "after": 0},
+        )["result"]
+        delta = _rpc(
+            "job.sync",
+            {
+                "session_id": "mobile-session",
+                "ledger_id": server._work_service_for_session(_session).ledger_id,
+                "after": 0,
+                "limit": 100,
+            },
+        )["result"]
 
-    assert detail["job_id"] == job_id
-    assert [job["job_id"] for job in listing["jobs"]] == [job_id]
-    assert events["events"][0]["event_type"] == "job.created"
-    assert delta["mode"] == "delta"
-    assert delta["events"][0]["subject_id"] == job_id
-    release.set()
+        assert detail["job_id"] == job_id
+        assert [job["job_id"] for job in listing["jobs"]] == [job_id]
+        assert events["events"][0]["event_type"] == "job.created"
+        assert delta["mode"] == "delta"
+        assert delta["events"][0]["subject_id"] == job_id
+    finally:
+        release.set()
 
 
 def test_job_and_attention_list_tokens_preserve_submillisecond_order(

@@ -39,13 +39,14 @@ export function normalizeMithuruPreferences(value: unknown): MithuruPreferences 
     : DEFAULT_MITHURU_PREFERENCES.textScale
 
   const requestedRate = typeof row.speechRate === 'number' ? row.speechRate : DEFAULT_MITHURU_PREFERENCES.speechRate
+  const voiceEnabled = interactionMode !== 'text' && row.voiceEnabled !== false
 
   return {
     experienceMode,
     preferredLocale: normalizeMithuruLocale(typeof row.preferredLocale === 'string' ? row.preferredLocale : 'en-LK'),
     interactionMode,
-    voiceEnabled: row.voiceEnabled !== false,
-    cloudSpeechAllowed: row.cloudSpeechAllowed === true,
+    voiceEnabled,
+    cloudSpeechAllowed: voiceEnabled && row.cloudSpeechAllowed === true,
     speechRate: Math.min(1, Math.max(0.5, requestedRate)),
     textScale,
     caregiverModeConfigured: row.caregiverModeConfigured === true

@@ -61,6 +61,9 @@ enum MithuruPreferencesStore {
     private static func normalized(_ source: MithuruPreferences) -> MithuruPreferences {
         var result = source
         result.speechRate = min(1.0, max(0.5, source.speechRate))
+        if result.interactionMode == .textOnly {
+            result.cloudSpeechAllowed = false
+        }
         return result
     }
 }

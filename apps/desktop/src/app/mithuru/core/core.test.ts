@@ -42,4 +42,14 @@ describe('Mithuru preferences', () => {
   it('does not silently enable online speech', () => {
     expect(normalizeMithuruPreferences({}).cloudSpeechAllowed).toBe(false)
   })
+
+  it('clears stale voice consent in text-only mode', () => {
+    expect(
+      normalizeMithuruPreferences({
+        interactionMode: 'text',
+        voiceEnabled: true,
+        cloudSpeechAllowed: true
+      })
+    ).toMatchObject({ voiceEnabled: false, cloudSpeechAllowed: false })
+  })
 })

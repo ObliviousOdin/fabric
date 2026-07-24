@@ -17,12 +17,15 @@ final class MithuruFoundationTests: XCTestCase {
         first.onboardingCompleted = true
         first.locale = .tamil
         first.speechRate = 9
+        first.interactionMode = .textOnly
+        first.cloudSpeechAllowed = true
 
         MithuruPreferencesStore.save(first, gatewayID: "gateway-a", defaults: defaults)
 
         let loaded = MithuruPreferencesStore.load(gatewayID: "gateway-a", defaults: defaults)
         XCTAssertEqual(loaded.locale, .tamil)
         XCTAssertEqual(loaded.speechRate, 1)
+        XCTAssertFalse(loaded.cloudSpeechAllowed)
         XCTAssertFalse(MithuruPreferencesStore.load(gatewayID: "gateway-b", defaults: defaults).onboardingCompleted)
     }
 

@@ -1,112 +1,39 @@
 import { AlertTriangle, ImageIcon, RefreshCw, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 
 import { Badge } from "@/components/fabric/Badge";
 import { EmptyState, Skeleton } from "@/components/ui";
+import type {
+  SocialArtifactScan,
+  SocialSessionArtifacts,
+} from "@/hooks/useSocialArtifactScan";
 import { useI18n } from "@/i18n";
 import { en } from "@/i18n/en";
-import {
-  extractSocialArtifacts,
-  type SocialArtifact,
-} from "@fabric/shared";
-
-import { api, type SessionInfo } from "@/lib/api";
 
 import { CopyButton } from "./CopyButton";
 import { SocialArtifactDetail } from "./SocialArtifactDetail";
 import { WorkspaceImage } from "./WorkspaceImage";
-
-const INITIAL_SCAN = 25;
-const SCAN_STEP = 25;
-const SCAN_CONCURRENCY = 4;
-// Cap how many messages we pull per session while looking for the post.
-const MESSAGE_SCAN_LIMIT = 250;
-
-interface SessionArtifacts {
-  session: SessionInfo;
-  artifacts: SocialArtifact[];
-}
-
-/** Run an async mapper over items with a fixed concurrency ceiling. */
-async function mapLimit<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  const worker = async () => {
-    let index = cursor;
-    cursor += 1;
-    while (index < items.length) {
-      results[index] = await fn(items[index], index);
-      index = cursor;
-      cursor += 1;
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, worker),
-  );
-  return results;
-}
 
 function preview(caption: string, max = 160): string {
   const flat = caption.replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-export function SocialLibrary() {
+/**
+ * The Social Studio library. Renders the artifacts found by the page-owned
+ * scan (`useSocialArtifactScan`) — the page uses the same scan to keep this
+ * stage locked until a post actually exists, so the library never opens onto
+ * scaffolding with nothing in it.
+ */
+export function SocialLibrary({ scan }: { scan: SocialArtifactScan }) {
   const { t } = useI18n();
   const s = t.social ?? en.social!;
 
-  const [results, setResults] = useState<SessionArtifacts[]>([]);
-  const [scanCount, setScanCount] = useState(INITIAL_SCAN);
-  const [scanned, setScanned] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<SessionArtifacts | null>(null);
-
-  const scan = useCallback(async (count: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { sessions } = await api.getSessions(
-        count,
-        0,
-        undefined,
-        "recent",
-      );
-      const candidates = sessions.filter((session) => session.message_count > 0);
-      const scannedResults = await mapLimit(
-        candidates,
-        SCAN_CONCURRENCY,
-        async (session): Promise<SessionArtifacts | null> => {
-          try {
-            const resp = await api.getSessionMessages(session.id, undefined, {
-              limit: MESSAGE_SCAN_LIMIT,
-            });
-            const artifacts = extractSocialArtifacts(resp.messages);
-            return artifacts.length ? { session, artifacts } : null;
-          } catch {
-            return null;
-          }
-        },
-      );
-      setResults(scannedResults.filter((row): row is SessionArtifacts => row !== null));
-      setScanned(candidates.length);
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void scan(scanCount);
-  }, [scan, scanCount]);
+  const { error, loading, rescan, results, scanMore, scanned } = scan;
+  const [selected, setSelected] = useState<SocialSessionArtifacts | null>(null);
 
   if (loading && results.length === 0) {
     return (
@@ -125,7 +52,7 @@ export function SocialLibrary() {
         <span className="min-w-0 flex-1 text-sm text-destructive">
           {s.loadFailed}
         </span>
-        <Button outlined size="sm" onClick={() => void scan(scanCount)}>
+        <Button outlined size="sm" onClick={rescan}>
           {s.retry}
         </Button>
       </div>
@@ -142,18 +69,13 @@ export function SocialLibrary() {
           <Button
             ghost
             size="sm"
-            onClick={() => void scan(scanCount)}
+            onClick={rescan}
             prefix={loading ? <Spinner /> : <RefreshCw />}
             disabled={loading}
           >
             {s.scan}
           </Button>
-          <Button
-            outlined
-            size="sm"
-            onClick={() => setScanCount((count) => count + SCAN_STEP)}
-            disabled={loading}
-          >
+          <Button outlined size="sm" onClick={scanMore} disabled={loading}>
             {s.scanMore}
           </Button>
         </div>

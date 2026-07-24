@@ -1,284 +1,232 @@
-# Build Handoff — Fabric Social Media Assistant
+# Build Handoff — Fabric Social Media Assistant MVP
 
-Copy the following prompt into the implementation session that will build the product. It is intentionally constrained to Fabric’s existing mobile/gateway architecture and requires real verification rather than a mock dashboard.
+Copy this prompt into the implementation session. It is intentionally constrained to Fabric’s current extension boundaries and must not claim product capabilities that are not implemented.
 
 ---
 
 ## Implementation prompt
 
-You are the principal product engineer for Fabric. Build the first production-grade vertical slice of **Fabric Social Media Assistant** according to:
+You are implementing the first production-quality slice of **Fabric Social Media Assistant**. Read:
 
 - `docs/social-media-assistant/README.md`
 - `docs/social-media-assistant/PRODUCT_SPEC.md`
 - `docs/social-media-assistant/MOBILE_USER_GUIDE.md`
-- `apps/mobile/README.md`
-- `apps/mobile/PRODUCTION.md`
-- `apps/mobile/ARCHITECTURE.md`
-- `apps/mobile/UPGRADE_PLAN.md`
-- `apps/mobile/JOURNEYS.md`
-- the nearest `AGENTS.md` instructions in the repository.
+- `website/docs/user-guide/features/extending-the-dashboard.md`
+- `apps/shared/src/social.ts`
+- the nearest `AGENTS.md` instructions.
 
-### Product context
+### Mission
 
-This is not a generic social dashboard. It comes from an anonymized B2B GTM workflow: a company wants to grow its LinkedIn page toward 10,000 followers and stronger qualified interaction/inbound demand. The workflow includes research, content strategy, agent-assisted drafting, human review, manual LinkedIn publishing, exact post URL capture, analytics capture, and mobile executive reporting.
+Deliver a **responsive, authenticated dashboard plugin** named `social-gtm` plus narrowly scoped Social Studio safety hardening.
 
-The principal failure to prevent is **false certainty**: a draft being reported as live, an approved post being counted as published, missing analytics becoming zeros, or a forecast becoming a promise. The product must make the state/evidence chain clear.
+The plugin is the first durable operating surface and must work well in a phone browser. Do not add a core gateway RPC family, a mobile-PWA tab, an iOS screen, an Android screen, or a social-network connector in this implementation.
 
-### Current codebase baseline — extend, do not duplicate
+The existing Social Studio Compose/Library flow remains the draft-entry path. Treat its `linkedin-post` fenced blocks as a rendering convention and a link back to a source session, not as a durable ledger API.
 
-Fabric `main` already ships **Social Studio** across desktop, web, iOS, and Android. `apps/shared/src/social.ts` defines the shared LinkedIn prompt builder and `linkedin-post` artifact parser. Existing Compose/Library surfaces use that contract to start an agent chat, discover post-ready artifacts from transcripts, and copy the final caption.
+### Product goal
 
-Treat Social Studio as the starting point for this build: preserve its Compose/Library behavior and use its artifact/session output as the initial source for a versioned content item. Do not create a second incompatible composer, another artifact format, or a client-local social ledger.
+Enable a GTM operator to:
 
-### Your mission
+1. create a profile-scoped social workspace and lanes;
+2. link a ledger draft to its originating Fabric session and exact caption hash;
+3. review and approve that exact caption for **manual copy**;
+4. copy it and publish outside Fabric;
+5. record a user-supplied post URL/attestation and manually supplied metric observations; and
+6. read a truthful daily report and export CSV rows.
 
-Implement **Phase 0 and Phase 1 only** unless a later dependency is genuinely required:
+### Absolute constraints
 
-1. a server-authoritative Social workspace/data contract;
-2. a capability-gated Social Growth workspace on iOS and Android, with mobile-web proof parity, while the existing Social Studio Compose/Library flow remains available on gateways that lack the new backend;
-3. a manual LinkedIn operating loop from content draft to verified publication evidence to partially captured metrics and an exportable report.
-
-Do **not** build a LinkedIn OAuth connector, automated posting, automated commenting, or a pretend live-analytics experience in this slice.
-
----
-
-## Non-negotiable product constraints
-
-1. **No public external action is automatic.** Agents may draft and recommend. A user must manually publish. `approved_manual_publish` is internal approval only.
-2. **No fake data.** Unknown metric values remain `null`; explicit `0` is distinct. Display and export `partial`, `unavailable`, and `stale` honestly.
-3. **No inferred publication.** Copying, approving, selecting an asset, or scheduling outside Fabric cannot mark a post live. `publication_verified` requires accepted evidence.
-4. **No new local source of truth.** Gateway/profile-owned data is authoritative. Native/mobile-web clients are consumers of a common capability-negotiated contract.
-5. **No secrets in client state or prompts.** Do not add social tokens to keychain storage, logs, mobile caches, fixtures, screenshots, or chat transcripts. There is no OAuth connector in this phase.
-6. **No unsupported capability fallback.** Add one optional feature key and gate the new Growth UI and action handlers exactly as current Fabric Mobile does. Do not hide or regress the existing Social Studio Compose/Library flow when `social_growth` is unavailable.
-7. **No simulated UI.** Fixtures are allowed in test/debug builds only. The release client must surface unavailable/unsupported states rather than fake records.
-8. **No blind retries of mutations.** Use `expected_version` and `idempotency_key`; unknown outcomes require refresh/reconciliation.
-9. **No scope creep into a separate app.** Extend existing Fabric Mobile navigation and gateway architecture.
+1. **No external publishing.** Do not create a publish endpoint, OAuth flow, browser automation, scraper, scheduler, or provider adapter. There must be no network request to LinkedIn or another social host.
+2. **No cron publishing.** Cron jobs are non-interactive and can auto-approve tools. Any plugin cron job may prepare research or reports only; it must not call a publish-like operation.
+3. **No fake data.** `null`, `0`, partial, stale, unavailable, and user-supplied values have distinct storage and UI semantics.
+4. **No accidental proof.** A copied or approved caption is not posted. A user-entered URL remains `user_reported` unless a future approved connector independently validates it.
+5. **No secrets.** Do not request, store, log, or display LinkedIn credentials, cookies, API tokens, or passwords.
+6. **No local client ledger.** The server-side plugin owns the ledger, scoped to the authenticated Fabric profile. Chat history is not the source of truth for social state.
+7. **No binary/media MVP.** Do not add image upload, generation, raw workspace paths, static-media storage, or screenshot parsing in this slice. A later phase may add authenticated artifact/import support.
+8. **No scope expansion.** Do not change `apps/mobile-web/src/app.tsx`, native mobile navigation, the core capability registry, or unadvertised Durable Work merely to make Social appear complete.
 
 ---
 
-## Required scope
+## Existing architecture to respect
 
-### A. Contract and gateway service
+- `apps/shared/src/social.ts` provides the current prompt builder and loose transcript parser. Do not make its `messageIndex:blockIndex` IDs durable; transcript changes can invalidate them.
+- The mobile PWA is a chat shell. It does not host dashboard plugins, and its pairing-token WebSocket authentication is separate from dashboard REST authentication.
+- Dashboard plugins provide authenticated routes beneath `/api/plugins/<name>/*`, dashboard tabs/slots, SDK helpers, and an appropriate edge-extension surface.
+- Use ordinary Fabric sessions for drafting and save only the originating session reference plus a bounded caption snapshot/hash in the plugin ledger.
+- Existing generic `approval.request` is tool/command approval, not a durable business approval. The plugin must record its own reviewer, timestamp, caption hash, and explicit action.
+- Existing Fabric usage analytics are not social-platform analytics. Never relabel them.
 
-Create the `social_growth` optional feature family.
+---
 
-1. Add the feature/method subset to `apps/mobile/contracts/gateway-feature-registry-v1.json`.
-2. Extend the canonical capability parser in `apps/shared` and mirror gates in Swift and Kotlin.
-3. A `social_growth` feature is valid only when the required Social methods are advertised. An omitted feature is unavailable; a feature/method contradiction invalidates the capability contract.
-4. Implement a profile-private, gateway-owned Social service/store. Follow the repository’s established service/data patterns; do not allow a client to write database state directly.
-5. Scope data by Fabric profile and workspace. Re-check authorization at the service boundary.
-6. Add a server audit record for every state-changing Social operation.
+## Required plugin shape
 
-Initial RPC methods:
+Use the repository’s established bundled-plugin conventions. The expected layout is conceptually:
 
 ```text
-social.workspace.list
-social.workspace.get
-social.workspace.create
-social.workspace.update
-social.objective.create
-social.objective.update
-social.today.get
-social.content.list
-social.content.get
-social.content.create
-social.content.update
-social.content.transition
-social.content.approve
-social.publication.record
-social.publication.verify
-social.metric.list
-social.metric.record
-social.metric.import
-social.report.create
-social.report.get
-social.report.export
-social.evidence.list
-social.evidence.attach
-social.audit.list
+plugins/social-gtm/
+  dashboard/
+    manifest.json
+    plugin_api.py
+    dist/
+  social_gtm/
+    ledger.py
+    service.py
+    reports.py
+    cron_jobs.py
+  skills/
+    social-gtm/SKILL.md
 ```
 
-If an initial method is not needed by the narrow vertical, do not falsely advertise it. Either finish the feature’s complete subset as specified, or deliberately make a smaller `social_growth_v1` method subset and update the specification/fixture registry consistently before coding. Do not ship a contradictory manifest.
+Follow the actual plugin scaffolding and manifest schema in the repository rather than inventing a loader.
 
-### B. Domain model
+### Responsive dashboard UX
 
-Implement strongly typed, versioned records matching `PRODUCT_SPEC.md`:
+Build one plugin tab that works on desktop and narrow phone widths. It has four compact views:
 
-- Workspace, Brand, ChannelAccount, Objective
-- ContentItem and versioned draft/content assets
-- PublicationEvidence
-- MetricSnapshot
-- Forecast scenario
-- Daily/weekly Report summary
-- Social Audit event
+1. **Today** — one next decision, open reviews, missing manual inputs, and clear data-quality labels.
+2. **Drafts** — source session link, excerpt, hash/version, lane, reviewer, and manual-copy handoff.
+3. **Evidence** — user-reported post URLs and manual metric observations with source/time/coverage labels.
+4. **Reports** — SOD/EOD summary and a real CSV download when export is implemented.
 
-Use these content states exactly:
+Do not render a zero-filled dashboard when there are no observations. Distinguish `No records yet`, `Offline/authentication required`, `Data unavailable`, and `User-supplied data`.
+
+### Profile-scoped ledger
+
+Implement a plugin-owned SQLite ledger or repository-standard equivalent. Scope every query and mutation to the authenticated Fabric profile; the client must not supply an arbitrary profile identifier.
+
+Minimum records:
 
 ```text
-idea
-researching
-draft_ready
-review_requested
-changes_requested
-approved_manual_publish
-posted_unverified
-publication_verified
-metrics_partial
-measured
-archived
-cancelled
+Workspace
+  id, profile_id, name, timezone, created_at, updated_at
+
+Lane
+  id, workspace_id, name, account_type, audience, voice_boundary, owner
+
+Draft
+  id, workspace_id, lane_id, source_session_id, source_message_ref?,
+  caption, caption_hash, version, state, created_at, updated_at
+
+ReviewDecision
+  id, draft_id, draft_version, caption_hash, reviewer, decision,
+  reason?, created_at
+
+PublicationRecord
+  id, draft_id, state, user_reported_url?, user_reported_at?,
+  attested_by?, notes?
+
+MetricObservation
+  id, workspace_id, draft_id?, metric_name, numeric_value?, unit,
+  observed_at?, captured_at, source_kind, coverage, freshness,
+  entered_by, supersedes_id?, notes?
+
+AuditEvent
+  id, workspace_id, actor, kind, entity_type, entity_id, created_at, payload_summary
 ```
 
-Server-side transition validation is required. Test both valid and invalid paths.
+All values are bounded and validated. Store only safe summary fields in audit rows; do not duplicate sensitive prompt or credential contents.
 
-### C. Shared contract fixtures and parsers
+### State model
 
-Create a new fixture corpus, proposed path:
+Use an explicit, small state model:
 
 ```text
-apps/mobile/contracts/fabric-social-v1/
+Draft: draft -> review_requested -> approved_manual_copy
+                               -> changes_requested -> draft
+                               -> held | cancelled
+
+PublicationRecord: none -> user_reported -> url_recorded
+
+MetricObservation coverage: complete | partial | unavailable | stale
+MetricObservation source: user_entered | csv_import_future | attachment_future
 ```
 
-Include valid records, malformed records, unknown future enums, lifecycle transitions, stale version receipts, idempotent replay receipts, missing vs zero metrics, partial/unavailable/stale metrics, report/export summaries, and invalid publication verification attempts.
+`approved_manual_copy`, `user_reported`, and `url_recorded` do not mean Fabric verified a live LinkedIn post. They are operational states only. Any changed caption invalidates a prior approval and requires another review decision.
 
-- TypeScript is the reference parser/reducer.
-- Swift and Kotlin consume the canonical fixture bytes and test semantic parity.
-- Unknown additive states may be visible in a diagnostics/history surface but are never actionable.
-- Parsers must cap/validate strings, IDs, timestamps, arrays, and payload size to prevent arbitrary JSON reaching UI state.
+### API boundary
 
-### D. Gateway API mutation discipline
+Expose only authenticated plugin routes. Exact routing follows the plugin framework, but the API behavior must support:
 
-Every existing-object mutation must send `expected_version`; every mutation must send an `idempotency_key`; every receipt must return `mutation_id`, `replayed`, updated entity/version.
+```text
+GET    /api/plugins/social-gtm/workspaces
+POST   /api/plugins/social-gtm/workspaces
+GET    /api/plugins/social-gtm/today
+GET    /api/plugins/social-gtm/drafts
+POST   /api/plugins/social-gtm/drafts
+POST   /api/plugins/social-gtm/drafts/{id}/review
+POST   /api/plugins/social-gtm/drafts/{id}/copy-receipt
+POST   /api/plugins/social-gtm/drafts/{id}/publication-record
+GET    /api/plugins/social-gtm/metrics
+POST   /api/plugins/social-gtm/metrics
+GET    /api/plugins/social-gtm/reports/eod
+GET    /api/plugins/social-gtm/reports/export.csv
+```
 
-On a timeout/closed connection/ambiguous error:
+There is intentionally no `/publish`, `/schedule`, `/oauth`, `/provider`, or `POST` that forwards data to a social-network host.
 
-- do not create a new mutation;
-- retain the original in-flight identity only long enough for an explicit reconciliation path;
-- render “Outcome unknown — refresh to reconcile”; and
-- clear only after the authoritative after-state shows the operation was resolved.
+Every existing-record mutation uses optimistic versioning or an equivalent conflict check and an idempotency key. On a timeout or ambiguous response, display an outcome-unknown state and require refresh/reconciliation; never blindly replay an approval, publication record, or metric mutation.
 
-### E. iOS Social tab
+### Draft/session integration
 
-Promote the existing `SocialStudioView` Compose/Library flow to the canonical **Social** destination, then extend `ConnectedAppTab` in `apps/mobile/ios/Fabric/App/FabricMobileApp.swift` if that is the selected navigation implementation. Do not create a second social composer or break Home, Sessions, Settings, the existing post artifact parser, or copy-caption flow.
+- Start draft work through the existing Social Studio prompt/session flow.
+- Allow the user to attach a manually selected caption snapshot to a plugin Draft, recording the source session ID and a durable message reference only when the current gateway exposes one truthfully.
+- If the source transcript cannot be read, is partial, lacks a durable reference, or is unavailable, show that condition. Do not silently create a fake session link.
+- Treat all assistant text as a suggestion until a human review decision is saved.
 
-Implement native SwiftUI screens:
+### Agents and cron
 
-1. **Growth workspace unavailable** — when the negotiated capability is absent/invalid, show a clear explanation without a fake dashboard while retaining the existing Social Studio Compose/Library flow.
-2. **Workspace setup** — create workspace, brand, manual LinkedIn company channel, objective baseline/target/date, cadence, timezone, and metric-checkpoint choices.
-3. **Today** — primary action, attention queue, data-health badge, growth pulse with provenance, next-seven-day plan, report preview.
-4. **Content queue** — lifecycle-aware list with state, owner, publication proof status, metric checkpoint status.
-5. **Content detail** — draft/version, source/asset/evidence list, approval, manual publish handoff, publication record/verify, metrics list, audit history.
-6. **Manual publish handoff** — copy approved text, show explicit “Post manually on LinkedIn” instruction, capture exact URL, and place item in `posted_unverified` until evidence acceptance.
-7. **Metric capture** — manual value entry with nullable fields and source labels. Screenshot/CSV attachment UI may be implemented only if it uses the existing gated files/artifact path truthfully; otherwise leave it as an honest planned/unsupported affordance rather than a fabricated importer.
-8. **Reports** — SOD/EOD summary rendered natively; CSV export appears as a real fetched/delivered artifact only when the artifact capability path is actually implemented.
-
-Use `@Observable` models, connection-generation guards, and typed `GatewayAPI` wrappers. Clear Social projections on disconnect/profile switch. Keep sensitive payloads out of list state.
-
-### F. Android and mobile-web parity
-
-Implement the same capability gate and the narrow product flow in:
-
-- `apps/mobile/android` via Jetpack Compose and typed Kotlin contract models;
-- `apps/mobile-web` as the PWA/browser proof surface using the shared TypeScript contract.
-
-Presentation may be platform-native, but state machine, labels, source semantics, and action boundaries must be the same.
-
-### G. Agent ensemble hooks (minimal only)
-
-Do not build a generic autonomous multi-agent platform. Add the product seams needed for a Social content item to link a Fabric session/job as its source work:
-
-- content item references an originating session/job ID;
-- agent output can be attached as a bounded research or draft artifact;
-- human review remains an explicit `approve` transition;
-- reports include completed agent work and distinguish it from external publication/metrics.
-
-The role catalog can initially be configuration/seed data. The actual product must not claim a role ran unless a linked Fabric session/job/evidence record exists.
+- Add a constrained `social-gtm` skill: source-backed drafting, lane/voice boundaries, manual-only publication, and data-provenance requirements.
+- Ordinary sessions can run research and drafting.
+- If cron jobs are added, use the full cron implementation rather than the restricted mobile wrapper and create only two non-publishing jobs:
+  - daily research/draft recommendation;
+  - daily executive report based on plugin ledger records.
+- Each job must say that it cannot publish or infer platform performance. It writes a report artifact or recommendation, not a social-network action.
 
 ---
 
-## UX and writing requirements
+## Required tests and verification
 
-- Use operator language: “Needs proof,” “24h metrics due,” “Posted — not yet verified,” “Data incomplete.”
-- Avoid inflated marketing language (“AI growth engine,” “guaranteed reach,” “auto-optimized”).
-- A LinkedIn post preview says it is approximate and cannot guarantee “Show more” or algorithm performance.
-- Company/founder/employee lanes are visibly distinct.
-- Source/provenance is visible in a metric card, not buried in a debug panel.
-- The first page answers: what changed, what needs a decision, what to do next, and what is unknown.
+### Plugin/service tests
 
----
+- profile isolation for every list/get/mutation;
+- validation and bounds for IDs, captions, URLs, timestamps, metric values, and CSV cells;
+- valid/invalid draft transitions;
+- prior approval invalidated by caption change;
+- mutation conflict, idempotency replay, timeout/reconciliation behavior;
+- copied text and review approval never count as a publication;
+- URL record remains explicitly user-reported;
+- `0` versus `null`, partial, stale, and unavailable metrics;
+- report and CSV aggregation excludes drafts and distinguishes coverage/source;
+- no plugin route or dependency performs an outbound social-network request.
 
-## Required test and verification plan
+### Dashboard/UI tests
 
-### Contract/service
+- unauthenticated and unauthorized plugin-route behavior;
+- empty workspace, no records, partial data, and stale data;
+- phone-width layout, keyboard navigation, screen-reader labels, high contrast, and large text;
+- review confirmation, changes requested, hold, manual-copy receipt, URL recording, and manual metrics;
+- offline/authentication failure shown as an error state, never as an empty ledger.
 
-- Valid/invalid capability feature subset tests.
-- Social parser fixture tests in TypeScript, Swift, Kotlin.
-- Service state-transition tests for every lifecycle edge.
-- Optimistic-version conflict and idempotency replay tests.
-- Profile/workspace authorization tests.
-- Missing vs zero vs partial/unavailable/stale metric tests.
-- Report aggregation tests proving drafts/unverified posts do not inflate live counts.
-- CSV export parse test proving unavailable numerics are empty cells, not zero.
+### Release proof
 
-### Clients
-
-For iOS, Android, and mobile web capture/verify:
-
-- capability unavailable;
-- empty workspace;
-- setup validation error;
-- loading;
-- current Today view;
-- offline/read-only snapshot;
-- partial/stale/unavailable data;
-- review approval;
-- manually posted but unverified;
-- verified publication;
-- outcome-unknown mutation and reconciliation;
-- AX XXXL / font scaling and VoiceOver/TalkBack semantics;
-- light and dark mode.
-
-### Build checks
-
-Follow the repository’s existing mobile release contract. At minimum run the smallest focused test suites while iterating, then:
-
-- shared TypeScript typecheck/test;
-- mobile-web test/typecheck/build;
-- iOS XcodeGen regeneration check, simulator tests, unsigned Release build, metadata/privacy audit;
-- Android unit tests and debug/release build on a valid Android SDK/JDK host;
-- physical device smoke pass on a supported iPhone and Android device.
-
-Never state a client path is shipped if only fixtures or a simulator passed. Record exactly what was tested.
+- run the relevant plugin tests and dashboard build/tests required by the repository;
+- manually exercise the responsive tab at a narrow mobile viewport and a desktop viewport;
+- demonstrate a real local authenticated plugin route, not mock-only UI;
+- attach exact commands and results to the implementation PR;
+- state any deferred attachment/import or native-mobile dependency honestly.
 
 ---
 
 ## Delivery sequence
 
-Work in small vertical PR-sized loops. Do not create a giant cross-platform unreviewable change.
+1. **Loop 0:** plugin scaffold, auth boundary, profile-scoped empty ledger, and responsive empty/error states.
+2. **Loop 1:** workspace/lane/draft/review records, exact-caption hash, session link, and manual-copy receipt.
+3. **Loop 2:** user-reported URL, manual metrics, data-health labels, EOD report, and CSV export.
+4. **Loop 3:** constrained skill and optional non-publishing cron report jobs after ledger access is verified.
+5. **Future separate RFC:** attachments, CSV import, native integration, OAuth, scraping, analytics APIs, or any external platform connector.
 
-1. **Loop 0:** social feature registry + shared types/fixture corpus + parser tests; no live feature advertisement.
-2. **Loop 1:** server Social service/store + state transitions + audit + gateway methods; advertise feature only when the full planned method subset and contract are verified.
-3. **Loop 2:** mobile-web proof flow for setup/content/manual publication/metric entry/report and contract integration.
-4. **Loop 3:** iOS Social tab + capability gate + full state matrix.
-5. **Loop 4:** Android Social tab + parity tests.
-6. **Loop 5:** real artifact/evidence attachment/export path only after verifying existing artifact/files capability support end-to-end.
-7. **Loop 6:** agent-session/content linkage and report job integration.
+Each loop must leave `main` shippable and must not broaden core/mobile scope merely for parity.
 
-Each loop must leave `main` shippable. Do not flip future Fabric Mobile features (Durable Work, push, artifact fetch) solely to make Social appear complete; use existing verified seams or explicitly represent the dependency as unavailable.
+## Completion definition
 
----
-
-## Completion definition for this handoff
-
-The build is complete only when a real user can:
-
-1. create an anonymized company Social workspace on their Fabric gateway;
-2. set a LinkedIn company-page objective with baseline, target, and date;
-3. create/review/approve a company post without it being mistaken for published;
-4. manually publish it outside Fabric, paste the exact URL, and obtain verified publication state;
-5. record a 24-hour partial metric snapshot where blank is visibly different from zero;
-6. read an EOD report that correctly distinguishes verified live content, unverified content, drafts, and unknown analytics;
-7. export a parseable CSV artifact with correct null semantics; and
-8. complete the flow on at least one native mobile client backed by real gateway state—not debug fixtures or local fake data.
-
-Report back with changed files, contract/version decisions, tests executed and their exact results, screenshots/artifacts, known gaps, and any decision that needs product-owner input.
+The MVP is complete only when an authenticated user can create a workspace, link a session-backed caption, approve the exact hash for manual copy, record a user-supplied URL and manual metric observation, read a truthful report, and download a parseable CSV—without an external social-network request, stored credentials, fake analytics, or a native-app claim.

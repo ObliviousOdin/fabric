@@ -1,287 +1,197 @@
 # Fabric Social — Mobile Operator Guide
 
-**Audience:** GTM leads, founders, and content operators running company social growth from Fabric Mobile.
-**First workflow:** LinkedIn Company Page, with manual publication and evidence-based reporting.
+**Audience:** GTM leads, founders, and content operators
+**First workflow:** LinkedIn company-page drafting with human-only publication
 
-## What Fabric Social does
+## Read this first: what is available today
 
-Fabric Social turns your daily social work into one operating loop:
+Fabric already provides **Social Studio** Compose/Library flows on its supported clients:
 
 ```text
-Set goal → choose today’s action → research/draft → human review →
-post manually → capture proof → capture metrics → read report → learn → repeat
+Choose a social brief → start a Fabric session → review the caption → copy it → publish manually outside Fabric
 ```
 
-It helps you create and measure the work. It does not post automatically, guarantee LinkedIn distribution, or invent missing analytics.
+Social Studio does not currently post to LinkedIn, schedule a post, fetch LinkedIn analytics, or maintain a durable publishing record. A copied caption is not proof that anything went live.
 
-### Current availability and proposed next stage
+The next proposed stage is a responsive **Social Growth dashboard plugin**. It is intended to run in a phone browser through the authenticated Fabric dashboard, not as a claimed native-app or mobile-PWA tab. It adds a profile-scoped operating ledger for goals, draft review, manual evidence, and reports.
 
-Fabric already provides **Social Studio** Compose/Library flows for drafting a LinkedIn post in chat and copying a post-ready caption. The persistent Social workspace in this guide is the proposed next stage: it adds goals, human approval, manual-publish proof, metrics, and reporting while preserving that existing drafting flow. Until it ships, do not assume the app already tracks publication or analytics.
+## What the product does not do
 
-## Before you start
+It does not:
+
+- publish, schedule, comment, react, follow, invite, or reshare on LinkedIn;
+- request LinkedIn passwords, cookies, or API tokens;
+- turn a copied caption into a “published” result;
+- claim platform analytics it did not receive from you; or
+- guarantee distribution, “Show more” behavior, engagement, followers, or inbound pipeline.
+
+## Before you begin
 
 Have these ready:
 
-- your current company-page follower count;
-- a target and target date (for example, 10,000 followers by a specific date);
-- a working definition of what matters besides followers: impressions, qualified comments, clicks, qualified inbound leads, meetings, etc.;
-- the person who approves company posts;
-- your time zone and preferred SOD/EOD report times;
-- company positioning, proof assets, customer-claim rules, and an initial competitor watchlist;
-- access to LinkedIn analytics or a method to capture screenshots/exports after posting.
+- current company-page follower count and a target date;
+- the metric definitions that matter besides followers: impressions, qualified comments, clicks, qualified inbound, meetings, and so on;
+- company/founder lane boundaries, proof rules, and prohibited claims;
+- the reviewer, manual publisher, reply owner, and report owner;
+- a real operating observation, approved source, customer-safe proof, or explicitly labeled opinion for the draft;
+- a method for capturing the post URL and metrics after manual publication; and
+- a time zone and preferred daily-review cadence.
 
-You can start without an API connection. In the first version, pasting a post URL and entering/uploading the numbers you can see is a supported, useful workflow.
-
----
-
-## 1. Create your Social workspace
-
-1. Open **Fabric Mobile** and connect to the Fabric gateway that will own this work.
-2. Tap **Social** in the bottom navigation.
-3. Tap **Set up workspace**.
-4. Enter a workspace and brand name. Example: `Example Company GTM` / `Example Company`.
-5. Add a channel account:
-   - Platform: **LinkedIn**
-   - Account type: **Company Page**
-   - Data mode: **Manual capture** unless an approved read-only connector is available.
-6. Add the growth objective:
-   - Current followers (baseline)
-   - Target followers
-   - Target date
-   - Secondary outcome: e.g., impressions, qualified interactions, or LinkedIn-sourced qualified inbound.
-7. Choose measurement checkpoints. A practical starting point is **24 hours** and **7 days** after publication. Add 1 hour only if your team can reliably capture it.
-8. Set the working cadence: posts per week, likely publish windows, content owner, and reviewer.
-9. Choose optional SOD/EOD report times. Fabric asks for explicit confirmation before creating any recurring schedule.
-
-### What the first forecast means
-
-After you supply a baseline and date, Fabric can show the pace required to reach the target. It is not a prediction. A more meaningful trend forecast needs a real, comparable history of captured results.
-
-If the app says **Forecast incomplete**, it means it needs a baseline, target date, enough historical data, or a clearer metric definition—not that the program is failing.
+You may begin with partial context. The product should show incomplete forecasts and unavailable metrics honestly rather than inventing answers.
 
 ---
 
-## 2. Read the Social “Today” screen
+## 1. Draft a post in Social Studio
 
-Open **Social → Today** at the start of the day. Read it from top to bottom:
+1. Open Social Studio from the current Fabric client.
+2. Choose the LinkedIn drafting flow and provide a focused brief:
+   - lane: company page or founder;
+   - audience and one intended takeaway;
+   - the evidence/observation that supports the claim;
+   - any claim, legal, privacy, or voice constraints.
+3. Let Fabric create the drafting session.
+4. Read the output as a suggestion, not a fact. Check that it is specific, sourced, and sounds like the intended lane.
+5. Use **Copy caption** only after a human has reviewed it.
 
-### Today’s decision
+### How to avoid AI-slop
 
-This is the one action Fabric believes matters most now. Examples:
+A useful draft begins with something real: a firsthand operating observation, an approved product fact, a customer-approved proof point, or a clearly marked opinion. Ask for no more than two or three materially different angles. If no evidence exists, choose **Hold** or gather an observation instead of filling the calendar.
 
-- “Approve the warehouse-exception post before the 11:30 publishing window.”
-- “Capture the 24-hour metrics for the verified July 23 post.”
-- “Choose one of three distinct proof pillars for next week.”
-
-### Needs attention
-
-These need a human action. They are deliberately separate from ordinary drafts:
-
-- review requested;
-- approved post awaiting manual publish;
-- post recorded as published but needing a URL/proof;
-- metric window due;
-- agent research needing clarification; or
-- a report blocked by missing data.
-
-### Growth pulse
-
-The scorecard shows company-page metrics and data quality together.
-
-- **Verified** means Fabric has accepted the source evidence.
-- **Entered** means a person supplied the number manually.
-- **Partial** means only some fields or checkpoints are available.
-- **Unavailable** means the source cannot provide the value.
-- **Stale** means the last capture is older than your workspace rule.
-- **—** means unknown/not captured.
-- **0** means the source explicitly reported zero.
-
-Do not compare a partial day to a fully measured day as if they were equivalent.
+Keep company and founder voices separate. A company post can lead with product evidence; a founder post should earn its point of view from firsthand experience. Do not repackage a rejected pillar into near-duplicate rewrites.
 
 ---
 
-## 3. Create a company LinkedIn post
+## 2. Hand the draft to a human publisher
 
-1. In **Social → Content**, tap **New content**.
-2. Select:
-   - company page lane (not founder lane);
-   - objective/campaign;
-   - intended post window;
-   - topic/proof pillar;
-   - desired outcome: reach, conversation, clicks, proof, recruiting, etc.
-3. Add your brief in plain language. Strong briefs include a real observation, customer/operator context, proof you can stand behind, and any claims the agent must avoid.
-4. Attach available source links, photos, product evidence, or prior posts. If attachment support is unavailable on your gateway, add the source URL/note and the app will say that clearly.
-5. Ask Fabric to research, outline, or draft. The assistant may use specialized roles such as market scout, voice guardian, copy editor, and measurement steward.
-6. Pick one angle. If you reject an angle, say why. Fabric should change the proof pillar rather than endlessly rewording the same post.
-7. Review the draft in **Content detail**:
-   - claims and linked sources;
-   - company voice;
-   - repetition/similarity warning against prior approved posts;
-   - CTA and formatting;
-   - asset and alt text;
-   - estimated effort; and
-   - any data/claim uncertainty.
+When a caption is ready:
 
-### About the LinkedIn preview
+1. Confirm the lane, account, final text, asset/privacy checklist, CTA, and reply owner.
+2. Copy the caption from Fabric.
+3. Open LinkedIn yourself and paste/edit/publish there.
+4. Keep final edits human-visible. If the caption changes materially, return to the ledger and request another review rather than treating the original approval as unchanged.
+5. Plan a real reply-monitoring window. Fabric must not generate artificial engagement or post comments for you.
 
-Fabric can show line breaks and a mobile-oriented approximation of a LinkedIn post. It cannot guarantee where LinkedIn places “Show more,” how the feed ranks a post, or which audience receives it. Treat the preview as an editing check, not a performance forecast.
+Use clear language:
+
+- **Approved for manual copy** means a human approved this exact caption for copying.
+- It does **not** mean Fabric scheduled or published it.
 
 ---
 
-## 4. Approve and publish safely
+## 3. Use the proposed Social Growth dashboard on a phone
 
-### Approve the post
+Once the `social-gtm` dashboard plugin is installed and enabled, open the authenticated Fabric dashboard in a mobile browser. The initial dashboard has four compact areas.
 
-When the exact draft is ready, the authorized reviewer taps **Approve for manual publish**.
+### Today
 
-That state means:
+Read only the decision-relevant items:
 
-- this specific version is approved internally;
-- it is ready to copy and post manually; and
-- it is **not live yet**.
+- one recommended action, which may be **Hold today**;
+- open reviews or a changed draft requiring re-approval;
+- missing post URL or metric observations;
+- a data-health label explaining whether an item is user-supplied, partial, stale, unavailable, or complete; and
+- the named owner and next deadline.
 
-### Publish manually
+A no-data screen means no data is known. It never means zero reach or zero engagement.
 
-1. In the approved content item, tap **Copy post**.
-2. Tap **Open LinkedIn** if available, or open LinkedIn yourself.
-3. Paste, make any final human edits, and publish through LinkedIn.
-4. Return to Fabric Social immediately.
-5. Tap **I posted this** and paste the exact LinkedIn post URL.
-6. Confirm the timestamp if you know it.
+### Drafts
 
-Fabric labels the content **Posted — not yet verified** until it has an accepted URL or other proof. This protects reports from counting a copied/approved/scheduled draft as a live post.
+Create a ledger entry by attaching the exact caption snapshot to its source Fabric session. The dashboard records a caption hash and version.
 
-### Verify the post
+A reviewer chooses one of:
 
-Open the item and confirm the URL/evidence. Once accepted, Fabric changes the state to **Publication verified**. Only then will it count toward live-post cadence and schedule metric checkpoints.
+- **Request changes** — explain what is unsafe, unsupported, repetitive, or off-voice.
+- **Approve for manual copy** — approves that exact version only.
+- **Hold** — deliberately do not publish now.
 
-If you cannot obtain a post URL, attach a platform screenshot when supported and identify it as corroborating evidence. Fabric should retain the fact that this is screenshot-based rather than URL/API-based proof.
+Any caption change invalidates the prior approval.
 
----
+### Evidence
 
-## 5. Capture analytics without inventing numbers
+After a human publishes externally, record what you personally know:
 
-When Fabric says **24h metrics due** or **7d metrics due**:
+1. Select the approved draft.
+2. Choose **Record user-reported post URL**.
+3. Paste the exact LinkedIn URL, add the human’s attestation time, and save.
+4. The dashboard labels this as **user-reported**. It does not claim API verification.
 
-1. Open the exact content item.
-2. Tap **Capture metrics**.
-3. Choose the source you actually have:
-   - enter values manually from LinkedIn;
-   - confirm a screenshot extraction; or
-   - import an approved CSV/export if that capability is enabled.
-4. Enter only what you can verify. Leave an unavailable number blank.
-5. Add a source note if useful: e.g., “LinkedIn post analytics, captured manually at 10:14 BST.”
-6. Save.
+If the post was not published, mark it **Held/not posted** with a short reason. This is useful information, not a failure.
 
-Record whatever applies to your page/post: impressions, reach, reactions, comments, reposts, saves, clicks, profile views, follower change, website sessions, inbound leads, meetings, and pipeline.
+### Reports
 
-### Important metric rules
+Enter metric observations only when you can state their source and time window. For each value, record:
 
-- Do not enter `0` just because you do not know a value.
-- Do not record page followers as a post-level result unless the source supports that association.
-- Do not label a message or inquiry “LinkedIn-sourced” without your agreed UTM/CRM/source rule.
-- If a visual took substantial effort, add the effort band or production note. This lets the weekly review compare effort to outcome without assuming expensive media is better.
+- metric name and value;
+- observation date/window;
+- capture date;
+- source: user-entered in MVP;
+- coverage: complete, partial, unavailable, or stale; and
+- a correction/supersession note if you replace a prior entry.
 
----
+The dashboard’s EOD report should answer:
 
-## 6. Use SOD and EOD reports
+1. What human work was completed?
+2. What was copied, held, or user-reported as posted?
+3. Which values are known, unknown, partial, stale, or user-supplied?
+4. What changed from the selected comparison window?
+5. What is the next decision, owner, and due date?
 
-### Start of day
-
-The SOD brief answers:
-
-- What changed since yesterday/last week?
-- What data is missing?
-- What needs my approval or proof?
-- What should we do today?
-- What is the expected result—and how confident is that expectation?
-
-Choose the primary action, then open its content item or metric task.
-
-### End of day
-
-The EOD brief distinguishes:
-
-- **Verified live posts** — accepted post evidence exists.
-- **Posted, unverified** — a human says it is live, but proof is missing.
-- **Approved for manual publish** — ready, but not live.
-- **Draft/research** — production activity, not marketing results.
-- **Measured/partial/unavailable metrics** — performance evidence and coverage.
-
-Use the brief to decide the next day’s action. If it says **Data incomplete**, resolve that before declaring a strategy winner or loser.
-
-### Weekly review
-
-Use the weekly report to compare actual cohorts, not one-off anecdotes:
-
-- topic/proof pillar;
-- company vs founder lane;
-- text vs visual-supported format;
-- publish time/window;
-- effort band;
-- content goal; and
-- distribution activity.
-
-The report should show sample size. A single post is a signal to investigate, not proof of a repeatable rule.
+Export CSV when you need the underlying rows for a review. Empty numeric cells mean no observed value; they are not zeros.
 
 ---
 
-## 7. Export the evidence ledger
+## 4. Practical LinkedIn execution guidance
 
-From **Social → Reports**, choose **Export CSV** when enabled.
+Fabric can help inspect a caption, but LinkedIn controls its own display and distribution. Use the copy review to check:
 
-The export provides normalized tables such as:
+- a concrete opening rather than a generic AI claim;
+- short, readable paragraphs and intentional line breaks;
+- one clear point of view and one credible example;
+- a CTA appropriate to the post’s objective;
+- accurate links/UTMs if your team has adopted them;
+- alt text and privacy checks for any asset you add manually; and
+- a reply owner who can answer genuine questions.
 
-- `content_items.csv`
-- `publication_evidence.csv`
-- `metric_snapshots.csv`
-- `daily_scorecard.csv`
-- `experiments.csv`
-- `reports.csv`
+The product may display an approximate text preview. It cannot promise a “Show more” cut, reach, or performance outcome.
 
-Empty cells mean **not captured/unavailable**, not zero. Keep the accompanying export README with the CSV so future analysis understands that difference.
+## 5. Data, connection, and permission states
 
----
+### Honest data labels
 
-## 8. Set up the agent ensemble responsibly
+| Label | Meaning |
+| --- | --- |
+| `0` | The supplied source explicitly reported zero |
+| `Not captured` | No value has been observed |
+| `Partial` | Some requested fields or checkpoints are known |
+| `Unavailable` | The source cannot provide the value |
+| `Stale` | The last observation is older than the team’s freshness rule |
+| `User-supplied` | A human entered or attested the value; it is not platform-API verified |
 
-Fabric can help run a small virtual social team. Give each role enough context:
+### If something is unavailable
 
-- **Social Growth Lead:** target, capacity, current scorecard, priorities.
-- **Market/Competitor Scout:** approved public watchlist and research boundaries.
-- **Audience Researcher:** ICP, pains, exact words customers use, proof sources.
-- **Voice Guardian:** what makes your company voice distinct and what feels like AI slop.
-- **Content Strategist:** proof pillars, campaign goals, and rejected angles.
-- **Copy Editor:** selected angle, CTA, formatting preference.
-- **Visual Direction:** real product/customer proof and design constraints.
-- **Measurement Steward:** required checkpoints, data source, and null/zero rules.
-- **Report Analyst:** executive brief format and business attribution definitions.
+- **No source session:** link the draft manually or leave the session reference absent; do not fabricate one.
+- **No metrics:** record the reason as unavailable; do not enter zero.
+- **Dashboard authentication failed:** reconnect to the dashboard. Do not treat the empty/error state as an empty social history.
+- **Offline:** do not assume a save completed. Refresh and reconcile before re-entering a review, URL, or metric observation.
+- **A draft overlaps another lane:** hold it, change the proof pillar, or document why proceeding is intentional.
 
-An agent output is a suggestion until a human reviews it. Do not ask the agent to claim it posted, saw private analytics, or verified a customer fact unless you supplied the evidence or a real connector reports it.
+## 6. Roles and human boundaries
 
----
-
-## 9. Common states and what to do
-
-| What you see | What it means | What to do |
+| Role | May do | Must not do |
 | --- | --- | --- |
-| Social unavailable | Your gateway has not advertised the secure Social capability | Update/connect to a compatible gateway; do not expect a local fake workspace |
-| Forecast incomplete | Baseline/date/history/metric definition is missing | Complete setup or capture more comparable data |
-| Posted — not verified | Publication was recorded but no accepted proof exists | Paste the exact post URL or attach/confirm evidence |
-| Metrics partial | Some checkpoint fields are missing | Capture what is available; mark truly unavailable fields honestly |
-| Data stale | Last metric capture is old | Refresh/capture a new snapshot before making a decision |
-| Outcome unknown | A save/approval suffered an ambiguous connection result | Refresh the item; do not submit a second different action |
-| Connector unavailable | LinkedIn/API permissions are not available | Use manual capture; do not enter credentials into chat |
-| Needs clarification | The agent lacks a decision that affects the work | Answer it from the content item so the decision is recorded |
+| Contributor | capture evidence, start a draft, request review | claim a draft is live |
+| Reviewer | approve the exact caption for manual copy, request changes, hold | approve a changed caption silently |
+| Publisher | manually post outside Fabric, record an attestation/URL | imply Fabric posted it |
+| Report owner | enter source-labeled observations and export reports | convert unknown data to zero |
+| Social assistant/cron | research, draft, summarize, flag gaps | publish, schedule, comment, or invent analytics |
 
----
+## 7. Daily operating loop
 
-## Daily five-minute routine
+```text
+Read Today → choose publish/prepare/reply/measure/hold →
+start or review a source-backed draft → human manual copy/publish →
+record user-supplied evidence → record available metrics →
+read the EOD decision brief → learn and repeat
+```
 
-1. Open **Social → Today**.
-2. Resolve any missing proof or due analytics first.
-3. Pick the single highest-value action.
-4. Review/approve one item or capture one measurement checkpoint.
-5. At end of day, read the EOD brief and confirm tomorrow’s action.
-
-Consistency and evidence quality come before volume. The goal is not to make the feed noisier; it is to learn which credible company stories generate attention and demand for your specific audience.
+The highest-quality outcome may be **do not publish today**. The system succeeds when it makes that decision clear, protects the company voice, and preserves the truth about what happened.

@@ -156,7 +156,7 @@ free -m          # observe headroom during a representative live session
 | `pip`/compiler killed during install | Out of memory — add swap (step 2) and retry. |
 | A dependency tries to compile from source and fails | Check `uname -m` first; `armv7l` is outside the supported guide target, so reflash 64-bit before debugging the package. |
 | `fabric --tui` fails to launch | The TUI needs Node ≥ 20. The Option A installer provides it; on a lean install use the plain `fabric` CLI or install Node yourself. |
-| Gateway dies after SSH logout | Use `fabric gateway install` (service) rather than a foreground `fabric gateway start`, and enable lingering (step 6). |
+| Gateway dies after SSH logout | Use `fabric gateway install` (service) rather than a foreground `fabric gateway run`, and enable lingering (step 6). |
 | Everything is slow on first run | SD-card I/O. A USB 3 SSD (Pi 4/5) markedly improves install and startup times. |
 
 ## See also

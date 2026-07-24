@@ -148,8 +148,8 @@ When `container.enable = true` and `addToSystemPackages = true`, **every** `fabr
 
 - The routing is transparent: `fabric chat`, `fabric sessions list`, `fabric version`, etc. all exec into the container under the hood
 - All CLI flags are forwarded as-is
-- If the container isn't running, the CLI retries briefly (5s with a spinner for interactive use, 10s silently for scripts) then fails with a clear error — no silent fallback
-- Developers working on a source checkout can invoke it explicitly with `uv run python -m fabric_cli.main` instead of the system wrapper
+- If the container isn't running, the CLI probes it once and fails fast with a clear error — no retry loop, no silent fallback; start the container (or wait for its entrypoint to finish) and re-run the command
+- Developers working on a source checkout can bypass container routing with the `--dev` flag (e.g. `fabric --dev status`); the routing hook lives in the CLI itself, so switching entrypoints does not bypass it
 
 Set `container.hostUsers` to create a `~/.fabric` symlink to the service state directory, so the host CLI and the container share sessions, config, and memories:
 
@@ -1012,5 +1012,5 @@ nix-store --query --roots $(docker exec fabric-agent readlink /data/current-pack
 | Permission denied on `/var/lib/fabric` | State dir is `0750 fabric:fabric` | Use `docker exec` or `sudo -u fabric` |
 | `nix-collect-garbage` removed fabric | GC root missing | Restart the service (preStart recreates the GC root) |
 | `no container with name or ID "fabric-agent"` (Podman) | Podman rootful container not visible to regular user | Add passwordless sudo for podman (see [Container Mode](#container-mode) section) |
-| `unable to find user fabric` | Container still starting (entrypoint hasn't created user yet) | Wait a few seconds and retry — the CLI retries automatically |
+| `unable to find user fabric` | Container still starting (entrypoint hasn't created user yet) | Wait a few seconds and re-run the command — the CLI fails fast rather than retrying |
 | Tool added via `extraPackages` not found in terminal | Requires `nixos-rebuild switch` to update the per-user profile | Rebuild and restart: `nixos-rebuild switch && systemctl restart fabric-agent` |

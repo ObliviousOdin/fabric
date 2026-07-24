@@ -218,7 +218,7 @@ fabric -p work logs errors -n 100
 fabric -p work backup
 ```
 
-Use [Diagnose and Repair Fabric](/getting-started/repair) before a mutation such
+Use [Repair and diagnostics](/getting-started/repair) before a mutation such
 as `doctor --fix`, config migration, memory reset, or profile import.
 
 Required copyright and attribution notices are preserved in

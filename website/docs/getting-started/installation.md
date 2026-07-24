@@ -76,7 +76,8 @@ and must not be redistributed as production installers.
 The manifest-derived filenames are
 `Fabric-<version>-mac-arm64.{dmg,zip}`,
 `Fabric-<version>-win-x64.{exe,msi}`, and
-`Fabric-<version>-linux-x64.{AppImage,deb,rpm}`.
+`Fabric-<version>-linux-x86_64.AppImage`, `Fabric-<version>-linux-amd64.deb`, and
+`Fabric-<version>-linux-x86_64.rpm`.
 
 ### macOS Gatekeeper
 
@@ -171,7 +172,7 @@ valuable profile before removal.
 | Provider saved but chat fails         | Run `fabric status --deep` and inspect the named auth, entitlement, context, or egress failure                |
 | An existing Fabric install is detected | Stop its services, back up the active profile, and use the supported update or uninstall flow; never merge credential directories by hand |
 
-Use [Diagnose and Repair Fabric](/getting-started/repair) for the non-destructive
+Use [Repair and diagnostics](/getting-started/repair) for the non-destructive
 recovery ladder.
 
 ## License and attribution

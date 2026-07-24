@@ -4,7 +4,7 @@ title: "Repair and diagnostics"
 description: "A safe recovery ladder for Fabric: isolate customizations, inspect status and logs, then choose an explicit repair"
 ---
 
-# Diagnose and Repair Fabric
+# Repair and diagnostics
 
 Start with isolation and evidence. Move to a command that changes files only
 after the diagnostics point to a specific problem.

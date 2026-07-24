@@ -107,6 +107,11 @@ The main window provides:
 - composer history, queued-message editing, and model controls; and
 - voice input/output when the platform grants microphone permission.
 
+Rich agent output renders inline: fenced `diff`, `work`, and `chart` blocks
+become diff panels, work/job cards, and inline charts, and a subtle ambient
+backdrop behind the thread reflects live activity. Motion respects your system
+Reduce Motion setting.
+
 When the agent asks to run a dangerous action, the inline approval bar offers
 **Run**, **Reject**, and an options menu (**Allow this session** / **Always
 allow…**). Expand **Details** to review the full context before deciding: the

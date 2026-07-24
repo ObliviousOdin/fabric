@@ -9,6 +9,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 const harnessDir = fileURLToPath(new URL('.', import.meta.url))
 const crateDir = fileURLToPath(new URL('..', import.meta.url))
 const repoDir = fileURLToPath(new URL('../../..', import.meta.url))
+const chromeStartupTimeoutMs = 30_000
+const harnessTimeoutMs = 60_000
 const allowedFiles = new Map([
   ['/', join(harnessDir, 'index.html')],
   ['/index.html', join(harnessDir, 'index.html')],
@@ -86,9 +88,9 @@ async function runChrome(binary, url, profileDir) {
   })
 
   try {
-    const deadline = Date.now() + 15_000
+    const startupDeadline = Date.now() + chromeStartupTimeoutMs
     let devToolsPort
-    while (Date.now() < deadline) {
+    while (Date.now() < startupDeadline) {
       try {
         const activePort = await readFile(join(profileDir, 'DevToolsActivePort'), 'utf8')
         devToolsPort = Number(activePort.split(/\r?\n/, 1)[0])
@@ -132,25 +134,38 @@ async function runChrome(binary, url, profileDir) {
       })
 
     await command('Runtime.enable')
-    let status = 'running'
-    while (Date.now() < deadline) {
+    const harnessDeadline = Date.now() + harnessTimeoutMs
+    let result = {
+      href: 'unknown',
+      readyState: 'unknown',
+      status: 'loading',
+      text: 'missing result',
+    }
+    while (Date.now() < harnessDeadline) {
       const evaluation = await command('Runtime.evaluate', {
-        expression: "document.querySelector('#result')?.dataset.status || 'loading'",
+        expression: `(() => {
+          const output = document.querySelector('#result')
+          return {
+            href: window.location.href,
+            readyState: document.readyState,
+            status: output?.dataset.status || 'loading',
+            text: output?.textContent || 'missing result',
+          }
+        })()`,
         returnByValue: true,
       })
-      status = evaluation.result.value
-      if (status === 'passed' || status === 'failed') break
+      result = evaluation.result.value
+      if (result.status === 'passed' || result.status === 'failed') break
       await delay(25)
     }
-    const evaluation = await command('Runtime.evaluate', {
-      expression: "document.querySelector('#result')?.textContent || 'missing result'",
-      returnByValue: true,
-    })
     socket.close()
-    if (status !== 'passed') {
-      throw new Error(`browser harness ${status}: ${evaluation.result.value}`)
+    if (result.status !== 'passed') {
+      throw new Error(
+        `browser harness ${result.status} at ${result.href} ` +
+          `(${result.readyState}): ${result.text}`,
+      )
     }
-    return evaluation.result.value
+    return result.text
   } finally {
     child.kill('SIGKILL')
   }

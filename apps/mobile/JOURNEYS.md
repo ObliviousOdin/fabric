@@ -211,7 +211,9 @@ Switch environments cleanly.
 
 ## 11. Apple Watch companion — ○
 
-Glanceable and wrist control for voice turns, approvals, status.
+Glanceable and wrist control for voice turns, approvals, status. Design
+contract: [`WATCH.md`](WATCH.md) (watch-face reality, pet-forward surfaces,
+quick notes, slice ordering).
 
 - ○ **No Watch target.** Relay-via-iPhone (default) and an optional direct
   `wss://` mode are unbuilt. *(high — `apple-watch-companion`; depends on the

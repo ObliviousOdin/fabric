@@ -538,6 +538,12 @@ private struct ChatContentView: View {
                 }
             }
             .animation(.easeOut(duration: 0.3), value: petIsActive)
+            // The wrist mirrors exactly the state the phone shows; nil on
+            // leave falls the watch back to a steady idle pose.
+            .onChange(of: model.petState, initial: true) { _, state in
+                WatchRelay.shared.updateLiveChatPetState(state)
+            }
+            .onDisappear { WatchRelay.shared.updateLiveChatPetState(nil) }
     }
 
     private var petIsActive: Bool {

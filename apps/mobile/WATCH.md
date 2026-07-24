@@ -170,9 +170,9 @@ W2 onward requires the W0 scaffold.
 | Slice | Scope | Depends on |
 | --- | --- | --- |
 | **W1 — Mirrored notifications** | Loop 8 push on the iPhone app; zero watch code. Completion + attention alerts reach the wrist, redacted, deep-linking to the phone | Loop 8 |
-| **W0 — Target scaffold** | `watchOS` app + widget-extension targets added to `project.yml`, regenerated project, schemes, CI wiring | macOS toolchain (§7) |
-| **W2 — Quick notes** | Dictation + voice-note capture over W-relay, offline queue semantics | W0, Loop 4 queue |
-| **W3 — Pet surfaces** | Animated pet screen, accessory complications, Smart Stack widget, Photos-face export | W0; push for timely complication refresh |
+| **W0 — Target scaffold** | `watchOS` app + widget-extension targets added to `project.yml`, regenerated project, schemes, CI wiring. *Client side authored; macOS regeneration + build pending (`ios/WATCH_HANDOFF.md`)* | macOS toolchain (§7) |
+| **W2 — Quick notes** | Dictation + voice-note capture over W-relay, offline queue semantics. *Client side authored; verification pending with W0* | W0, Loop 4 queue |
+| **W3 — Pet surfaces** | Animated pet screen, accessory complications, Smart Stack widget, Photos-face export. *App + complications authored (pose glyphs in the widget, sprites in-app); Photos-face export unbuilt* | W0; push for timely complication refresh |
 | **W4 — Attention on the wrist** | Approval glances with the full redaction/first-answer-wins rules from `ARCHITECTURE.md` §5 | W2, Loop 8 |
 
 W1 before W0 is deliberate: mirrored notifications deliver the highest-value
@@ -189,12 +189,16 @@ All watch-target work sits behind the same cost gate as iOS
 PRs**, and the committed `FabricMobile.xcodeproj` must byte-match what
 `ci_scripts/ci_post_clone.sh` regenerates from `project.yml`. Consequences:
 
-- **W0 requires a Mac.** Adding watch targets means editing `project.yml`,
-  regenerating with the pinned XcodeGen, updating
-  `tests/scripts/test_ios_project_generation.py`'s expectations, and building
-  the watch scheme locally. A Linux agent must not hand-edit the project or
-  push a manifest the generator has not reproduced — that is the exact
-  stale-generated-file trap in `AGENT_GUARDRAILS.md` §5.
+- **W0 requires a Mac to finish.** A Linux agent may author the manifest,
+  sources, and tests, but the branch is **merge-blocked** until a macOS
+  session regenerates the project with the pinned XcodeGen, builds the watch
+  scheme, runs the tests, and commits the regenerated artifacts — otherwise
+  the committed project lags `project.yml` and the `main`-only generation
+  diff check turns red post-merge (the stale-generated-file trap in
+  `AGENT_GUARDRAILS.md` §5). The sanctioned path is
+  `ios/scripts/mac-watch-handoff.sh`, with the live handoff state in
+  [`ios/WATCH_HANDOFF.md`](ios/WATCH_HANDOFF.md). Never hand-edit the
+  generated project to close the gap.
 - **CI wiring is a shared surface.** Extending `mobile.yml` to build the
   watch scheme touches `.github/workflows/` and follows the coordination rule
   in `AGENT_GUARDRAILS.md` §2.1.

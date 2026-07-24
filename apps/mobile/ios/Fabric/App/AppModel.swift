@@ -230,6 +230,9 @@ final class AppModel {
         GatewayAPI.clearAllAuthSessions()
         do {
             try clearCachedPresentationData()
+            // Wrist-captured voice notes awaiting transcription are user
+            // content held on this device; a full reset removes them too.
+            try? WatchVoiceNoteStore.shared.removeAll()
             try resetGatewayStore()
         } catch let error as AppLocalDataError {
             gateways = GatewayStore.all()

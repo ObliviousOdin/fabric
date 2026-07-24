@@ -202,6 +202,22 @@ class IOSProjectGenerationTests(unittest.TestCase):
         self.assertIn(
             "PRODUCT_BUNDLE_IDENTIFIER: com.example.fabric.mobile.tests\n", rendered
         )
+        # The watch companion's identity is derived by prefix from the iOS
+        # bundle, so one release override must rewrite the watch app, the
+        # widget extension, the companion pointer, and the shared app group
+        # together — a partial rewrite would ship an unpairable watch app.
+        self.assertIn(
+            "PRODUCT_BUNDLE_IDENTIFIER: com.example.fabric.mobile.watchkitapp\n",
+            rendered,
+        )
+        self.assertIn(
+            "PRODUCT_BUNDLE_IDENTIFIER: com.example.fabric.mobile.watchkitapp.widgets\n",
+            rendered,
+        )
+        self.assertIn(
+            "WKCompanionAppBundleIdentifier: com.example.fabric.mobile\n", rendered
+        )
+        self.assertNotIn("group.io.github.obliviousodin.fabric.mobile", rendered)
         self.assertIn('CURRENT_PROJECT_VERSION: "42"', rendered)
         self.assertIn(f"FabricSourceRevision: {self.source_revision}", rendered)
         self.assertNotIn("FabricSourceRevision: development", rendered)

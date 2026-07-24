@@ -24,6 +24,7 @@ struct FabricMobileApp: App {
                 // The Fabric action accent drives every interactive control;
                 // neutral surfaces carry the rest (design contract).
                 .tint(FabricTheme.action)
+                .watchRelayBridge(appModel)
                 .onOpenURL { appModel.receivePairingURL($0) }
                 .task {
 #if DEBUG

@@ -4,10 +4,16 @@ name: Fabric desktop release
 # GITHUB_TOKEN, which by design never triggers workflow runs) at `ref: <tag>` by
 # the production promotion in release-channels.yml, after the Python release is
 # live. Packaging + signing is decoupled from the Python release so a desktop
-# failure never blocks or corrupts it, and the run is re-dispatchable. The
-# unsigned matrix in desktop-packaging.yml stays as pre-release verification; the
-# release build here is the only production-policy build.
+# failure never blocks or corrupts it, and the run is re-dispatchable. A tiny
+# main-only registration job runs when this file changes so GitHub recognizes its
+# manual trigger before it is needed. The unsigned matrix in
+# desktop-packaging.yml stays as pre-release verification; the release build here
+# is the only production-policy build.
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/desktop-release.yml
   workflow_dispatch:
     inputs:
       release_tag:
@@ -39,8 +45,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  register-manual-release-workflow:
+    name: Register manual desktop release workflow
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - run: echo "Registered the desktop release workflow's manual trigger."
+
   resolve-release:
     name: Resolve release and gate packaging
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

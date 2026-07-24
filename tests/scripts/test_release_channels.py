@@ -317,6 +317,18 @@ def test_release_workflow_keeps_required_smoke_contexts_on_prs():
         encoding="utf-8"
     )
 
+    def job_block(job: str, next_job: str) -> str:
+        start = workflow.index(f"\n  {job}:")
+        end = workflow.index(f"\n  {next_job}:", start)
+        return workflow[start:end]
+
+    assemble = job_block("assemble-candidate", "smoke-candidate")
+    ubuntu = job_block("smoke-candidate", "smoke-macos-pr-context")
+    macos = job_block("smoke-macos-pr-context", "smoke-windows-pr-context")
+    windows = job_block("smoke-windows-pr-context", "deploy-alpha")
+    alpha = job_block("deploy-alpha", "deploy-beta")
+
+    assert "name: Build immutable candidate" in assemble
     assert "smoke-macos-pr-context:" in workflow
     assert "name: Smoke macos-15 package" in workflow
     assert "Preserve required macOS smoke context on PRs" in workflow
@@ -327,6 +339,10 @@ def test_release_workflow_keeps_required_smoke_contexts_on_prs():
         'github.event_name == \'pull_request\' && \'["ubuntu-24.04"]\''
         in workflow
     )
+    for block in (ubuntu, macos, windows, alpha):
+        assert "always()" in block
+        assert "needs.assemble-candidate.result == 'success'" in block
+    assert "needs.smoke-candidate.result == 'success'" in alpha
 
 
 def test_promotion_dispatches_desktop_release_after_publish():

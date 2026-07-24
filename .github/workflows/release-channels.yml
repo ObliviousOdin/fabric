@@ -154,7 +154,8 @@ jobs:
           retention-days: 7
 
   assemble-candidate:
-    name: Assemble immutable candidate
+    # Protected branch context: keep this job name stable.
+    name: Build immutable candidate
     if: >-
       always() && needs.build-base-candidate.result == 'success' &&
       (github.event_name == 'pull_request' || needs.build-link-core.result == 'success')
@@ -211,7 +212,10 @@ jobs:
 
   smoke-candidate:
     name: Smoke ${{ matrix.os }} package
-    if: github.event_name != 'workflow_dispatch' || inputs.channel == 'alpha'
+    # A skipped PR-only dependency must not suppress protected contexts.
+    if: >-
+      always() && needs.assemble-candidate.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' || inputs.channel == 'alpha')
     needs: assemble-candidate
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -307,7 +311,9 @@ jobs:
 
   smoke-macos-pr-context:
     name: Smoke macos-15 package
-    if: github.event_name == 'pull_request'
+    if: >-
+      always() && needs.assemble-candidate.result == 'success' &&
+      github.event_name == 'pull_request'
     needs: assemble-candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -319,7 +325,9 @@ jobs:
 
   smoke-windows-pr-context:
     name: Smoke windows-2025 package
-    if: github.event_name == 'pull_request'
+    if: >-
+      always() && needs.assemble-candidate.result == 'success' &&
+      github.event_name == 'pull_request'
     needs: assemble-candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -332,8 +340,10 @@ jobs:
   deploy-alpha:
     name: Deploy alpha candidate
     if: >-
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'workflow_dispatch' && inputs.channel == 'alpha')
+      always() && needs.assemble-candidate.result == 'success' &&
+      needs.smoke-candidate.result == 'success' &&
+      (github.event_name == 'pull_request' ||
+        (github.event_name == 'workflow_dispatch' && inputs.channel == 'alpha'))
     needs: [assemble-candidate, smoke-candidate]
     runs-on: ubuntu-24.04
     environment:
